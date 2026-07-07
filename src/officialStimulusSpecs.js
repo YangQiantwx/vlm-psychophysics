@@ -51,8 +51,9 @@ export function buildLightCircleSpec(params) {
 }
 
 export function buildOrientationGaborSpec(params) {
-  const leftAngle = params.referenceAngle + (params.differentSide === -1 ? params.deltaAngle : 0);
-  const rightAngle = params.referenceAngle + (params.differentSide === 1 ? params.deltaAngle : 0);
+  const leftIsReference = params.targetSide === -1;
+  const leftAngle = params.referenceAngle + (leftIsReference ? 0 : params.oriIncrement);
+  const rightAngle = params.referenceAngle + (leftIsReference ? params.oriIncrement : 0);
   return {
     packageName: OFFICIAL_PACKAGES.psychophysics.packageName,
     pluginName: OFFICIAL_PACKAGES.psychophysics.pluginName,

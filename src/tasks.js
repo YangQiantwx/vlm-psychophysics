@@ -168,29 +168,29 @@ export const tasks = [
     sourceLabel: "PsychoPy angle task tutorial",
     sourceUrl: "https://psychopy.org/coder/tutorial2.html",
     task:
-      "People see two striped patches. One patch has the reference angle, and the other is rotated by a small amount.",
-    humanAsk: "Human question: Which side has the different angle?",
-    vlmAsk: "VLM question: Which side has the different angle, left or right?",
-    measure: "Measure: make the angle gap smaller until the model starts guessing.",
+      "People see two Gabor patches. One side is at the reference angle, and the other side is rotated by a small amount.",
+    humanAsk: "Human question: Which side is at the reference angle?",
+    vlmAsk: "VLM question: Which side is at the reference angle, left or right?",
+    measure: "Measure: make the orientation increment smaller until the model starts guessing.",
     safeNotes: [
-      "The source is a PsychoPy tutorial where a person chooses between two Gabor patches.",
-      "The controls map to Gabor fields used by PsychoPy/jspsych-psychophysics: tilt, contrast, sf, and width.",
-      "The clean VLM label is left or right.",
+      "The preview follows the PsychoPy tutorial trial variables: targetSide, refOrientation, and oriIncrement.",
+      "PsychoPy's target is the reference-orientation Gabor; the foil is refOrientation plus oriIncrement.",
+      "The browser draws the same trial logic in React/canvas. The staircase procedure would be used in batch evaluation.",
     ],
     defaults: {
       referenceAngle: 0,
-      deltaAngle: 7,
+      oriIncrement: 20,
       contrast: 0.78,
-      duration: 0.65,
+      duration: 0.5,
       maskStrength: 0.25,
-      differentSide: 1,
+      targetSide: 1,
     },
     controls: [
       {
-        id: "differentSide",
-        label: "Different side",
+        id: "targetSide",
+        label: "Reference side",
         type: "buttonGroup",
-        hint: "Changes which patch is rotated away from the reference angle.",
+        hint: "Matches PsychoPy targetSide: the side with the reference angle.",
         options: [
           { value: -1, label: "Left" },
           { value: 1, label: "Right" },
@@ -210,8 +210,8 @@ export const tasks = [
         hint: "Moves both patches together without changing the answer.",
       },
       {
-        id: "deltaAngle",
-        label: "Angle gap",
+        id: "oriIncrement",
+        label: "Angle increment",
         type: "range",
         min: 0.5,
         max: 24,
@@ -220,7 +220,7 @@ export const tasks = [
         unit: "deg",
         minLabel: "tiny",
         maxLabel: "large",
-        hint: "Lower means the two patches look more similar.",
+        hint: "Matches PsychoPy oriIncrement: the foil is rotated by this amount.",
       },
       {
         id: "contrast",
@@ -245,7 +245,7 @@ export const tasks = [
         unit: "s",
         minLabel: "brief",
         maxLabel: "long",
-        hint: "Shorter means less time to compare the patches.",
+        hint: "The PsychoPy tutorial shows the pair for 0.5 s by default.",
       },
     ],
   },
@@ -433,4 +433,3 @@ export const playbackOptions = [
 export function initParams() {
   return Object.fromEntries(tasks.map((task) => [task.id, task.defaults]));
 }
-
