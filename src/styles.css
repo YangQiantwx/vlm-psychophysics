@@ -466,7 +466,37 @@ canvas {
   line-height: 1.35;
 }
 
+.range-slider {
+  position: relative;
+  height: 26px;
+  display: grid;
+  align-items: center;
+}
+
+.range-track-visual {
+  position: absolute;
+  inset: 50% 0 auto;
+  height: 7px;
+  width: 100%;
+  display: block;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.range-track-bg {
+  fill: #30343a;
+}
+
+.range-track-border {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.18);
+  stroke-width: 1px;
+  vector-effect: non-scaling-stroke;
+}
+
 .range-input {
+  position: relative;
+  z-index: 1;
   width: 100%;
   height: 26px;
   margin: 0;
@@ -478,16 +508,7 @@ canvas {
 .range-input::-webkit-slider-runnable-track {
   height: 7px;
   border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  background:
-    linear-gradient(
-      90deg,
-      rgba(86, 163, 255, 0.95) 0%,
-      rgba(183, 239, 109, 0.9) 52%,
-      rgba(255, 255, 255, 0.1) 52%,
-      rgba(255, 255, 255, 0.08) 100%
-    ),
-    rgba(255, 255, 255, 0.08);
+  background: transparent;
 }
 
 .range-input::-webkit-slider-thumb {
@@ -506,16 +527,7 @@ canvas {
 .range-input::-moz-range-track {
   height: 7px;
   border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  background:
-    linear-gradient(
-      90deg,
-      rgba(86, 163, 255, 0.95) 0%,
-      rgba(183, 239, 109, 0.9) 52%,
-      rgba(255, 255, 255, 0.1) 52%,
-      rgba(255, 255, 255, 0.08) 100%
-    ),
-    rgba(255, 255, 255, 0.08);
+  background: transparent;
 }
 
 .range-input::-moz-range-thumb {

@@ -207,6 +207,9 @@ function ParameterControl({ control, value, onChange }) {
   const maxLabel = isIndexed
     ? options[options.length - 1]?.label
     : formatEndpointValue(control, control.max, control.maxLabel);
+  const fillRatio = max === min ? 0 : (sliderValue - min) / (max - min);
+  const fillPercent = Math.min(100, Math.max(0, fillRatio * 100));
+  const gradientId = `range-gradient-${control.id}`;
 
   return (
     <label className="control-block range-block">
@@ -214,19 +217,48 @@ function ParameterControl({ control, value, onChange }) {
         <span>{control.label}</span>
         <b>{display}</b>
       </div>
-      <input
-        className="range-input"
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={sliderValue}
-        aria-label={control.label}
-        onChange={(event) => {
-          const next = Number(event.target.value);
-          onChange(isIndexed ? options[next].value : next);
-        }}
-      />
+      <div className="range-slider">
+        <svg
+          className="range-track-visual"
+          viewBox="0 0 100 7"
+          preserveAspectRatio="none"
+          aria-hidden="true"
+          focusable="false"
+        >
+          <defs>
+            <linearGradient id={gradientId} x1="0" x2="1" y1="0" y2="0">
+              <stop offset="0%" stopColor="rgba(86, 163, 255, 0.95)" />
+              <stop offset="100%" stopColor="rgba(183, 239, 109, 0.9)" />
+            </linearGradient>
+          </defs>
+          <rect className="range-track-bg" x="0" y="0" width="100" height="7" rx="3.5" />
+          {fillPercent > 0 ? (
+            <rect
+              className="range-track-fill"
+              x="0"
+              y="0"
+              width={fillPercent}
+              height="7"
+              rx="3.5"
+              fill={`url(#${gradientId})`}
+            />
+          ) : null}
+          <rect className="range-track-border" x="0.5" y="0.5" width="99" height="6" rx="3" />
+        </svg>
+        <input
+          className="range-input"
+          type="range"
+          min={min}
+          max={max}
+          step={step}
+          value={sliderValue}
+          aria-label={control.label}
+          onChange={(event) => {
+            const next = Number(event.target.value);
+            onChange(isIndexed ? options[next].value : next);
+          }}
+        />
+      </div>
       <div className="range-scale" aria-hidden="true">
         <span>{minLabel}</span>
         <span>{maxLabel}</span>
