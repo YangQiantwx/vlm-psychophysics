@@ -1,0 +1,12 @@
+node_modules/
+dist/
+qa_screenshots/
+.wrangler/
+.DS_Store
+.env
+.env.*
+*.log
+*.pem
+*.key
+*.p12
+coverage/

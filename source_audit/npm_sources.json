@@ -1,0 +1,29 @@
+{
+  "jspsychPsychophysics": {
+    "package": "@kurokida/jspsych-psychophysics",
+    "version": "5.1.0",
+    "license": "MIT",
+    "description": "A jsPsych plugin for conducting online/Web-based psychophysical experiments",
+    "tarball": "https://registry.npmjs.org/@kurokida/jspsych-psychophysics/-/jspsych-psychophysics-5.1.0.tgz",
+    "installedInDemo": true,
+    "usedFor": ["moving stripes", "brief flash", "tilted lines field mapping"]
+  },
+  "jspsychRdk": {
+    "package": "@jspsych-contrib/plugin-rdk",
+    "version": "2.0.0",
+    "license": "MIT",
+    "description": "This plugin displays a Random Dot Kinematogram (RDK) and allows the subject to report the primary direction of motion by pressing a key on the keyboard.",
+    "tarball": "https://registry.npmjs.org/@jspsych-contrib/plugin-rdk/-/plugin-rdk-2.0.0.tgz",
+    "installedInDemo": true,
+    "usedFor": ["moving dots field mapping"]
+  },
+  "jspsych": {
+    "package": "jspsych",
+    "version": "8.2.3",
+    "license": "MIT",
+    "description": "Behavioral experiments in a browser",
+    "tarball": "https://registry.npmjs.org/jspsych/-/jspsych-8.2.3.tgz",
+    "installedInDemo": true,
+    "usedFor": ["peer dependency for installed psychophysics plugins"]
+  }
+}
