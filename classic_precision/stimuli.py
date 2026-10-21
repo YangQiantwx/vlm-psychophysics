@@ -69,6 +69,15 @@ def make_state(row):
 
 
 def prepare_states(manifest, work):
+    """Serialize cache publication shared by standalone generation/validation."""
+    work = Path(work)
+    work.mkdir(parents=True, exist_ok=True)
+    with (work/'.state-cache.lock').open('a+b') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        return _prepare_states_locked(manifest, work)
+
+
+def _prepare_states_locked(manifest, work):
     """Cache two source states per unique condition, not per onset/duration."""
     work = Path(work)
     work.mkdir(parents=True, exist_ok=True)
@@ -116,6 +125,29 @@ def prepare_states(manifest, work):
     return bank_path, index
 
 
+def validate_video(row, path, base, event):
+    """Existing frame-by-frame RGB16/source equality check, without model arrays."""
+    p = row['source_parameters']
+    on, off, n = p['onset_frame'], p['offset_frame'], p['frames']
+    actual_hash = hashlib.sha256()
+    count, pts_error = 0, 0.
+    with av.open(str(path)) as container:
+        if container.streams.video[0].codec_context.format.name != 'gbrp16le':
+            raise ValueError('Encoder dropped channel precision')
+        for count, frame in enumerate(container.decode(video=0), 1):
+            i = count-1
+            actual = frame.to_ndarray(format='rgb48le')
+            expected = event if on <= i < off else base
+            if actual.dtype != np.uint16 or not np.array_equal(actual, expected):
+                raise ValueError(('Lossless frame/sequence mismatch', row['sample_id'], i))
+            actual_hash.update(actual.tobytes())
+            pts_error = max(pts_error, abs(float(frame.pts*frame.time_base)-i/p['fps']))
+    if count != n or pts_error > .001:
+        raise ValueError(('Encoded timing/stream mismatch', row['sample_id']))
+    return {'stream_sha256': actual_hash.hexdigest(), 'frames': count,
+            'max_PTS_error_s': pts_error, 'max_decoded_code_error': 0}
+
+
 def _encode_one(task):
     row, state, bank_path, run_dir, minimum_free_bytes = task
     run_dir = Path(run_dir)
@@ -145,109 +177,153 @@ def _encode_one(task):
                 container.mux(packet)
         for packet in stream.encode():
             container.mux(packet)
-    # Decode every encoded frame once; no visual frame review or model call.
-    actual_hash = hashlib.sha256()
-    count, pts_error, max_code_error = 0, 0., 0
-    with av.open(str(partial)) as container:
-        if container.streams.video[0].codec_context.format.name != 'gbrp16le':
-            raise ValueError('Encoder dropped channel precision')
-        for count, frame in enumerate(container.decode(video=0), 1):
-            i = count - 1
-            actual = frame.to_ndarray(format='rgb48le')
-            expected = event if on <= i < off else base
-            if actual.dtype != np.uint16 or not np.array_equal(actual, expected):
-                raise ValueError(('Lossless frame/sequence mismatch', row['sample_id'], i))
-            actual_hash.update(actual.tobytes())
-            pts_error = max(pts_error, abs(float(frame.pts * frame.time_base) - i/p['fps']))
-    if count != n or pts_error > .001 or actual_hash.hexdigest() != expected_hash.hexdigest():
+    qa = validate_video(row, partial, base, event)
+    if qa['stream_sha256'] != expected_hash.hexdigest():
         raise ValueError(('Encoded timing/stream mismatch', row['sample_id']))
     with partial.open('rb') as f:
         os.fsync(f.fileno())
     os.replace(partial, video)
     ready = {'sample_id': row['sample_id'], 'video_relative': str(video.relative_to(run_dir)),
-             'video_sha256': file_sha(video), 'stream_sha256': actual_hash.hexdigest(),
-             'source_parameters': p, 'frames': count, 'master_bits_per_channel': 16,
-             'max_decoded_code_error': max_code_error, 'max_PTS_error_s': pts_error}
+             'video_sha256': file_sha(video), 'stream_sha256': qa['stream_sha256'],
+             'source_parameters': p, 'frames': qa['frames'], 'master_bits_per_channel': 16,
+             'max_decoded_code_error': 0, 'max_PTS_error_s': qa['max_PTS_error_s']}
     # A small sidecar closes the encoded-video -> ready append recovery window.
     atomic_json(video.with_suffix('.ready.json'), ready)
     return ready
 
 
-def generate(manifest, run_dir, workers=1, disk_floor_gib=10):
+def generate(manifest, run_dir, workers=None, disk_floor_gib=10, shard_count=3,
+             cpu_memory_gib=32, ram_reserve_gib=4):
+    from .ready import (ReadyCatalog, append_ready, finish_generation, generation_order,
+                        publication_lock)
+    from .cpu import allocation, available_cores, ready_buffer
+    import time
     run_dir = Path(run_dir)
     run_dir.mkdir(parents=True, exist_ok=True)
     lock = (run_dir/'.generation.lock').open('a+')
     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     try:
-        bank_path, index = prepare_states(manifest, run_dir/'state_cache')
         ready_path = run_dir/'ready.jsonl'
-        done = {}
-        if ready_path.exists():
-            raw = ready_path.read_bytes()
-            lines = raw.splitlines()
-            repaired = False
-            for i, line in enumerate(lines):
-                try:
-                    item = json.loads(line)
-                except (json.JSONDecodeError, UnicodeDecodeError):
-                    if i != len(lines)-1:
-                        raise ValueError('Malformed middle of ready journal; original preserved')
-                    backup = ready_path.with_name('ready.torn.' + hashlib.sha256(raw).hexdigest()[:16] + '.bin')
-                    if not backup.exists():
-                        backup.write_bytes(raw)
-                    repaired = True
-                    break
-                if item['sample_id'] in done:
-                    raise ValueError('Duplicate ready identity')
-                done[item['sample_id']] = item
-            if repaired or (raw and not raw.endswith(b'\n')):
-                temp = ready_path.with_name('ready.recovered.partial')
-                with temp.open('wb') as f:
-                    for item in done.values():
-                        f.write(canonical(item) + b'\n')
-                    f.flush()
-                    os.fsync(f.fileno())
-                os.replace(temp, ready_path)
-        expected_ids = {r['sample_id'] for r in manifest['rows']}
-        if set(done) - expected_ids:
-            raise ValueError('Ready contains IDs outside immutable manifest')
+        catalog = ReadyCatalog(manifest, ready_path, run_dir, file_sha(run_dir/'manifest.json'),
+                               allow_failed=True)
+        done = catalog.refresh()
+        if catalog.complete:
+            return json.loads((run_dir/'generation.json').read_text())
+        with publication_lock(ready_path, exclusive=True):
+            atomic_json(run_dir/'generation.json', {'status': 'RUNNING',
+                'protocol_id': manifest['protocol_id'],
+                'manifest_sha256': file_sha(run_dir/'manifest.json'), 'new_VLM_calls': 0})
+        bank_path, index = prepare_states(manifest, run_dir/'state_cache')
         tasks = []
-        recovered = []
-        for row in manifest['rows']:
+        for row in generation_order(manifest, shard_count):
             sid = row['sample_id']
             if sid in done:
-                record = done[sid]
-                p = run_dir/record['video_relative']
-                if record['source_parameters'] != row['source_parameters'] or not p.is_file() or file_sha(p) != record['video_sha256']:
-                    raise ValueError(('Ready source identity/file mismatch', sid))
                 continue
             sidecar = run_dir/'videos'/(sid + '.ready.json')
             if sidecar.exists():
+                # Includes the video-SHA check before recovering a publication.
                 record = json.loads(sidecar.read_text())
-                p = run_dir/record['video_relative']
-                if record['sample_id'] != sid or record['source_parameters'] != row['source_parameters'] or file_sha(p) != record['video_sha256']:
-                    raise ValueError(('Interrupted ready recovery mismatch', sid))
-                recovered.append(record)
+                append_ready(manifest, run_dir, record)
             else:
                 tasks.append((row, index['states'][state_key(row)], str(bank_path), str(run_dir),
                               int(disk_floor_gib * 1024**3)))
-        with ready_path.open('a') as f:
-            def save(item):
-                f.write(canonical(item).decode() + '\n')
-                f.flush()
-                os.fsync(f.fileno())
-            for item in recovered:
-                save(item)
-            with concurrent.futures.ProcessPoolExecutor(max_workers=workers) as pool:
-                for item in pool.map(_encode_one, tasks, chunksize=1):
-                    save(item)
-        records = [json.loads(x) for x in ready_path.read_text().splitlines()]
-        if len(records) != len(expected_ids) or {r['sample_id'] for r in records} != expected_ids:
-            raise ValueError('Generated panel incomplete')
-        receipt = {'status': 'COMPLETE', 'videos': len(records), 'protocol_id': manifest['protocol_id'],
-                   'unique_source_states': len(index['states']), 'new_VLM_calls': 0}
-        atomic_json(run_dir/'generation.json', receipt)
-        return receipt
+        # Admission controls in-flight tasks, not the lifetime of idle pool
+        # processes. No GPU query or unrelated process inspection is involved.
+        ceiling = min(workers or max(1, available_cores()-2), available_cores())
+        with concurrent.futures.ProcessPoolExecutor(max_workers=ceiling) as pool:
+            next_index = 0
+            active = set()
+            last_budget, target, last_buffer, backlog = 0., 0, 0., 0
+            while active or next_index < len(tasks):
+                if time.monotonic()-last_budget >= 2 or not active:
+                    activity_path = run_dir/'cpu-activity.json'
+                    activity = json.loads(activity_path.read_text()) if activity_path.exists() else {}
+                    if time.monotonic()-last_buffer >= 10:
+                        backlog = ready_buffer(manifest, run_dir, shard_count)
+                        last_buffer = time.monotonic()
+                    plan = allocation(workers, cpu_memory_gib, ram_reserve_gib,
+                        calibration_active=activity.get('calibration_active', False),
+                        buffer_rows=backlog,
+                        disk_free_gib=shutil.disk_usage(run_dir).free/2**30,
+                        disk_floor_gib=disk_floor_gib)
+                    atomic_json(run_dir/'cpu-budget.json', plan)
+                    if plan['reason'] == 'DISK_RESERVE_REACHED':
+                        raise RuntimeError('Disk reserve reached; preserve qualified inputs')
+                    target, last_budget = plan['workers'], time.monotonic()
+                while next_index < len(tasks) and len(active) < target:
+                    active.add(pool.submit(_encode_one, tasks[next_index]))
+                    next_index += 1
+                if not active:
+                    time.sleep(10)
+                    continue
+                finished, _ = concurrent.futures.wait(active, timeout=2,
+                    return_when=concurrent.futures.FIRST_COMPLETED)
+                for future in finished:
+                    active.remove(future)
+                    append_ready(manifest, run_dir, future.result(), verified=True)
+        catalog.refresh()
+        return finish_generation(manifest, run_dir)
+    except BaseException as error:
+        # Current status is explicit. Preserve the prior failure in a small
+        # durable record when a resumed generator later changes the status.
+        receipt = {'status': 'FAILED', 'protocol_id': manifest['protocol_id'],
+                   'manifest_sha256': file_sha(run_dir/'manifest.json'),
+                   'error_type': type(error).__name__, 'error': str(error), 'new_VLM_calls': 0}
+        with publication_lock(run_dir/'ready.jsonl', exclusive=True):
+            atomic_json(run_dir/'generation.failure.json', receipt)
+            atomic_json(run_dir/'generation.json', receipt)
+        raise
     finally:
         fcntl.flock(lock, fcntl.LOCK_UN)
         lock.close()
+
+
+def _validate_one(task):
+    row, item, state, bank_path, root = task
+    bank = np.load(bank_path, mmap_mode='r')
+    base, event = [bank[i] for i in state['indices']]
+    receipt = validate_video(row, Path(root)/item['video_relative'], base, event)
+    if receipt['stream_sha256'] != item['stream_sha256']:
+        raise ValueError('Independent decode stream differs from published ready')
+    return row['sample_id']
+
+
+def validate_inputs(run_dir, workers=None, require_complete=False, cpu_memory_gib=32, ram_reserve_gib=4):
+    from .manifest import validate_manifest
+    from .ready import ReadyCatalog
+    from .cpu import allocation, available_cores
+    import time
+    run_dir = Path(run_dir)
+    manifest = validate_manifest(json.loads((run_dir/'manifest.json').read_text()))
+    catalog = ReadyCatalog(manifest, run_dir/'ready.jsonl', run_dir, file_sha(run_dir/'manifest.json'))
+    ready = catalog.refresh()
+    if require_complete and not catalog.complete:
+        raise ValueError('Independent validation requires the complete frozen input panel')
+    checked, plan = [], allocation(workers, cpu_memory_gib, ram_reserve_gib)
+    if ready:
+        bank, index = prepare_states(manifest, run_dir/'state_cache')
+        tasks = [(row, ready[row['sample_id']], index['states'][state_key(row)], str(bank), str(run_dir))
+                 for row in manifest['rows'] if row['sample_id'] in ready]
+        ceiling = min(workers or max(1, available_cores()-2), available_cores())
+        with concurrent.futures.ProcessPoolExecutor(max_workers=ceiling) as pool:
+            active, next_index = set(), 0
+            while active or next_index < len(tasks):
+                plan = allocation(workers, cpu_memory_gib, ram_reserve_gib)
+                while next_index < len(tasks) and len(active) < plan['workers']:
+                    active.add(pool.submit(_validate_one, tasks[next_index]))
+                    next_index += 1
+                if not active:
+                    atomic_json(run_dir/'validation-wait.json', {'status': 'WAITING_FOR_RAM', **plan})
+                    time.sleep(10)
+                    continue
+                finished, _ = concurrent.futures.wait(active, timeout=2,
+                    return_when=concurrent.futures.FIRST_COMPLETED)
+                for future in finished:
+                    active.remove(future)
+                    checked.append(future.result())
+    result = {'status': 'COMPLETE' if catalog.complete else 'INCOMPLETE',
+              'validation': 'PASS', 'checked': len(checked), 'expected': len(manifest['rows']),
+              'protocol_id': manifest['protocol_id'], 'row_ids': checked,
+              'source_code_max_error': 0, 'new_VLM_calls': 0, 'cpu_budget': plan}
+    atomic_json(run_dir/'validation.json', result)
+    return result

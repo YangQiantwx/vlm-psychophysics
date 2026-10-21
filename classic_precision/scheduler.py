@@ -57,7 +57,7 @@ def progress(output_dir, family, selected_ids, expected_identity=None,
             expected = expected_rows.get(sid)
             if expected is None or any(row.get(key) != expected[key] for key in ('task', 'truth', 'source_parameters')):
                 raise ValueError('Supervised raw output source/GT differs from the frozen scientific row')
-            if ready is not None and row.get('row_identity') != digest({'row': expected, 'ready': ready[sid]}):
+            if ready is not None and (sid not in ready or row.get('row_identity') != digest({'row': expected, 'ready': ready[sid]})):
                 raise ValueError('Supervised raw output video/prompt identity differs from its frozen ready row')
             from .inference import GENERATION
             if any(row.get('effective_generation', {}).get(key) != value for key, value in GENERATION.items()):
@@ -122,40 +122,53 @@ def _reconcile_no_model(output_dir, family, identity, selected, all_rows, shard_
 
 def supervise(manifest_path, output_dir, model_root, gpu, shard_index, shard_count=3,
               ready_path=None, asset_root=None, cosmos_package=None,
-              worker_python=None, wait_seconds=60, retry_failed=True, retry_interrupted=True):
-    """Exactly one subprocess at a time; error exits, resource wait does not spin GPUs.
-
-    Run this command independently for shards 0/1/2 on three GPUs. No wall deadline,
-    durable raw answers are terminal. An unfinished request may have only one
-    retry, counted from persisted INFLIGHT events across process restarts.
-    """
+              worker_python=None, wait_seconds=60, retry_failed=True, retry_interrupted=True,
+              start_ready=100, input_poll_seconds=10, calibration_root=None):
+    """Finite model queue; wait for each model's own inputs/calibration/checkpoint."""
     import fcntl
-    if wait_seconds < 10:
-        raise ValueError('Use a bounded, non-busy resource poll interval >=10 seconds')
-    manifest_path, output_dir = Path(manifest_path).resolve(), Path(output_dir).resolve()
-    manifest = validate_manifest(json.loads(manifest_path.read_text()))
     from .inference import build_run_identity, load_run_inputs
-    manifest, _, ready, _, ready_path = load_run_inputs(manifest_path, ready_path, asset_root)
+    from .calibration import calibration_identity, calibration_ready
+    from .ready import start_ready as buffer_ready
+    if wait_seconds < 10 or input_poll_seconds < 1 or start_ready < 1:
+        raise ValueError('Use resource poll>=10 seconds and positive input poll/buffer')
+    manifest_path, output_dir = Path(manifest_path).resolve(), Path(output_dir).resolve()
+    manifest, _, ready, _, ready_path, catalog = load_run_inputs(
+        manifest_path, ready_path, asset_root, include_catalog=True)
     selected = selected_rows(manifest, shard_index, shard_count)
     ids = {r['sample_id'] for r in selected}
     expected_rows = {row['sample_id']: row for row in manifest['rows']}
-    models = list(manifest['models'])
-    bindings = {model: build_run_identity(manifest_path, ready_path, manifest, model, model_root,
-                                         cosmos_package=cosmos_package)[0] for model in models}
+    models, bindings, calibrations = list(manifest['models']), {}, {}
+    binding_wait = {}
+    calibration_root = Path(calibration_root or manifest_path.parent/'calibration')
+    worker_versions = None
     if worker_python:
         probe = subprocess.run([worker_python, '-B', '-c',
                     'import json; from classic_precision.inference import _versions; print(json.dumps(_versions()))'],
                     check=True, text=True, capture_output=True)
         worker_versions = json.loads(probe.stdout)
-        for identity in bindings.values():
-            identity['runtime_versions'] = worker_versions
     output_dir.mkdir(parents=True, exist_ok=True)
     lock = (output_dir/f'.supervisor-gpu-{gpu}.lock').open('a+b')
     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     status_path = output_dir/f'supervisor-shard-{shard_index}.json'
     shard_id = f'onset-{shard_index}-of-{shard_count}'
+    def bind(model):
+        if model not in bindings:
+            checkpoint = Path(model_root)/manifest['models'][model]['checkpoint_relative']
+            if not checkpoint.is_dir():
+                if (output_dir/model/'identity.json').exists():
+                    raise ValueError('A bound output model checkpoint disappeared: '+model)
+                binding_wait[model] = 'WAITING_FOR_CHECKPOINT'
+                return False
+            if not (calibration_root/model/'summary.json').is_file() and not (output_dir/model/'identity.json').exists():
+                binding_wait[model] = 'WAITING_FOR_128_STATE_CALIBRATION'
+                return False
+            bindings[model] = build_run_identity(manifest_path, ready_path, manifest, model, model_root,
+                cosmos_package=cosmos_package, runtime_versions=worker_versions)[0]
+            calibrations[model] = calibration_identity(manifest_path, manifest, model, model_root,
+                                                      cosmos_package, worker_versions)
+        return True
     def state(model):
-        return progress(output_dir, model, ids, bindings[model], expected_rows, ready,
+        return progress(output_dir, model, ids, bindings.get(model), expected_rows, ready,
                         retry_failed=retry_failed, retry_interrupted=retry_interrupted)
     def recover(model):
         try:
@@ -168,9 +181,11 @@ def supervise(manifest_path, output_dir, model_root, gpu, shard_index, shard_cou
             raise
     try:
         while True:
-            pending = []
-            counts = {}
+            ready = catalog.refresh()
+            eligible, counts, waiting = [], {}, {}
+            all_complete = True
             for model in models:
+                available = bind(model)
                 current = state(model)
                 if current['needs_recovery'] or current['exhausted_ids']:
                     recover(model)
@@ -180,17 +195,31 @@ def supervise(manifest_path, output_dir, model_root, gpu, shard_index, shard_cou
                     atomic_json(status_path, {'status': 'HOLD_ATTEMPTS', 'model': model,
                                 'exhausted_ids': current['exhausted_ids'], 'held_ids': current['held_ids'],
                                 'time_unix': time.time(), 'supervisor_pid': os.getpid()})
-                    raise RuntimeError('Unfinished IDs are exhausted or retry is explicitly disabled: '+model)
-                if not current['complete']:
-                    pending.append(model)
+                    raise RuntimeError('Unfinished IDs are exhausted or retry is disabled: '+model)
+                if current['complete']:
+                    continue
+                all_complete = False
+                if not available:
+                    waiting[model] = binding_wait[model]
+                elif not buffer_ready(catalog, selected, ready, start_ready):
+                    waiting[model] = 'WAITING_FOR_PER_SHARD_READY_BUFFER'
+                elif not calibration_ready(calibration_root, model, calibrations[model], manifest, ready):
+                    waiting[model] = 'WAITING_FOR_128_STATE_CALIBRATION'
+                else:
+                    eligible.append(model)
             status = {'shard_index': shard_index, 'shard_count': shard_count, 'gpu': str(gpu),
-                      'expected_per_model': len(ids), 'completed': counts, 'time_unix': time.time(),
-                      'supervisor_pid': os.getpid()}
-            if not pending:
+                      'expected_per_model': len(ids), 'completed': counts, 'waiting': waiting,
+                      'ready_in_shard': len(ids & set(ready)), 'start_ready': start_ready,
+                      'time_unix': time.time(), 'supervisor_pid': os.getpid()}
+            if all_complete:
                 atomic_json(status_path, {**status, 'status': 'COMPLETE'})
                 return status
+            if not eligible:
+                atomic_json(status_path, {**status, 'status': 'WAITING_FOR_INPUTS_CALIBRATION_OR_CHECKPOINT'})
+                time.sleep(input_poll_seconds)
+                continue
             snapshot = capacity(gpu)
-            model = choose_model(pending, manifest['models'], snapshot)
+            model = choose_model(eligible, manifest['models'], snapshot)
             atomic_json(status_path, {**status, 'capacity': snapshot,
                         'status': 'STARTING' if model else 'WAITING_FOR_FITTING_MODEL', 'model': model})
             if model is None:
@@ -200,7 +229,9 @@ def supervise(manifest_path, output_dir, model_root, gpu, shard_index, shard_cou
             command = [worker_python or sys.executable, '-B', '-m', 'classic_precision', 'run',
                        '--manifest', str(manifest_path), '--output', str(output_dir), '--model', model,
                        '--model-root', str(Path(model_root).resolve()), '--gpu', str(gpu),
-                       '--shard-index', str(shard_index), '--shard-count', str(shard_count)]
+                       '--shard-index', str(shard_index), '--shard-count', str(shard_count),
+                       '--start-ready', str(start_ready), '--input-poll-seconds', str(input_poll_seconds),
+                       '--calibration-root', str(calibration_root.resolve())]
             command.extend(['--retry-failed' if retry_failed else '--no-retry-failed',
                             '--retry-interrupted' if retry_interrupted else '--no-retry-interrupted'])
             for name, value in [('--ready', ready_path), ('--assets', asset_root), ('--cosmos-package', cosmos_package)]:
@@ -209,6 +240,7 @@ def supervise(manifest_path, output_dir, model_root, gpu, shard_index, shard_cou
             console = output_dir/f'console-{model}-shard-{shard_index}.log'
             with console.open('ab', buffering=0) as stream:
                 result = subprocess.run(command, stdout=stream, stderr=subprocess.STDOUT, check=False)
+            ready = catalog.refresh()
             after = state(model)
             if after['needs_recovery'] or after['exhausted_ids']:
                 recover(model)
@@ -226,7 +258,7 @@ def supervise(manifest_path, output_dir, model_root, gpu, shard_index, shard_cou
                         'worker_returncode': result.returncode, 'console': str(console),
                         'exhausted_ids': after['exhausted_ids'], 'held_ids': after['held_ids'],
                         'technical_unresolved_ids': after['technical_unresolved_ids']})
-            raise RuntimeError('Worker has no permitted new retry; preserve its real failure and stop: '+str(console))
+            raise RuntimeError('Worker has no permitted new retry; preserve failure: '+str(console))
     finally:
         lock.close()
 

@@ -15,8 +15,42 @@ def main(argv=None):
     init.add_argument('--protocol', type=Path)
     gen = sub.add_parser('generate', help='Build/verify lossless masters with existing CPU cores')
     gen.add_argument('--run', type=Path, required=True)
-    gen.add_argument('--workers', type=int, default=os.cpu_count() or 1)
+    gen.add_argument('--workers', '--cpu-max-workers', type=int)
     gen.add_argument('--disk-floor-gib', type=float, default=10.)
+    gen.add_argument('--shard-count', type=int, default=3)
+    validate = sub.add_parser('validate', help='Independently decode published RGB16 videos against the source states')
+    validate.add_argument('--run', type=Path, required=True)
+    validate.add_argument('--workers', '--cpu-max-workers', type=int)
+    validate.add_argument('--require-complete', action='store_true')
+    integrated = sub.add_parser('pipeline', help='Local finite CPU/input/calibration/GPU process pipeline')
+    integrated.add_argument('--run', type=Path, required=True)
+    integrated.add_argument('--model-root', type=Path, required=True)
+    integrated.add_argument('--gpu-shards', nargs='+', required=True, help='GPU:shard pairs, e.g.0:0 1:1')
+    integrated.add_argument('--shard-count', type=int, default=3)
+    integrated.add_argument('--produce', action='store_true')
+    integrated.add_argument('--output', type=Path)
+    integrated.add_argument('--worker-python')
+    integrated.add_argument('--cosmos-package', type=Path)
+    integrated.add_argument('--cpu-max-workers', type=int)
+    integrated.add_argument('--start-ready', type=int, default=100)
+    integrated.add_argument('--input-poll-seconds', type=float, default=10)
+    integrated.add_argument('--sync-destination-root')
+    integrated.add_argument('--destination-ssh')
+    integrated.add_argument('--destination-python')
+    integrated.add_argument('--destination-code-root')
+    for command in (gen, validate, integrated):
+        command.add_argument('--cpu-memory-gib', type=float, default=32)
+        command.add_argument('--ram-reserve-gib', type=float, default=4)
+    sync = sub.add_parser('sync-ready', help='Incrementally copy only qualified inputs; local or SSH endpoints')
+    sync.add_argument('--manifest', type=Path, required=True)
+    sync.add_argument('--source-root', required=True)
+    sync.add_argument('--destination-root', required=True)
+    for endpoint in ('source', 'destination'):
+        sync.add_argument('--'+endpoint+'-ssh')
+        sync.add_argument('--'+endpoint+'-python')
+        sync.add_argument('--'+endpoint+'-code-root')
+    sync.add_argument('--poll-seconds', type=float, default=10)
+    sync.add_argument('--once', action='store_true')
     dl = sub.add_parser('download', help='Fetch pinned model snapshots; never start inference')
     dl.add_argument('--model-root', type=Path, required=True)
     dl.add_argument('--models', nargs='+', choices=['nemo', 'qwen', 'cosmos', 'gemma'])
@@ -28,9 +62,12 @@ def main(argv=None):
         p.add_argument('--model-root', type=Path, required=True)
         p.add_argument('--cosmos-package', type=Path)
         p.add_argument('--output', type=Path, required=True)
+        p.add_argument('--input-poll-seconds', type=float, default=10)
         if name == 'calibrate':
             p.add_argument('--model', choices=['nemo', 'qwen', 'cosmos', 'gemma'], required=True)
         else:
+            p.add_argument('--start-ready', type=int, default=100)
+            p.add_argument('--calibration-root', type=Path)
             p.add_argument('--gpu', required=True)
             p.add_argument('--shard-index', type=int, required=True)
             p.add_argument('--shard-count', type=int, default=3)
@@ -51,6 +88,14 @@ def main(argv=None):
     status.add_argument('--manifest', type=Path, required=True)
     status.add_argument('--inputs', type=Path, nargs='+', required=True)
     args = parser.parse_args(argv)
+    # CPU children inherit one codec/BLAS thread before importing numerical SDKs.
+    from .cpu import configure_threads
+    configure_threads()
+    if args.command in ('generate', 'validate', 'calibrate', 'sync-ready', 'supervise', 'run'):
+        import signal
+        def stop(signum, frame):
+            raise KeyboardInterrupt('Received signal '+str(signum))
+        signal.signal(signal.SIGTERM, stop)
     if args.command == 'manifest':
         from .manifest import write_manifest, load_protocol
         result = write_manifest(args.run/'manifest.json', load_protocol(args.protocol))
@@ -59,13 +104,33 @@ def main(argv=None):
         from .manifest import validate_manifest
         from .stimuli import generate
         manifest = validate_manifest(json.loads((args.run/'manifest.json').read_text()))
-        print(json.dumps(generate(manifest, args.run, args.workers, args.disk_floor_gib)))
+        print(json.dumps(generate(manifest, args.run, args.workers, args.disk_floor_gib, args.shard_count,
+                                  args.cpu_memory_gib, args.ram_reserve_gib)))
+    elif args.command == 'validate':
+        from .stimuli import validate_inputs
+        print(json.dumps(validate_inputs(args.run, args.workers, args.require_complete,
+                                         args.cpu_memory_gib, args.ram_reserve_gib)))
+    elif args.command == 'pipeline':
+        from .pipeline import pipeline
+        pairs = [pair.rsplit(':', 1) for pair in args.gpu_shards]
+        print(json.dumps(pipeline(args.run, args.model_root, pairs, args.shard_count, args.produce,
+            args.output, args.worker_python, args.cosmos_package, args.cpu_max_workers, args.cpu_memory_gib,
+            args.ram_reserve_gib, args.start_ready, args.input_poll_seconds, args.sync_destination_root,
+            args.destination_ssh, args.destination_python, args.destination_code_root)))
+    elif args.command == 'sync-ready':
+        from .ready import sync_ready
+        print(json.dumps(sync_ready(args.manifest, args.source_root, args.destination_root,
+            args.source_ssh, args.destination_ssh, args.source_python, args.destination_python,
+            args.source_code_root, args.destination_code_root, args.poll_seconds, args.once)))
     elif args.command == 'download':
         from .scheduler import download_models
         print(json.dumps(download_models(args.model_root, args.models)))
     elif args.command in ('run', 'supervise', 'calibrate'):
         common = dict(manifest_path=args.manifest, ready_path=args.ready, asset_root=args.assets,
-                      output_dir=args.output, model_root=args.model_root, cosmos_package=args.cosmos_package)
+                       output_dir=args.output, model_root=args.model_root, cosmos_package=args.cosmos_package,
+                       input_poll_seconds=args.input_poll_seconds)
+        if args.command != 'calibrate':
+            common.update(start_ready=args.start_ready, calibration_root=args.calibration_root)
         if args.command == 'run':
             from .inference import run_manifest
             result = run_manifest(**common, model_key=args.model, gpu=args.gpu, shard_index=args.shard_index,

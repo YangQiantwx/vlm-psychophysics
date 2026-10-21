@@ -96,34 +96,20 @@ def _inside(root, relative):
     return path
 
 
-def load_run_inputs(manifest_path, ready_path=None, asset_root=None):
+def load_run_inputs(manifest_path, ready_path=None, asset_root=None, include_catalog=False):
     """Bind immutable scientific rows to lossless, fully qualified ready videos."""
     manifest_path = Path(manifest_path)
     manifest = json.loads(manifest_path.read_text())
     from .manifest import validate_manifest
     validate_manifest(manifest)
     ready_path = Path(ready_path) if ready_path else manifest_path.parent / "ready.jsonl"
-    source = ready_path.read_text()
-    if source.lstrip().startswith("["):
-        ready_records = json.loads(source)
-    else:
-        ready_records = [json.loads(line) for line in source.splitlines() if line.strip()]
     rows = manifest["rows"]
-    _require(len(rows) == 3504, "Production manifest must contain exactly 3504 rows per model")
+    _require(len(rows) == 3504, "Production manifest must contain exactly3504 rows per model")
     _require(set(manifest["models"]) == set(FAMILIES), "All four fixed model specifications are required")
-    ids = [row["sample_id"] for row in rows]
-    _require(len(set(ids)) == len(ids), "Duplicate manifest sample_id")
-    ready = {row["sample_id"]: row for row in ready_records}
-    _require(len(ready) == len(ready_records), "Duplicate ready sample_id")
-    _require(set(ready) == set(ids), "Ready ledger must exactly cover the frozen 3504 rows")
-    for row in rows:
-        receipt = ready[row["sample_id"]]
-        _require(receipt["source_parameters"] == row["source_parameters"], "Ready source parameters differ from manifest")
-        _require(row["truth"] in ("LEFT", "RIGHT"), "Unknown truth label")
-        for name in ("video_sha256", "stream_sha256"):
-            _require(bool(re.fullmatch(r"[0-9a-f]{64}", receipt[name])), "Invalid ready SHA256")
-        path = _inside(asset_root or manifest_path.parent, receipt["video_relative"])
-        _require(path.is_file(), "Ready video is missing before any model load: " + receipt["video_relative"])
+    from .ready import ReadyCatalog
+    catalog = ReadyCatalog(manifest, ready_path, asset_root or manifest_path.parent,
+                           file_sha256(manifest_path))
+    ready = catalog.refresh()
     for name, expected in GENERATION.items():
         if name in manifest.get("generation", {}):
             _require(manifest["generation"][name] == expected, "Manifest generation differs from the fixed protocol: " + name)
@@ -134,7 +120,8 @@ def load_run_inputs(manifest_path, ready_path=None, asset_root=None):
     for key, expected in {"source_wh": [768, 512], "frames": 180, "fps": 60, "master_bits": 16,
                           "do_resize": False, "do_sample_frames": False}.items():
         _require(input_spec.get(key) == expected, "Manifest video input differs from the fixed protocol: " + key)
-    return manifest, rows, ready, Path(asset_root or manifest_path.parent), ready_path
+    result = (manifest, rows, ready, Path(asset_root or manifest_path.parent), ready_path)
+    return result + (catalog,) if include_catalog else result
 
 
 def select_rows(rows, row_ids=None, shard_index=0, shard_count=1):
@@ -596,6 +583,7 @@ class ModelSession:
         frames, data, text, receipt = self.prepare(row, ready, asset_root)
         began = time.monotonic()
         base = {"task": row["task"], "truth": row["truth"], "row_identity": digest({"row": row, "ready": ready}),
+                "ready_identity": digest(ready), "ready_record": ready,
                 "source_parameters": row["source_parameters"], "input_receipt": receipt,
                 "effective_generation": self.effective_generation}
         if family in ("nemo", "qwen"):
@@ -825,42 +813,65 @@ def _qualification_marker(store, identity, family, shard_id, qualification):
 
 
 def build_run_identity(manifest_path, ready_path, manifest, model_key, model_root,
-                       resources=None, cosmos_package=None):
+                       resources=None, cosmos_package=None, runtime_versions=None):
     """Shared worker/supervisor binding; no weight load, CUDA or model call."""
     spec = manifest["models"][model_key]
     resources = resources if resources is not None else spec.get("resources", {})
     model_path = _inside(model_root, spec["checkpoint_relative"])
     _require(model_path.is_dir(), "The explicitly selected local checkpoint directory is missing")
-    identity = {"schema_version": 1, "protocol_id": manifest["protocol_id"],
-        "manifest_sha256": file_sha256(manifest_path), "ready_sha256": file_sha256(ready_path),
+    from .ready import INPUT_BINDING
+    from .calibration import calibration_identity
+    calibration = calibration_identity(manifest_path, manifest, model_key, model_root,
+                                       cosmos_package, runtime_versions)
+    identity = {"schema_version": 2, "protocol_id": manifest["protocol_id"],
+        "manifest_sha256": file_sha256(manifest_path), "input_binding": INPUT_BINDING,
+        "ready_source_sha256": file_sha256(Path(__file__).with_name("ready.py")),
+        "calibration_identity_sha256": digest(calibration),
         "model_key": model_key, "model": spec, "generation": GENERATION,
         "effective_resources": resources,
         "retry_policy": {"max_attempts_per_sample": MAX_ATTEMPTS, "durable_raw_is_terminal": True},
         "checkpoint_assets": checkpoint_asset_identity(model_path),
         "cosmos_package_sources": _cosmos_package_identity(cosmos_package) if model_key == "cosmos" else None,
-        "runtime_versions": _versions(),
+        "runtime_versions": _versions() if runtime_versions is None else runtime_versions,
         "all_row_ids_sha256": digest([row["sample_id"] for row in manifest["rows"]]),
         "runner_sha256": file_sha256(__file__), "storage_sha256": file_sha256(Path(__file__).with_name("storage.py"))}
     return identity, model_path
 
 
+def _check_persisted_inputs(store, rows, ready):
+    lookup = {row["sample_id"]: row for row in rows}
+    bindings = {sid: digest({"row": lookup[sid], "ready": item}) for sid, item in ready.items()}
+    for event in store.events:
+        sid = event.get("sample_id")
+        if sid in store.row_ids and event.get("event") in ("INPUT_READY", "INFLIGHT"):
+            _require(sid in bindings and event.get("row_identity") == bindings[sid],
+                     "Persisted observed/attempt input identity changed or disappeared: " + sid)
+    for sid, output in store.outputs.items():
+        if sid in store.row_ids:
+            _require(sid in bindings and output.get("row_identity") == bindings[sid],
+                     "Durable raw input identity changed or disappeared: " + sid)
+
+
 def run_manifest(manifest_path, ready_path=None, output_dir=None, model_key=None, model_root=None,
                  row_ids=None, shard_index=0, shard_count=1, gpu="0", host=None, resources=None,
-                 asset_root=None, cosmos_package=None, shard_id=None, retry_failed=True, retry_interrupted=True):
-    """Run exactly the selected unfinished IDs; no wall/length-total stop rule."""
+                 asset_root=None, cosmos_package=None, shard_id=None, retry_failed=True, retry_interrupted=True,
+                 start_ready=100, input_poll_seconds=10, calibration_root=None):
+    """Consume one finite immutable shard as qualified inputs arrive, loading once."""
     _require(model_key in FAMILIES and output_dir is not None and model_root is not None,
              "model_key, output_dir and model_root are required")
+    _require(input_poll_seconds >= 1 and start_ready >= 1, "Positive input poll/buffer required")
     _require("," not in str(gpu) and bool(str(gpu)), "Exactly one explicit GPU is required")
     if "torch" in sys.modules:
         _require(os.environ.get("CUDA_VISIBLE_DEVICES") == str(gpu), "Set GPU before importing Torch")
     os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu)
     os.environ["HF_HUB_OFFLINE"] = "1"
     os.environ["TRANSFORMERS_OFFLINE"] = "1"
-    manifest, rows, ready, asset_root, ready_path = load_run_inputs(manifest_path, ready_path, asset_root)
+    manifest, rows, ready, asset_root, ready_path, catalog = load_run_inputs(
+        manifest_path, ready_path, asset_root, include_catalog=True)
     selected = select_rows(rows, row_ids, shard_index, shard_count)
     _require(bool(selected), "Selected shard is empty")
     ordered, qualification = qualification_order(selected)
-    _require(len(qualification) == 2, "Each production shard must include a predetermined T2 and T3 qualification row")
+    _require(len(qualification) == 2, "Each production shard requires fixed T2 and T3 qualification rows")
     qualification_ids = {row["sample_id"] for row in qualification}
     spec = manifest["models"][model_key]
     resources = resources if resources is not None else spec.get("resources", {})
@@ -868,54 +879,85 @@ def run_manifest(manifest_path, ready_path=None, output_dir=None, model_key=None
                                             resources, cosmos_package)
     shard_id = shard_id or ("ids-" + digest([r["sample_id"] for r in selected])[:16] if row_ids is not None
                             else f"onset-{shard_index}-of-{shard_count}")
+    from .calibration import calibration_ready, calibration_identity
+    from .ready import start_ready as buffer_ready
+    calibration_root = Path(calibration_root or Path(manifest_path).parent/"calibration")
+    expected_calibration = calibration_identity(manifest_path, manifest, model_key, model_root, cosmos_package)
     with RunStore(output_dir, identity, model_key, shard_id, [r["sample_id"] for r in selected],
                   all_row_ids=[r["sample_id"] for r in rows]) as store:
+        observed = {event["sample_id"] for event in store.events if event.get("event") == "INPUT_READY"}
+        def refresh():
+            nonlocal ready
+            ready = catalog.refresh()
+            _check_persisted_inputs(store, rows, ready)
+            for row in selected:
+                sid = row["sample_id"]
+                if sid in ready and sid not in observed:
+                    store.event("INPUT_READY", sample_id=sid,
+                                row_identity=digest({"row": row, "ready": ready[sid]}))
+                    observed.add(sid)
+            return ready
         pending = set(store.pending_ids(retry_failed=retry_failed, retry_interrupted=retry_interrupted))
         unresolved = reconcile_technical_receipts(store, model_key)
-        _require(not unresolved, "Durable output has unresolved technical input validation; no new calls: " + str(unresolved))
-        _require(all(row_id in store.outputs or row_id in pending for row_id in qualification_ids),
-                 "Worker qualification is held or failed; resolve it explicitly before ordinary calls")
+        _require(not unresolved, "Durable output lacks technical validation; no new calls: " + str(unresolved))
+        refresh()
+        _require(all(sid in store.outputs or sid in pending for sid in qualification_ids),
+                 "Worker qualification is held or failed")
         qualified = _qualification_marker(store, identity, model_key, shard_id, qualification)
         if not pending:
             return store.summary(retry_failed=retry_failed, retry_interrupted=retry_interrupted)
+        while not (buffer_ready(catalog, selected, ready, start_ready)
+                   and calibration_ready(calibration_root, model_key, expected_calibration, manifest, ready)):
+            atomic_json(store.directory/("waiting-"+shard_id+".json"),
+                        {"status": "WAITING_FOR_READY_OR_CALIBRATION", "ready_in_shard":
+                         sum(row["sample_id"] in ready for row in selected), "start_ready": start_ready,
+                         "time_unix": time.time()})
+            time.sleep(input_poll_seconds)
+            refresh()
         import torch
         with _gpu_lock(output_dir, torch):
             snapshot = resource_snapshot(torch, resources or {})
             store.event("RESOURCE_ADMISSION", host_label=host, gpu_selection=str(gpu), **snapshot)
-            _require(snapshot["admitted"], "Actual free VRAM/RAM does not meet the explicit model budgets")
+            _require(snapshot["admitted"], "Actual free VRAM/RAM does not meet explicit model budgets")
             session = None
             try:
                 session = ModelSession(model_key, model_path, store, cosmos_package, resources)
-                for row in ordered:
-                    row_id = row["sample_id"]
-                    if row_id not in pending:
+                while pending:
+                    refresh()
+                    candidates = [row for row in ordered if row["sample_id"] in pending
+                                  and row["sample_id"] in ready
+                                  and (qualified or row["sample_id"] in qualification_ids)]
+                    if not candidates:
+                        # No INFLIGHT event, retry count or context is created while
+                        # inputs are in transit. The same engine remains resident.
+                        time.sleep(input_poll_seconds)
                         continue
-                    _require(row_id in qualification_ids or qualified,
-                             "Both predetermined qualification rows must pass before ordinary calls")
-                    row_identity = digest({"row": row, "ready": ready[row_id]})
-                    store.begin(row_id, row_identity)
+                    row = candidates[0]
+                    row_id = row["sample_id"]
+                    store.begin(row_id, digest({"row": row, "ready": ready[row_id]}))
                     attempt_began = time.monotonic()
                     try:
-                        session.generate(row, ready[row_id], asset_root, lambda record, name=row_id: store.commit_output(name, record))
+                        session.generate(row, ready[row_id], asset_root,
+                                         lambda record, name=row_id: store.commit_output(name, record))
+                        pending.remove(row_id)
                         if not qualified:
                             qualified = _qualification_marker(store, identity, model_key, shard_id, qualification)
                     except PersistenceError:
                         raise
                     except BaseException as error:
-                        # Post-output receipt failure retains the raw terminal answer.
                         if row_id in store.outputs:
                             store.event("POST_OUTPUT_VALIDATION_FAILED", sample_id=row_id,
                                         attempt_id=store.outputs[row_id]["attempt_id"],
                                         error_type=type(error).__name__, error=str(error))
                         else:
                             store.fail(row_id, error, interrupted=isinstance(error, (KeyboardInterrupt, SystemExit)),
-                                       elapsed_seconds=time.monotonic() - attempt_began)
+                                       elapsed_seconds=time.monotonic()-attempt_began)
                         raise
                     finally:
                         session.context.update(active=False, codes=None)
                 summary = store.summary(retry_failed=retry_failed, retry_interrupted=retry_interrupted)
                 store.event("SHARD_FINISHED", summary=summary)
-                atomic_json(store.directory / ("summary-" + shard_id + ".json"), summary)
+                atomic_json(store.directory/("summary-"+shard_id+".json"), summary)
                 return summary
             except BaseException as error:
                 if not isinstance(error, PersistenceError):

@@ -62,57 +62,109 @@ def image_measurement(row, source_codes, restored_srgb):
     return result
 
 
+def calibration_identity(manifest_path, manifest, model_key, model_root,
+                         cosmos_package=None, runtime_versions=None):
+    from .inference import checkpoint_asset_identity, _versions, _cosmos_package_identity
+    from .ready import INPUT_BINDING, representatives
+    spec = manifest['models'][model_key]
+    return {'protocol_id': manifest['protocol_id'], 'manifest_sha256': file_sha(manifest_path),
+            'model': spec, 'input_binding': INPUT_BINDING,
+            'representative_row_ids_sha256': digest([r['sample_id'] for r in representatives(manifest)]),
+            'checkpoint_assets': checkpoint_asset_identity(Path(model_root)/spec['checkpoint_relative']),
+            'runtime_versions': _versions() if runtime_versions is None else runtime_versions,
+            'cosmos_package_sources': _cosmos_package_identity(cosmos_package) if model_key == 'cosmos' else None,
+            'dependent_sources': {name: file_sha(Path(__file__).with_name(name))
+                                  for name in ('manifest.py', 'verify.py', 'raster.py', 'ready.py')},
+            'calibration_source_sha256': file_sha(__file__),
+            'processor_runner_sha256': file_sha(Path(__file__).with_name('inference.py'))}
+
+
+def calibration_ready(output_dir, model_key, identity, manifest, ready):
+    """One model's fixed128-state evidence, independent of later ready appends."""
+    from .ready import representatives
+    dest = Path(output_dir)/model_key
+    path = dest/'summary.json'
+    if not path.exists():
+        return False
+    summary = json.loads(path.read_text())
+    if (summary.get('identity') != identity or summary.get('status') != 'COMPLETE'
+            or summary.get('unique_states') != 128 or summary.get('weights_loaded') is not False
+            or summary.get('new_model_calls') != 0):
+        raise ValueError('Calibration completion identity differs from this worker')
+    rows = representatives(manifest)
+    if any(row['sample_id'] not in ready for row in rows):
+        return False
+    records = []
+    for row in rows:
+        key, sid = state_key(row), row['sample_id']
+        record = json.loads((dest/(key+'.json')).read_text())
+        binding = digest({'row': row, 'ready': ready[sid]})
+        if (record.get('identity') != identity or record.get('state_key') != key
+                or record.get('sample_id') != sid or record.get('row_identity') != binding
+                or record.get('source_parameters') != row['source_parameters']):
+            raise ValueError('Calibration row/ready input identity changed')
+        records.append(record)
+    if summary.get('records_sha256') != digest(records):
+        raise ValueError('Calibration records changed after completion')
+    return True
+
+
 def calibrate(manifest_path, output_dir, model_root, model_key, ready_path=None,
-              asset_root=None, cosmos_package=None):
+              asset_root=None, cosmos_package=None, input_poll_seconds=10):
+    import fcntl
+    import time
+    if input_poll_seconds < 1:
+        raise ValueError('Calibration input poll must be positive')
     os.environ['CUDA_VISIBLE_DEVICES'] = ''
     import torch
-    from .inference import (ProcessorSession, load_run_inputs, restore_processor_rgb,
-                            checkpoint_asset_identity, _versions, _cosmos_package_identity)
-    manifest, rows, ready, assets, ready_path = load_run_inputs(manifest_path, ready_path, asset_root)
+    from .inference import ProcessorSession, load_run_inputs, restore_processor_rgb
+    from .ready import representatives
+    manifest, rows, ready, assets, ready_path, catalog = load_run_inputs(
+        manifest_path, ready_path, asset_root, include_catalog=True)
     spec = manifest['models'][model_key]
     model_path = Path(model_root)/spec['checkpoint_relative']
-    unique = {}
-    for row in rows:
-        unique.setdefault(state_key(row), row)
-    if len(unique) != 128:
-        raise ValueError('Unexpected unique source state denominator')
     dest = Path(output_dir)/model_key
     dest.mkdir(parents=True, exist_ok=True)
-    identity = {'protocol_id': manifest['protocol_id'], 'model': spec,
-                'ready_sha256': file_sha(ready_path), 'checkpoint_assets': checkpoint_asset_identity(model_path),
-                'runtime_versions': _versions(),
-                'cosmos_package_sources': _cosmos_package_identity(cosmos_package) if model_key == 'cosmos' else None,
-                'dependent_sources': {name: file_sha(Path(__file__).with_name(name))
-                                      for name in ('manifest.py', 'verify.py', 'raster.py')},
-                'calibration_source_sha256': file_sha(__file__),
-                'processor_runner_sha256': file_sha(Path(__file__).with_name('inference.py'))}
-    with ProcessorSession(model_key, model_path, cosmos_package) as session:
-        records = []
-        for key, row in unique.items():
-            path = dest/(key+'.json')
-            if path.exists():
-                record = json.loads(path.read_text())
-                if (record['identity'] != identity or record['sample_id'] != row['sample_id']
-                        or record['state_key'] != key or record['source_parameters'] != row['source_parameters']):
-                    raise ValueError('Calibration cache identity changed; use a new directory')
-            else:
-                prepared = session.prepare(row, ready[row['sample_id']], assets)
-                pixels = prepared['pixels'].to(torch.bfloat16)
-                rgb = restore_processor_rgb(pixels, prepared['processor'], prepared['source_codes'], model_key)
-                record = {'identity': identity, 'state_key': key, 'sample_id': row['sample_id'],
-                          'source_parameters': row['source_parameters'], 'input_receipt': prepared['input_receipt'],
-                          'BF16_measurement': image_measurement(row, prepared['source_codes'], rgb),
-                          'new_model_calls': 0}
-                atomic_json(path, record)
-                del prepared, pixels, rgb
-                gc.collect()
-            records.append(record)
-    t2 = [r['BF16_measurement']['absolute_nominal_error'] for r in records if r['BF16_measurement']['task'] == 'T2']
-    axes = [a for r in records if r['BF16_measurement']['task'] == 'T3' for a in r['BF16_measurement']['axes']]
-    result = {'status': 'COMPLETE', 'identity': identity, 'unique_states': len(records),
-              'new_model_calls': 0, 'weights_loaded': False,
-              'T2_BF16_max_absolute_nominal_delta_error': max(t2),
-              'T3_BF16_max_image_axis_error_deg': max(max(a['PCA_error_deg'], a['edge_OLS_error_deg']) for a in axes),
-              'interpretation': 'Observed deployed-input measurements, not source-label corrections or learned-feature error bounds.'}
-    atomic_json(dest/'summary.json', result)
-    return result
+    identity = calibration_identity(manifest_path, manifest, model_key, model_root, cosmos_package)
+    with (dest/'.calibration.lock').open('a+b') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        if calibration_ready(output_dir, model_key, identity, manifest, ready):
+            return json.loads((dest/'summary.json').read_text())
+        with ProcessorSession(model_key, model_path, cosmos_package) as session:
+            records = []
+            for row in representatives(manifest):
+                key, sid = state_key(row), row['sample_id']
+                while sid not in ready:
+                    time.sleep(input_poll_seconds)
+                    ready = catalog.refresh()
+                binding = digest({'row': row, 'ready': ready[sid]})
+                path = dest/(key+'.json')
+                if path.exists():
+                    record = json.loads(path.read_text())
+                    if (record['identity'] != identity or record['sample_id'] != sid
+                            or record['state_key'] != key or record.get('row_identity') != binding
+                            or record['source_parameters'] != row['source_parameters']):
+                        raise ValueError('Calibration cache input identity changed; preserve the old evidence')
+                else:
+                    prepared = session.prepare(row, ready[sid], assets)
+                    pixels = prepared['pixels'].to(torch.bfloat16)
+                    rgb = restore_processor_rgb(pixels, prepared['processor'], prepared['source_codes'], model_key)
+                    record = {'identity': identity, 'state_key': key, 'sample_id': sid,
+                              'row_identity': binding, 'ready_identity': digest(ready[sid]),
+                              'source_parameters': row['source_parameters'], 'input_receipt': prepared['input_receipt'],
+                              'BF16_measurement': image_measurement(row, prepared['source_codes'], rgb),
+                              'new_model_calls': 0}
+                    atomic_json(path, record)
+                    del prepared, pixels, rgb
+                    gc.collect()
+                records.append(record)
+                ready = catalog.refresh()
+        t2 = [r['BF16_measurement']['absolute_nominal_error'] for r in records if r['BF16_measurement']['task'] == 'T2']
+        axes = [a for r in records if r['BF16_measurement']['task'] == 'T3' for a in r['BF16_measurement']['axes']]
+        result = {'status': 'COMPLETE', 'identity': identity, 'unique_states': len(records),
+                  'records_sha256': digest(records), 'new_model_calls': 0, 'weights_loaded': False,
+                  'T2_BF16_max_absolute_nominal_delta_error': max(t2),
+                  'T3_BF16_max_image_axis_error_deg': max(max(a['PCA_error_deg'], a['edge_OLS_error_deg']) for a in axes),
+                  'interpretation': 'Observed deployed-input measurements, not source-label corrections or learned-feature error bounds.'}
+        atomic_json(dest/'summary.json', result)
+        return result

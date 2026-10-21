@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 from .manifest import atomic_json, digest, file_sha, validate_manifest
-from .storage import classify_output
+from .storage import classify_output, digest
 
 
 def journal(path):
@@ -150,6 +150,7 @@ def summarize(manifest_path, output_dirs, destination, require_complete=False):
     manifest_sha = file_sha(manifest_path)
     lookup = {r['sample_id']: r for r in manifest['rows']}
     records, events, sources, incomplete_tails, system_signatures = {}, [], [], [], {}
+    input_bindings = {}
     for root in dict.fromkeys(str(Path(x).resolve()) for x in output_dirs):
         for family in manifest['models']:
             directory = Path(root)/family
@@ -157,11 +158,14 @@ def summarize(manifest_path, output_dirs, destination, require_complete=False):
                 continue
             identity, raw, local_events, raw_tail, event_tail = model_snapshot(directory)
             from .inference import GENERATION
+            from .ready import INPUT_BINDING, validate_record
             if (identity['manifest_sha256'] != manifest_sha
                     or identity['protocol_id'] != manifest['protocol_id'] or identity['model_key'] != family
-                    or identity['generation'] != GENERATION or identity['model'] != manifest['models'][family]):
+                    or identity['generation'] != GENERATION or identity['model'] != manifest['models'][family]
+                    or identity.get('schema_version') != 2 or identity.get('input_binding') != INPUT_BINDING):
                 raise ValueError('Output identity differs from frozen protocol: '+str(directory))
-            binding = ('manifest_sha256', 'ready_sha256', 'model', 'generation', 'effective_resources',
+            binding = ('manifest_sha256', 'input_binding', 'ready_source_sha256', 'calibration_identity_sha256',
+                       'model', 'generation', 'effective_resources',
                        'checkpoint_assets', 'cosmos_package_sources', 'runtime_versions',
                        'runner_sha256', 'storage_sha256', 'all_row_ids_sha256')
             signature = {k: identity[k] for k in binding}
@@ -176,7 +180,20 @@ def summarize(manifest_path, output_dirs, destination, require_complete=False):
                 row = lookup.get(r['sample_id'])
                 if row is None or any(r.get(k) != row[k] for k in ('task', 'truth', 'source_parameters')):
                     raise ValueError('Output source/GT differs from the scientific row')
-                key = family, r['sample_id']
+                sid = r['sample_id']
+                row_binding = r.get('row_identity')
+                if not isinstance(row_binding, str) or len(row_binding) != 64:
+                    raise ValueError('Raw output lacks a frozen per-row input identity')
+                if sid in input_bindings and input_bindings[sid] != row_binding:
+                    raise ValueError('Different models/hosts consumed different ready videos for the same scientific row')
+                input_bindings[sid] = row_binding
+                receipt = r.get('ready_record')
+                if not isinstance(receipt, dict):
+                    raise ValueError('Version2 raw output requires its full immutable ready receipt')
+                validate_record(row, receipt)
+                if row_binding != digest({'row': row, 'ready': receipt}) or r.get('ready_identity') != digest(receipt):
+                    raise ValueError('Raw per-row ready receipt differs from its persisted identity')
+                key = family, sid
                 if key in records and records[key] != r:
                     raise ValueError('Two distinct durable answers for one model/ID')
                 records[key] = r
