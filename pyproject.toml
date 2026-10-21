@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "classic-precision"
+version = "0.1.0"
+description = "Lossless visual psychophysics stimuli and finite four-model evaluation"
+requires-python = ">=3.11"
+dependencies = ["numpy>=1.26", "scipy>=1.11", "shapely>=2.0", "av>=14", "matplotlib>=3.8"]
+
+[project.optional-dependencies]
+download = ["huggingface-hub>=0.30"]
+test = ["pytest>=8"]
+
+[project.scripts]
+classic-precision = "classic_precision.__main__:main"
+
+[tool.setuptools]
+packages = ["classic_precision"]
+
+[tool.setuptools.package-data]
+classic_precision = ["protocol.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests/classic_precision"]

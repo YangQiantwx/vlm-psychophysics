@@ -1,0 +1,127 @@
+{
+  "status": "PASS_CODE_REVIEW_RUNTIME_PENDING",
+  "completed_utc": "2026-10-21T07:32:34.593524+00:00",
+  "protocol_id": "97ff9a0642428066ac405a2857d5e5bf3a2ac32ab105ad14e9de883f63d3c74e",
+  "source_sha256": {
+    "classic_precision/__init__.py": "7a57382341795581f8f4e7b30ebfaf8c15ff2d9c19b8b86a427c54d99d7b83a3",
+    "classic_precision/__main__.py": "806019d1905efd749e2a6891978043ee88131a5901ceaae5f31def2e43acc9d6",
+    "classic_precision/calibration.py": "0dff3380117299816a2b88fc26a95a0ad2f92974ff35991b8e697f65c80e9c64",
+    "classic_precision/inference.py": "831a39e181a5f7f9ad62c5d450bed48a89c0bf4cae8c04551172861299466b2c",
+    "classic_precision/manifest.py": "e33014c8b812c19ec6c14d6745f9d2a262491d5135fd2929aca125e10b939bcb",
+    "classic_precision/raster.py": "26dfe90097b64105aaed58e7b319dd63012fbca79f521fa89d1a4a5e3a614259",
+    "classic_precision/scheduler.py": "b5b6adb6e1426797dbd3103e25bd61eec70b40fc9f5001eeadff36da479391e3",
+    "classic_precision/stimuli.py": "ebaba13d0cfc9874c4e3a7afd28c09f9ee7cf489f2eeae8cac30b3ed041204a0",
+    "classic_precision/storage.py": "54a4f303546085235c222bb95ca5127df8e5477dfc00b924fb7ab64fd17a25b8",
+    "classic_precision/summary.py": "bb52d981a98dac6ced2362faac4907b7f375d8a87a02ef3ee674b0e59517e295",
+    "classic_precision/verify.py": "fb2027630f523917f2581ebc88b5bb0cd66848591df988179accc6332d65de43",
+    "classic_precision/protocol.json": "188762caf2bae60b6dd52e8be6046387ca10d1eba6045f3f6624a4985d45827c",
+    "tests/classic_precision/test_production.py": "a3619a881f9b5a28afa368eee57499bf52e6fb3c483028c5d1bc937b2e798852",
+    "pyproject.toml": "a5c3f18cf8131290ef487c8f1b113f6bb3634bac7d7e8c23d4c56844251fdb65"
+  },
+  "scientific_denominators": {
+    "T2_main_500ms": 1872,
+    "T2_control_167ms": 432,
+    "T2_total": 2304,
+    "T3_total": 1200,
+    "unique_scientific_rows_per_model": 3504,
+    "four_model_unique_answer_target": 14016,
+    "unique_source_states": 128,
+    "T2_cell_rows": 48,
+    "T3_cell_rows_angles_below90": 96,
+    "T3_cell_rows_90deg": 48,
+    "T3_left_right_pairs_per_angle_below90": 48,
+    "T3_left_right_pairs_90deg": 24,
+    "T2_matched_duration_pairs_per_model": 432,
+    "shards": 3,
+    "rows_per_model_per_shard": 1168
+  },
+  "retry_semantics": {
+    "max_persisted_attempts_per_scientific_row": 2,
+    "retry_eligible": "No durable raw output after an initial failed/interrupted attempt; one retry only, counted across restarts. An INFLIGHT attempt includes preparation and need not prove an actual model call.",
+    "terminal_raw": "Any durable raw response, including incorrect, length and invalid responses, is retained once and never regenerated.",
+    "scoring": "Length/abort never score a choice; unfinished/exhausted rows remain missing, not removed from the scientific denominator.",
+    "complete_report": "Requires all four models at their exact scientific denominators, source/system bindings, no journal tails, and current per-attempt technical PASS."
+  },
+  "independent_local_validation": [
+    {
+      "check": "Source numerical grid, performed once before migration; unchanged raster function ASTs verified equal",
+      "T3_geometries": 52,
+      "T3_max_analytic_vs_GEOS_coverage_error": 2.696731726814505e-13,
+      "T3_max_area_error_px2": 3.3651303965598345e-11,
+      "T3_PCA_max_error_deg": 5.390341375743901e-05,
+      "T3_PCA_MAE_deg": 1.734464299501654e-05,
+      "T3_blind_halfplane_max_error_deg": 3.4646782864911074e-06,
+      "T3_blind_halfplane_MAE_deg": 9.902803308993778e-07,
+      "T3_quantization_interval_fits": "all checked configurations feasible",
+      "T2_unique_BG_delta_states_checked": 39,
+      "T2_core_max_deltaY_error": 2.2640951459651504e-05,
+      "T2_regression_max_deltaY_error": 2.2165243031391224e-05,
+      "T2_changed_outside_target": 0,
+      "T2_boundary_quadrature_max_error": 1.2789769243681803e-12,
+      "T3_uint16_signed_mirror_and_90deg_dedup": "PASS"
+    },
+    {
+      "check": "Local PyAV RGB48 colored temporal sentinel",
+      "result": "Exact uint16 FFV1 gbrp16le to rgb48le round trip; maximum channel-code error 0. This is local codec evidence, not a new workstation deployment certification."
+    },
+    {
+      "check": "Independent synthetic 14016-row aggregation fixture, followed only by relevant later delta checks",
+      "result": "Always-LEFT gives 1752/3504 per model; T2 48-row and T3 96/48-row cells; T3 direction-pair denominators 48/24; 432 matched duration pairs; copied sources/cost deduplicated; length not scored; late technical failure blocks final; same-journal duplicate raw rejected; SDK and actual manifest-file identity drift rejected."
+    },
+    {
+      "check": "Raw durability and bounded retry fault fixtures",
+      "result": "Raw-present/results-missing reconstructs without generation. Initial failure and restart permits only attempt2; begin itself refuses attempt3; exhaustion persists; retry source drift rejected; durable length/invalid answers remain terminal; latest technical failure overrides earlier PASS. Current lease recovery ignores another active shard raw-to-receipt window while holding its own unresolved raw."
+    },
+    {
+      "check": "Worker qualification fixtures",
+      "result": "The predetermined T2 and T3 may be incorrect but must stop normally with raw exactly LEFT/RIGHT and real input receipt PASS. Length, whitespace/extra text, or missing receipt fails qualification without replacing the terminal raw."
+    },
+    {
+      "check": "Mock CPU calibration orchestration",
+      "result": "Exactly 128 unique states prepared; matching cache reused without new preparation; changed SDK identity rejected. No actual official processor 128-state calibration was executed."
+    },
+    {
+      "check": "Mock supervisor orchestration and real-journal progress fixtures",
+      "result": "Raw-complete alone is not completion; input PASS required; late failure revokes completion; version/source mismatch rejects; one no-answer failure starts one retry; a second failure never starts a third worker. These mocks launched no real subprocess/model/GPU."
+    },
+    {
+      "check": "Final syntax and frozen-source check",
+      "result": "All current production/test Python files AST-parse; inference/storage/scheduler SHA256 equal the implementation agent frozen hashes."
+    }
+  ],
+  "implementation_owner_test_evidence": {
+    "reported_by": "root and production_inference; distinguished from independent reviewer executions",
+    "root_pytest": "7 passed in 1.50s using existing qy -B -m pytest -q -p no:cacheprovider tests/classic_precision/test_production.py",
+    "execution_fault_tests": "Owner reported real child-process os._exit recovery, two-attempt budget and idempotent EXHAUSTED; mock all-model queue, no-INFLIGHT load failure stop, receipt/newline recovery and binding failures PASS."
+  },
+  "resolved_material_findings": [
+    "Durable raw as authoritative terminal state and reconstruction of derived results",
+    "Per-row persisted attempt budget across restart, no implicit raw resampling",
+    "Current GPU-forward/dtype/grid/180-frame/context checks and deterministic native-OFF exact-choice constraints",
+    "First predetermined T2/T3 qualification gate before ordinary worker rows",
+    "Source state cache SHA and unique geometry aggregation; ready-tail recovery",
+    "Manifest/source/GT and cross-host system-version bindings",
+    "Correct complete and pair denominators; no scoring truncated choice text",
+    "Supervisor technical receipt gate even when raw rows are complete",
+    "CPU calibration SDK/Cosmos/measurement-source cache identity",
+    "Lease-local receipt recovery avoids cross-shard transient false holds"
+  ],
+  "open_confirmed_code_blockers": [],
+  "runtime_boundary": {
+    "new_GPU_model_calls_by_this_review": 0,
+    "formal_production_model_calls_at_review": 0,
+    "actual_full_128_official_CPU_calibration_executed": false,
+    "complete_3504_production_ready_panel_certified_by_this_review": false,
+    "current_greedy_production_workers_executed": false,
+    "historical_v32_receipts": "Read as prior evidence for the input path only; not counted as current-protocol or current-greedy acceptance.",
+    "remaining_execution_checks": [
+      "Generate and verify the complete 3504 ready panel on the execution host.",
+      "Run each actual official CPU processor over all 128 unique states without loading model weights.",
+      "For every new model/shard worker, the first fixed T2 and T3 must pass actual input/native-OFF/budget receipts, normal stop and exact LEFT/RIGHT; only that worker then continues.",
+      "Current backend/checkpoint/CUDA/KV compatibility and free GPU/RAM are runtime checks; code review and local mocks do not certify them."
+    ],
+    "identity_limit": "Checkpoint identity binds small processor/tokenizer/config/code files and weight-shard byte sizes; it is not a full hash of all weight tensors."
+  },
+  "interpretation": "No confirmed code blocker remains within the reviewed scope. This is a bounded code review and local verification record, not a guarantee of bug absence or a completed scientific inference panel.",
+  "review_method": "Independent code review plus CPU source/codec/restart/scoring fixtures. This is not a new full-model runtime certification."
+}

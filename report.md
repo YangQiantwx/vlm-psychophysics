@@ -1,0 +1,94 @@
+# Smoke findings · 16–20 October 2026
+
+This is the consolidated experiment log. Counts describe completed historical inputs, not files still on disk. These exploratory results explain the current protocol; they do not authorize a queue or become answers for newly rendered videos. T1 is deferred. The new RGB16 T2/T3 production curve has **not started**.
+
+## Prompt length and native thinking
+
+The matched five-task pilot contained 36 inputs per model per arm (four arms, 288 observations across two models). Qwen Next scored long+ON 18/36, short+ON 25/36, long+OFF 30/36 and short+OFF 26/36. Nemotron scored 26/36, 27/36, 26/36 and 27/36. Neither prompt length nor thinking mode was a consistent winner.
+
+Qwen's normal-stop, closed-thinking final responses violated the single-label format in 15/36 long+ON and 6/36 short+ON cases. These are format failures, not proof of incorrect visual judgments. Nemotron followed the format in this pilot. The early T4 6/6 result used a single small layout panel, not a stable population result.
+
+**Decision:** fixed long prompts, native thinking OFF, uniform greedy/seed 0, and actual LEFT/RIGHT constrained decoding. This improves experimental control; it is not a claim that longer prompts or OFF universally improve ability. The historical unconstrained and sampled answers remain separate.
+
+## T1: perfect pairs did not survive phase expansion
+
+On the same 3,840 videos (8 SFs × 10 contrasts × 24 phases × LEFT/RIGHT), Qwen Next scored **1,951/3,840 (50.8%)**, and Nemotron **1,936/3,840 (50.4%)**. Their RIGHT answer counts were 2,781 and 3,542. Near-chance accuracy therefore does not mean unbiased guessing.
+
+The independent earlier Next contrast-1 screen used 13 phases × two directions per SF. SF2/4/8/16/32/64 scored 18/26, 12/26, 13/26, 14/26, 16/26 and 13/26; SF0.5 scored 16/26 in another panel. The original phase-zero 2/2 answers are already inside these denominators. No candidate passed the preregistered 24/26 criterion with at least 12/13 in each direction. Changing wording gave 14/26 and 13/26 versus the original 18/26 at the same SF2 point. Phase alignment and temporal-frequency probes produced local differences, without a stable high-accuracy region.
+
+**Lesson:** use multiple predetermined instances per configuration and report direction bias. Do not select phases after scoring, call a single correct pair a threshold, or force a monotonic curve. No new T1 full run or 16-bit bridge is authorized by the current codebase.
+
+## T2: a reproducible transition, with exposure dependence
+
+The old complete curve contained 6,624 answers over 23 increments; an independent three-increment supplement added 864, for 7,488 distinct historical inputs. The original baseline pairs were (background Y, initial dot Y) = (.05,.15), (.20,.30), (.40,.50), fixing dot−background at .10. Both 167 ms and 500 ms used 24 onsets and two target sides.
+
+Each pooled point below contains 144 videos (3 baseline pairs × 24 onsets × two sides).
+
+| Absolute increment ΔY | 167 ms correct/144 | 500 ms correct/144 |
+| --- | ---: | ---: |
+| .07 | 72 | 75 |
+| .08 | 77 | 87 |
+| .085 | 87 | 107 |
+| .09 | 107 | 127 |
+| .095 | 127 | 136 |
+| .10 | 131 | 140 |
+| .105 | 140 | 142 |
+| .11 | 142 | 144 |
+| .12 | 144 | 144 |
+
+The supplement scored 739/864; its paired 500 ms results won 36 and lost 5 relative to 167 ms. Weak-signal answers were LEFT-biased. The brightening was a local, temporary event; the whole video was never globally brightened.
+
+**Decision:** the new design fixes initial dot Y=.50 across all three backgrounds, separates nominal and encoded increments, uses 13 levels .05–.15 in .01 steps plus .20/.40, and fixes 500 ms for the main curve. A small matched 167 ms control at .08/.09/.10 tests the exposure effect. This is a new baseline policy, so old answers cannot fill its new curve. The 167 ms setting was an engineering inheritance, not a claimed universal human protocol.
+
+## T3: angle sensitivity is real, but the renderer must be certified
+
+The historical padded renderer was evaluated at 21 angles, 1,968 videos: angles ≤1° scored 528/1,056; 1.5° scored 43/96; 2° scored 78/96; tested 4°–90° scored 720/720. An older unpadded renderer scored 89/96 at 1° and 96/96 at 2° under matched choice decoding. These are different rasterizations, not repeated answers for identical videos. Very small old angles could collapse to identical pixels.
+
+Linux precision validation compared analytic area integration, independent polygon clipping, CUDA supersampling and actual Psychtoolbox Screen readback (660 captures), retaining failed and negative cases. The published Manson FilterBox rasterizer was also run: on 52 shared geometries, its coverage differed from the analytic implementation by at most 2.5531e−13; their final RGB16 pixels were identical. This supports the drawing algorithm, not a universal bound on model preprocessing.
+
+The current source-grid audit uses 52 unique geometries, including both centers and the upright reference once per geometry. Source RGB16 angle errors were: covariance/PCA MAE 0.000017345° and maximum 0.000053903°; independent blind half-plane fit MAE 0.000000990° and maximum 0.000003465°. The fit is not supplied the target angle. Analytic strip coverage and GEOS polygon clipping agreed within 2.697e−13 in this grid. These are source-image checks; the new full model curve has not run.
+
+**Decision:** exact area rasterization, one RGB16 quantization, and independent geometric plus image-based checks. Use a fixed 13-angle grid .5/1/1.5/2/2.5/3/3.5/4/8/16/32/45/90°, balanced side/sign/onset, with 90° symmetry deduplicated.
+
+## T4: layout and answer bias remain unresolved
+
+With strict zero overlap over 180 frames, a regular-layout endpoint panel used 120 videos. N15 classic/photo/GPT scored 15/20, 14/20, 15/20; N30 scored 10/20, 10/20, 17/20. A 60-video irregular-layout follow-up scored 10/20, 10/20 and 15/20; changing layout did not restore a reliable high endpoint. Radius and speed diagnostics also did not recover one. An endpoint-wrap hypothesis explained a physical possibility, not the main error pattern.
+
+The latest ordered-first/last-image experiment used N15/20/25/30 × 8 coherence levels × 24 constrained-random layouts × LEFT/RIGHT = 1,536 cases. Nemotron scored **801/1,536**, with **1,503 RIGHT** answers. At 100% coherence, the four N settings scored 30/48, 25/48, 27/48 and 28/48. These are two-image results, not full-video results. Signal-horizontal counts and noise angles must be specified; rejection for zero overlap creates conditioned randomness, not unconstrained independent positions.
+
+**Lesson:** preserve T4 originals, distinguish correspondence/visibility from answer bias, and do not generalize an early 6/6 layout. T4 is outside the new T2/T3 production run.
+
+## T5: mask retained, mode changes often shift bias
+
+On the same 84 masked inputs (42 present, 42 absent), Nemotron medium scored 55/84: hit 41/42, false alarm 28/42. High/full scored 50/84: hit 41/42, false alarm 31/42 and two length failures. OFF scored 43/84 under explicit-final scoring: hit 1/42, false alarm 0/42, YES 1/NO 83. Its original strict score was 42/84 because one response had extra format text. High used a different physical placement, so this is not a fixed-host causal isolation.
+
+The dual-event protocol kept the PsyToolkit mask, 500 ms ISI, and equal event durations; changing duration also changed SOA and remaining mask time. Separate unmasked, single-event duration diagnostics scored 7/9, 9/9, 9/9 and 9/9 at 100/250/500/1000 ms. They cannot replace the masked task or isolate a mask effect by themselves. Short-mask and prompt/mechanism probes did not establish a reliable masked threshold.
+
+**Lesson:** report hits and false alarms, not accuracy alone. More YES responses are not evidence of restored detection. T5 replacement ideas are still proposals, not a completed result or a new production queue.
+
+## Static controls and engineering
+
+The first image-control batch scored T2 41/60, T3 38/38 and T4 515/956. At 100% T4 coherence, N15 image/video was 33/48 versus 34/48; N30 was 39/48 versus 25/48. This small matched control does not establish a general static/video ranking. VideoJev 4B scored 6/12; 35B scored 126/252 with every answer LEFT.
+
+Independent video requests in batching windows 1 and 2 took 42.468 and 41.978 seconds for four inputs, about 1.17% difference. That did not justify default batching. Requests must retain independent contexts and output identities.
+
+## Source precision and the four-model input path
+
+Four models completed two actual GPU input-qualification calls each on the same RGB16 samples. This was eight technical checks, not eight correct answers or a complete curve. RGB48 decode and FP32 arrays preserved all original uint16 codes through the official processor before BF16 conversion; frame count remained 180, with no external resize. Gemma needed only 16 background rows at the bottom. Other model weights and original failures were retained.
+
+| Source point | Nemo BF16 error | Qwen BF16 error | Cosmos BF16 error | Gemma BF16 error |
+| --- | ---: | ---: | ---: | ---: |
+| ΔY=.09, absolute increment error | .000924 | .001281 | .001281 | .003468 |
+| ΔY=.10, absolute increment error | .001331 | .001448 | .001448 | .000034 |
+| .5°, maximum image-axis error | .000279° | .000487° | .000487° | .000731° |
+| 1°, maximum image-axis error | .000290° | .000250° | .000250° | .000506° |
+
+These are measured points, not global bounds. Native file loaders decoded these 16-bit masters into uint8; at nominal ΔY=.09, decode alone produced about .094315. Our explicit RGB48 decoder prevents that avoidable early quantization. BF16 rounding remains part of the deployed model; it is value-dependent and must not be corrected by changing labels or tuning input values to model accuracy.
+
+**Reason to retain the official processor:** normalization, patchification and token assembly define the pretrained input contract. The adapter preserves the source before that contract; it does not redesign the vision encoder. Float stimuli rather than uint8 quantization also have a low-level vision precedent in [Cai et al., CVPR 2025](https://arxiv.org/html/2502.20256v2#S3.SS1), which studied foundation image encoders and does not certify VLM BF16 precision.
+
+## Retention and reproduction
+
+Current production source and settings: [README](README.md) and [protocol](EXPERIMENT_PLAN.md). The new source is in `classic_precision/`; no formal new model calls have run. Historical formal trials are compacted with complete fields and raw/token IDs, rather than aggregate-only replacement. The private workspace’s `archive_index.json` records retained gzip bundles and verified reconstruction. `archive/history.py` verifies and restores them into an empty destination. T4 originals and the latest precision/input evidence remain separate.
+
+One-off smoke media, proxy frames and loose input receipts are retired when rebuildability or full-field conversion is verified. This log retains scientific findings and lessons; it is not a mirror of every failed scratch directory. Private meetings, source photographs/cutouts, model weights, environments and active website assets are protected.
