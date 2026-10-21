@@ -31,3 +31,13 @@ if "CLASSIC_PRECISION_DEFER_MODELS" in os.environ:
             os.write(2, ("Classic precision queue override refused: " + str(error) + "\n").encode())
         finally:
             os._exit(78)
+
+if "CLASSIC_PRECISION_NEMO_DUMMY_CONFIG_COMPAT" in os.environ:
+    try:
+        from classic_precision_nemo_config_compat import install as install_nemo_config
+        install_nemo_config()
+    except BaseException as error:
+        try:
+            os.write(2, ("Classic precision Nemo config override refused: " + str(error) + "\n").encode())
+        finally:
+            os._exit(78)

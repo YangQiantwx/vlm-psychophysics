@@ -30,6 +30,8 @@ For the reviewed `04a2d52` runner with vLLM hybrid KV groups, the optional `runt
 
 For a separately reviewed Qwen residency adjustment, `CLASSIC_PRECISION_QWEN_CPU_OFFLOAD_GB=16` opts into the resource helper; exact values `12`, `16`, and `24` are supported. It changes only the pinned loader's expert CPU offload budget; Engram placement, precision, inputs and generation stay unchanged. Without this variable the original loader is used. `MODEL_LOADED.settings` records the actual budget and `RUNTIME_RESOURCE_OVERRIDE` records helper/base/AST identities. The production resource recovery enables this only on Radon; Fourier retains its existing 24 GiB budget. Keep each launch and measure actual memory and throughput after restarting the owned worker.
 
+For vLLM 0.31 model-type discovery, `CLASSIC_PRECISION_NEMO_DUMMY_CONFIG_COMPAT=1` allows only its exact native Nemotron dummy config to pass the geometry callback unchanged. Actual Nemo configurations still call the original pinned geometry function, preserving the 1,536-patch/aspect-ratio settings; the compatibility layer loads no model and does not alter SDK files.
+
 For an operator-authorized Gemma deferral, `CLASSIC_PRECISION_DEFER_MODELS=gemma` filters only queue selection and prioritizes remaining Cosmos, Nemo, then Qwen while retaining the original GPU/RAM admission checks. Existing answers and the four-model manifest stay intact; when only Gemma remains, supervisors wait and identify the deferred model rather than claiming full completion.
 
 ```bash
