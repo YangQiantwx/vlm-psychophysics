@@ -21,3 +21,13 @@ if "CLASSIC_PRECISION_QWEN_CPU_OFFLOAD_GB" in os.environ:
             os.write(2, ("Classic precision resource override refused: " + str(error) + "\n").encode())
         finally:
             os._exit(78)
+
+if "CLASSIC_PRECISION_DEFER_MODELS" in os.environ:
+    try:
+        from classic_precision_queue_compat import install as install_queue
+        install_queue()
+    except BaseException as error:
+        try:
+            os.write(2, ("Classic precision queue override refused: " + str(error) + "\n").encode())
+        finally:
+            os._exit(78)
