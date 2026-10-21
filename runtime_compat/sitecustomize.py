@@ -11,3 +11,13 @@ if os.environ.get("CLASSIC_PRECISION_KV_COMPAT") == "1":
             os.write(2, ("Classic precision KV compatibility refused: " + str(error) + "\n").encode())
         finally:
             os._exit(78)
+
+if "CLASSIC_PRECISION_QWEN_CPU_OFFLOAD_GB" in os.environ:
+    try:
+        from classic_precision_vllm_resource_compat import install as install_resources
+        install_resources()
+    except BaseException as error:
+        try:
+            os.write(2, ("Classic precision resource override refused: " + str(error) + "\n").encode())
+        finally:
+            os._exit(78)
