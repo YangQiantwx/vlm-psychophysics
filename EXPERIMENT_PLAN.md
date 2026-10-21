@@ -1,6 +1,6 @@
 # T2 / T3 · 当前唯一生产协议
 
-**状态：代码准备与独立审核；全量尚未启动。** 本轮共3,504个独立刺激，四模型各回答一次，计划14,016条独立答案。意外没有完整答案的刺激最多重试一次；实际尝试数另记。旧T2/T3回答不填入新曲线；T1暂不重做。机器配置以 `classic_precision/protocol.json` 为准，执行前冻结 `manifest.json`。
+**状态：生产协议已冻结；当前进度以生产registry.execution和LATEST为准。** 本轮共3,504个视频条目，四模型各回答一次，计划14,016条唯一答案。意外没有完整答案的刺激最多重试一次；实际尝试数另记。旧T2/T3回答不填入新曲线；T1暂不重做。机器配置以 `classic_precision/protocol.json` 为准，执行前冻结 `manifest.json`。
 
 ## 1. 固定视频规格
 
@@ -63,7 +63,7 @@ T3还从最终像素反测角度：①亮度恢复后的二阶矩/PCA；②不�
 | T3 RGB16源图 | 两个图像估计器各自MAE<.0002°，且每个几何误差<.001° |
 | 编码后 | 全180帧解码成uint16，与对应源图逐值完全相同，最大码值误差0；PTS误差≤1ms |
 | RGB48→FP32入口 | 不丢帧、不变尺寸、不转uint8；反算回uint16最大码值误差0 |
-| 官方processor的FP32阶段 | 每个唯一状态检查反排/反归一化回码0；真实GPU worker首2再核实际引擎入口 |
+| 官方processor内BF16转换之前 | 每个唯一状态检查反排/反归一化回码0；Nemo在原生归一化函数内检查FP32阶段，其余模型检查FP32输出；真实GPU worker首2再核实际引擎入口 |
 | BF16之后 | 测量并报告实际增量/轴估计误差，不设虚假的全模型.001亮度保证，不改GT补偿模型 |
 
 已完成的当前源网格独立审核：T2核心最大误差约.000022641；T3 PCA MAE/最大误差约.000017345°/.000053903°，盲半平面约.000000990°/.000003465°。这不是尚未生成的3,504个编码文件或四模型全网格的完成声明。
@@ -74,18 +74,22 @@ T3还从最终像素反测角度：①亮度恢复后的二阶矩/PCA；②不�
 
 共同入口：**FFV1 RGB16 → RGB48 uint16解码 → FP32×255/65535 → 官方processor → BF16视觉张量 → 原模型**。明确输入解码器替换为无损RGB48；不修改官方归一化、patch打包或网络。使用公开尺寸/帧数配置关闭resize和抽帧。Nemo配置1536视觉patch及保持比例；Gemma只在底部补16行同背景至768×528，原768×512区域不变。
 
-| 模型 | 权重 | 特有内存设置 |
-| --- | --- | --- |
-| Nemotron 3.5 Super | 官方NVFP4混合checkpoint | BF16 KV 2GiB |
-| Qwen Next | 官方NVFP4混合checkpoint | BF16 KV 4GiB；原n-gram与24GiB experts CPU offload |
-| Cosmos3-Super | BF16 understanding/Reasoner | 官方兼容shim及SDPA |
-| Gemma4-31B | BF16 | 官方KV offload；仅补边 |
+| 模型 | 权重 | processor视觉输出（已校准） | 特有内存设置 |
+| --- | --- | --- | --- |
+| Nemotron 3.5 Super | 官方NVFP4混合checkpoint | BF16；内部FP32归一化 | BF16 KV 2GiB |
+| Qwen3.8 Next | 官方NVFP4混合checkpoint | FP32 | BF16 KV 4GiB；原n-gram CPU路径；专家CPU offload默认24GiB，本轮Radon经独立资源兼容层调整为16GiB，Fourier保留24GiB |
+| Cosmos3-Super | BF16 understanding/Reasoner | FP32 | 官方兼容shim及SDPA |
+| Gemma4-31B | BF16 | FP32 | 官方KV offload；仅补边 |
 
 精确repo/revision写在protocol.json，复用现有权重。不能把输入16bit、视觉激活BF16和权重NVFP4混为一谈。
+
+Nemotron使用已锁定vLLM原生`NanoNemotronVLProcessor`的视频ndarray路径：`torch.from_numpy(video)`保留FP32，经原生归一化输出BF16，不经过其PIL图片的uint8分支。其余三模型使用各自已锁定的Transformers processor，FP32输出在实际模型路径转为BF16。两端四模型各128状态均已完成CPU校准：BF16前回码误差0，Nemo实际BF16输出与直接FP32归一化后转BF16的差为0。每个新GPU worker仍以本轮首次真实T2/T3回执验收；当前完成情况见registry，不由CPU校准代替。
 
 共同生成：native thinking OFF、seed0、greedy。vLLM温度0/top_p1；HF do_sample=False/num_beams1；repetition_penalty1；输出上限16,384、上下文上限65,536。实际样例输入约33,447–37,491 tokens，未填满或截断到65,536。输出必须使用真正的vLLM `StructuredOutputsParams(choice=['LEFT','RIGHT'])`，或HF等价的标签token前缀+EOS约束；只写prompt不算约束。约束改变允许的输出集合，因此旧无约束成绩不混入新曲线。
 
 保留官方processor的理由：它定义预训练模型所期待的数值尺度、归一化和token组织。改这一部分会把“评估模型”变成另一套输入系统。高精度解码只移除进入这一约定之前可避免的8bit舍入，BF16仍按模型部署行为记录。官方支持[已解码视频数组与帧数配置](https://huggingface.co/docs/transformers/en/main_classes/video_processor)；[Cai等CVPR2025](https://arxiv.org/html/2502.20256v2#S3.SS1)也为低层视觉测量使用float输入避免uint8量化，但其image-encoder实验不替我们的VLM结果作精度保证。
+
+本轮测量目标是：在统一的高保真视频输入、完整帧序列和固定二选一回答条件下，测得各固定版本完整模型的亮度与角度辨别曲线。RGB48解码、保留180帧及关闭resize属于预先固定的实验输入控制；模型原生归一化、patch/token组织、网络、官方权重格式及现有BF16计算路径均保留。结果表同时提供源刺激参数、各模型实际入模信号误差与推理配置，作为该配置下的能力规格。当前决策是继续既有生产，不按得分改processor、升降计算精度、补偿刺激或重抽完整答案。本次文档澄清不改变protocol.json、manifest、推理源码或已经产生的结果。
 
 历史实际单点：ΔY=.09在四模型BF16后的绝对误差约.000924/.001281/.001281/.003468；ΔY=.10则约.001331/.001448/.001448/.000034。0.5°两图像轴估计器最大误差约.000279/.000487/.000487/.000731°。说明BF16误差随数值变化，不能从一个点推全网格，也不能按模型分数选择补偿值。先生成128个唯一状态的代表视频后运行 `calibrate`，每模型做一次实际官方CPU处理；其余视频继续并行生成。校准不加载权重或额外问模型。
 

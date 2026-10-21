@@ -28,6 +28,8 @@ The previously qualified Linux SDK recorded torch 2.13.0, transformers 5.17.0, n
 
 For the reviewed `04a2d52` runner with vLLM hybrid KV groups, the optional `runtime_compat/` layer reads capacity from vLLM's initialized, group-aware native API. Enable it only for the owned run with `CLASSIC_PRECISION_KV_COMPAT=1` and prepend `runtime_compat` plus this repository to `PYTHONPATH`. The original runner must match its pinned SHA or startup exits with code 78. This changes only `_kv_capacity`; the existing 65,536-token gate, scientific inputs, generation and calibration remain unchanged. Capacity receipts record the compatibility layer, original runner and installed native helper SHA values. Verify the installed SDK separately and require actual worker first-two acceptance. The existing local-function RPC probes also require `VLLM_ALLOW_INSECURE_SERIALIZATION=1` in these trusted local processes; do not apply it globally or expose an untrusted RPC service.
 
+For a separately reviewed Qwen residency adjustment, `CLASSIC_PRECISION_QWEN_CPU_OFFLOAD_GB=16` opts into the resource helper; exact values `12`, `16`, and `24` are supported. It changes only the pinned loader's expert CPU offload budget; Engram placement, precision, inputs and generation stay unchanged. Without this variable the original loader is used. `MODEL_LOADED.settings` records the actual budget and `RUNTIME_RESOURCE_OVERRIDE` records helper/base/AST identities. The production resource recovery enables this only on Radon; Fourier retains its existing 24 GiB budget. Keep each launch and measure actual memory and throughput after restarting the owned worker.
+
 ```bash
 python -B -m pytest -q -p no:cacheprovider tests/classic_precision
 python -B -m classic_precision --help
