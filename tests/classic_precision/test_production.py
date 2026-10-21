@@ -100,6 +100,35 @@ def test_shared_gpu_admission_is_by_actual_capacity():
     assert choose_model(all_models, specs, {'free_gpu_gib': 60, 'available_ram_gib': 100}) is None
 
 
+def test_checkpoint_identity_uses_exact_nested_index_shards(tmp_path):
+    from classic_precision.inference import checkpoint_asset_identity
+    checkpoint = tmp_path/'indexed'
+    (checkpoint/'transformer').mkdir(parents=True)
+    (checkpoint/'vision_encoder').mkdir()
+    first = checkpoint/'transformer/part.safetensors'
+    second = checkpoint/'vision_encoder/model.safetensors'
+    first.write_bytes(b'first')
+    second.write_bytes(b'second')
+    index = checkpoint/'model.safetensors.index.json'
+    index.write_text(json.dumps({'weight_map': {
+        'layer.a': 'transformer/part.safetensors',
+        'layer.b': 'transformer/part.safetensors',
+        'vision': 'vision_encoder/model.safetensors'}}))
+    assert checkpoint_asset_identity(checkpoint)['weight_shard_bytes'] == {
+        'transformer/part.safetensors': 5, 'vision_encoder/model.safetensors': 6}
+    second.unlink()
+    with pytest.raises(ValueError, match='shard is missing'):
+        checkpoint_asset_identity(checkpoint)
+    for escaped in ('../outside.safetensors', '/absolute.safetensors'):
+        index.write_text(json.dumps({'weight_map': {'layer': escaped}}))
+        with pytest.raises(ValueError):
+            checkpoint_asset_identity(checkpoint)
+    fallback = tmp_path/'unindexed'
+    fallback.mkdir()
+    (fallback/'model.safetensors').write_bytes(b'single')
+    assert checkpoint_asset_identity(fallback)['weight_shard_bytes'] == {'model.safetensors': 6}
+
+
 def test_one_retry_is_persistent_and_counted_separately(tmp_path):
     from classic_precision.storage import PersistenceError
     from classic_precision.summary import attempt_metrics, model_snapshot

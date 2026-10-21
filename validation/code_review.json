@@ -1,12 +1,12 @@
 {
   "status": "PASS_CODE_REVIEW_RUNTIME_PENDING",
-  "completed_utc": "2026-10-21T07:32:34.593524+00:00",
+  "completed_utc": "2026-10-21T07:42:55.775309+00:00",
   "protocol_id": "97ff9a0642428066ac405a2857d5e5bf3a2ac32ab105ad14e9de883f63d3c74e",
   "source_sha256": {
     "classic_precision/__init__.py": "7a57382341795581f8f4e7b30ebfaf8c15ff2d9c19b8b86a427c54d99d7b83a3",
     "classic_precision/__main__.py": "806019d1905efd749e2a6891978043ee88131a5901ceaae5f31def2e43acc9d6",
     "classic_precision/calibration.py": "0dff3380117299816a2b88fc26a95a0ad2f92974ff35991b8e697f65c80e9c64",
-    "classic_precision/inference.py": "831a39e181a5f7f9ad62c5d450bed48a89c0bf4cae8c04551172861299466b2c",
+    "classic_precision/inference.py": "c82eea34cc4fda822a1056f24cae74cca70beaa6940d7067ca5e02b1bf4f57a4",
     "classic_precision/manifest.py": "e33014c8b812c19ec6c14d6745f9d2a262491d5135fd2929aca125e10b939bcb",
     "classic_precision/raster.py": "26dfe90097b64105aaed58e7b319dd63012fbca79f521fa89d1a4a5e3a614259",
     "classic_precision/scheduler.py": "b5b6adb6e1426797dbd3103e25bd61eec70b40fc9f5001eeadff36da479391e3",
@@ -15,7 +15,7 @@
     "classic_precision/summary.py": "bb52d981a98dac6ced2362faac4907b7f375d8a87a02ef3ee674b0e59517e295",
     "classic_precision/verify.py": "fb2027630f523917f2581ebc88b5bb0cd66848591df988179accc6332d65de43",
     "classic_precision/protocol.json": "188762caf2bae60b6dd52e8be6046387ca10d1eba6045f3f6624a4985d45827c",
-    "tests/classic_precision/test_production.py": "a3619a881f9b5a28afa368eee57499bf52e6fb3c483028c5d1bc937b2e798852",
+    "tests/classic_precision/test_production.py": "a52532456b4c485c0a93d3e33bfcd601e3f52f147ab68b4e1de4847d68e8cbc6",
     "pyproject.toml": "a5c3f18cf8131290ef487c8f1b113f6bb3634bac7d7e8c23d4c56844251fdb65"
   },
   "scientific_denominators": {
@@ -91,7 +91,7 @@
   ],
   "implementation_owner_test_evidence": {
     "reported_by": "root and production_inference; distinguished from independent reviewer executions",
-    "root_pytest": "7 passed in 1.50s using existing qy -B -m pytest -q -p no:cacheprovider tests/classic_precision/test_production.py",
+    "root_pytest": "8 passed in 1.96s in existing qy after the indexed nested-weight identity regression; root-reported execution.",
     "execution_fault_tests": "Owner reported real child-process os._exit recovery, two-attempt budget and idempotent EXHAUSTED; mock all-model queue, no-INFLIGHT load failure stop, receipt/newline recovery and binding failures PASS."
   },
   "resolved_material_findings": [
@@ -104,7 +104,8 @@
     "Correct complete and pair denominators; no scoring truncated choice text",
     "Supervisor technical receipt gate even when raw rows are complete",
     "CPU calibration SDK/Cosmos/measurement-source cache identity",
-    "Lease-local receipt recovery avoids cross-shard transient false holds"
+    "Lease-local receipt recovery avoids cross-shard transient false holds",
+    "Checkpoint index weight_map now binds deduplicated nested shard paths and byte sizes and rejects missing referenced files; root-level glob remains only the unindexed fallback."
   ],
   "open_confirmed_code_blockers": [],
   "runtime_boundary": {
@@ -120,7 +121,7 @@
       "For every new model/shard worker, the first fixed T2 and T3 must pass actual input/native-OFF/budget receipts, normal stop and exact LEFT/RIGHT; only that worker then continues.",
       "Current backend/checkpoint/CUDA/KV compatibility and free GPU/RAM are runtime checks; code review and local mocks do not certify them."
     ],
-    "identity_limit": "Checkpoint identity binds small processor/tokenizer/config/code files and weight-shard byte sizes; it is not a full hash of all weight tensors."
+    "identity_limit": "Checkpoint identity hashes small processor/tokenizer/config/code/index files and records byte sizes for all deduplicated index-referenced relative weight shard paths, including nested shards; unindexed checkpoints use root safetensors. This is not a full hash or model-load validation of weight tensors."
   },
   "interpretation": "No confirmed code blocker remains within the reviewed scope. This is a bounded code review and local verification record, not a guarantee of bug absence or a completed scientific inference panel.",
   "review_method": "Independent code review plus CPU source/codec/restart/scoring fixtures. This is not a new full-model runtime certification."

@@ -61,8 +61,22 @@ def checkpoint_asset_identity(path):
     names.update(p.name for p in path.glob("*.py"))
     assets = {name: {"sha256": file_sha256(path / name), "bytes": (path / name).stat().st_size}
               for name in sorted(names) if (path / name).is_file()}
+    index = path / "model.safetensors.index.json"
+    if index.is_file():
+        weight_map = json.loads(index.read_text()).get("weight_map")
+        _require(isinstance(weight_map, dict) and bool(weight_map), "Checkpoint index has no weight_map")
+        _require(all(isinstance(value, str) and value for value in weight_map.values()), "Checkpoint shard paths must be nonempty strings")
+        shards = sorted({Path(value).as_posix() for value in weight_map.values()})
+    else:
+        shards = sorted(p.name for p in path.glob("*.safetensors"))
+    _require(bool(shards), "Checkpoint has no indexed or root-level safetensors weights")
+    weights = {}
+    for relative in shards:
+        shard = _inside(path, relative)
+        _require(shard.is_file(), "Indexed checkpoint shard is missing: " + relative)
+        weights[relative] = shard.stat().st_size
     return {"processor_tokenizer_config_and_code": assets,
-            "weight_shard_bytes": {p.name: p.stat().st_size for p in sorted(path.glob("*.safetensors"))}}
+            "weight_shard_bytes": weights}
 
 
 def _cosmos_package_identity(package):
