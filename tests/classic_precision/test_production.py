@@ -100,6 +100,116 @@ def test_shared_gpu_admission_is_by_actual_capacity():
     assert choose_model(all_models, specs, {'free_gpu_gib': 60, 'available_ram_gib': 100}) is None
 
 
+@pytest.mark.parametrize('native_capacity', [150593, 65536, 65535, 0])
+def test_kv_compat_uses_native_initialized_config_and_source_receipts(monkeypatch, native_capacity):
+    import hashlib
+    import sys
+    from types import ModuleType, SimpleNamespace
+    from classic_precision import inference
+    from runtime_compat import classic_precision_vllm_kv_compat as compat
+
+    original = inference._kv_capacity
+    block_sizes = [65536, 65536, 65536, 65536, 4, 1568]
+    initialized = SimpleNamespace(num_blocks=100, kv_cache_groups=[
+        SimpleNamespace(kv_cache_spec=SimpleNamespace(block_size=size))
+        for size in block_sizes])
+    vllm_config = SimpleNamespace(model_config=SimpleNamespace(max_model_len=65536))
+    worker = SimpleNamespace(vllm_config=vllm_config,
+        model_runner=SimpleNamespace(kv_cache_config=initialized),
+        cache_config=SimpleNamespace(num_gpu_blocks=999999, block_size=16))
+    native = ModuleType('vllm.v1.core.kv_cache_utils')
+    calls = []
+    def capacity(config, cache):
+        calls.append((config, cache))
+        return native_capacity, native_capacity / 65536
+    native.get_kv_cache_capacity = capacity
+    monkeypatch.setitem(sys.modules, native.__name__, native)
+
+    receipt = compat._kv_capacity(worker)
+    assert len(calls) == 1
+    assert calls[0][0] is vllm_config
+    assert calls[0][1] is initialized
+    assert receipt['num_gpu_blocks'] == 100
+    assert receipt['block_sizes'] == block_sizes
+    assert receipt['capacity_tokens'] == native_capacity
+    assert receipt['max_concurrency'] == native_capacity / 65536
+    from pathlib import Path
+    assert receipt['validation_compat_source_sha256'] == hashlib.sha256(Path(compat.__file__).read_bytes()).hexdigest()
+    assert receipt['base_runner_sha256'] == compat.BASE_RUNNER_SHA256
+    assert receipt['native_kv_helper_source_sha256'] == hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+    assert inference._kv_capacity is original  # Importing the helper is inert.
+
+
+def test_kv_compat_missing_config_and_native_failure_stay_unconfirmed(monkeypatch):
+    import sys
+    from types import ModuleType, SimpleNamespace
+    from runtime_compat import classic_precision_vllm_kv_compat as compat
+    native = ModuleType('vllm.v1.core.kv_cache_utils')
+    def capacity(config, cache):
+        raise ValueError('unconfirmed native capacity')
+    native.get_kv_cache_capacity = capacity
+    monkeypatch.setitem(sys.modules, native.__name__, native)
+    worker = SimpleNamespace(model_runner=SimpleNamespace(),
+        cache_config=SimpleNamespace(num_gpu_blocks=999999, block_size=16))
+    assert compat._kv_capacity(worker)['capacity_tokens'] is None
+    worker.vllm_config = SimpleNamespace()
+    worker.model_runner.kv_cache_config = SimpleNamespace(num_blocks=999999, kv_cache_groups=[])
+    with pytest.raises(ValueError, match='unconfirmed native capacity'):
+        compat._kv_capacity(worker)
+
+
+def test_kv_compat_process_opt_in_changes_only_capacity_reader(tmp_path):
+    import os
+    from pathlib import Path
+    import subprocess
+    import sys
+    root = Path(__file__).resolve().parents[2]
+    env = {**os.environ, 'PYTHONPATH': os.pathsep.join([str(root/'runtime_compat'), str(root)])}
+    env.pop('CLASSIC_PRECISION_KV_COMPAT', None)
+    code = """
+import hashlib, importlib, os, sys
+from pathlib import Path
+from classic_precision import inference
+import sitecustomize
+assert inference._kv_capacity.__module__ == 'classic_precision.inference'
+assert 'classic_precision_vllm_kv_compat' not in sys.modules
+before = vars(inference).copy()
+os.environ['CLASSIC_PRECISION_KV_COMPAT'] = '1'
+importlib.reload(sitecustomize)
+after = vars(inference)
+assert before.keys() == after.keys()
+assert [key for key in before if before[key] is not after[key]] == ['_kv_capacity']
+assert inference._kv_capacity.__module__ == 'classic_precision_vllm_kv_compat'
+assert hashlib.sha256(Path(inference.__file__).read_bytes()).hexdigest() == '2f5ca1c92f4c9931bf25271a1ad9db812403f5a00467faf872a50628c57d66d3'
+assert 'torch' not in sys.modules
+"""
+    result = subprocess.run([sys.executable, '-B', '-c', code], cwd=tmp_path, env=env, capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    env['CLASSIC_PRECISION_KV_COMPAT'] = '1'
+    code = "from classic_precision import inference; assert inference._kv_capacity.__module__ == 'classic_precision_vllm_kv_compat'"
+    result = subprocess.run([sys.executable, '-B', '-c', code], cwd=tmp_path, env=env, capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+
+
+def test_kv_compat_process_refuses_base_sha_drift(tmp_path):
+    import os
+    from pathlib import Path
+    import subprocess
+    import sys
+    root = Path(__file__).resolve().parents[2]
+    package = tmp_path/'classic_precision'
+    package.mkdir()
+    (package/'__init__.py').write_text('')
+    (package/'inference.py').write_text('# Deliberately different source.\n')
+    env = {**os.environ, 'CLASSIC_PRECISION_KV_COMPAT': '1',
+        'PYTHONPATH': os.pathsep.join([str(root/'runtime_compat'), str(tmp_path)])}
+    result = subprocess.run([sys.executable, '-B', '-c', "print('SHOULD_NOT_RUN')"],
+        cwd=tmp_path, env=env, capture_output=True, text=True)
+    assert result.returncode == 78
+    assert 'base runner SHA mismatch' in result.stderr
+    assert 'SHOULD_NOT_RUN' not in result.stdout
+
+
 def test_checkpoint_identity_uses_exact_nested_index_shards(tmp_path):
     from classic_precision.inference import checkpoint_asset_identity
     checkpoint = tmp_path/'indexed'
