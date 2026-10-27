@@ -412,8 +412,13 @@ def run(profile_path):
                             {'type':'text','text':item['row']['prompt']}]}]
                     ts=time.monotonic()
                     if arm=='C' and model!='gemma':
+                        # Qwen3-VL's file path may derive do_sample_frames from
+                        # video metadata, overriding only an engine-level default.
+                        # Retain the request-level settings used by native_path_smoke.
+                        native_kwargs=({'mm_processor_kwargs':{'do_resize':False,'do_sample_frames':False}}
+                                       if model in ('qwen','cosmos') else {})
                         answer=engine.chat(request,sampling_params=sampling,use_tqdm=False,
-                            chat_template_kwargs={'enable_thinking':False})[0]
+                            chat_template_kwargs={'enable_thinking':False},**native_kwargs)[0]
                     else:answer=engine.generate(request,sampling,use_tqdm=False)[0]
                     engine_seconds=time.monotonic()-ts;choice=answer.outputs[0];tp=time.monotonic()
                     raw={'sample_id':sid,'task':item['task'],'model':model,'arm':arm,'ordinal':ordinal,
@@ -469,7 +474,9 @@ def run(profile_path):
                     if (ordinal+1)%8==0:gc.collect()
             except BaseException as error:
                 atomic_json(out/'failure.json',{'error_type':type(error).__name__,'error':str(error),
-                    'UNCERTAIN_id':pending,'completed':len(completed),'automatic_retry':False})
+                    'UNCERTAIN_id':pending,'completed':len(completed),'automatic_retry':False,
+                    'native_reader_observations':observation.reads,
+                    'native_processor_observations':observation.processors})
                 raise
             finally:
                 observation.active=False;g.CTX.clear()

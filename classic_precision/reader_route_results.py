@@ -157,7 +157,7 @@ def reconcile(root, partial=False):
             for arm in 'ABC':
                 available=[data[(model,arm,s)]for s in ids if(model,arm,s)in data]
                 row[arm+'_complete']=len(available)
-                row[arm+'_correct']=sum(r['raw_answer'].strip()==r['truth'] for r in available)
+                row[arm+'_correct']=sum(r['raw_answer'].strip()==r['truth'] for r in available) if available else None
                 tt=[timings[(model,arm,s)]for s in ids if(model,arm,s)in timings
                     and not timings[(model,arm,s)]['observed_or_cold']]
                 end=stats([t['end_to_end_durable_seconds'] for t in tt])
@@ -168,7 +168,9 @@ def reconcile(root, partial=False):
                 fields=sorted({k for t in tt for k,v in t.items() if k.endswith('_seconds') and isinstance(v,(float,int))})
                 for field in fields:
                     timing_rows.append({'model':model,'task':task,'arm':arm,'stage':field,
-                        'scope':'nested within engine request; do not add' if '_nested_' in field else
+                        'scope':('same observed external read already in read_decode_seconds; do not add'
+                            if field=='native_reader_nested_seconds' and (arm=='B' or(model=='gemma'and arm=='C')) else
+                            'nested within engine request; do not add') if '_nested_' in field else
                             ('inclusive; not GPU-only' if field=='engine_request_inclusive_seconds' else 'external measured worker stage'),
                         **stats([t[field]for t in tt if field in t])})
             for a,b in itertools.combinations('ABC',2):
@@ -176,10 +178,12 @@ def reconcile(root, partial=False):
                 changed=sum(x['raw_answer'].strip()!=y['raw_answer'].strip() for x,y in pairs)
                 ctw=sum(x['raw_answer'].strip()==x['truth'] and y['raw_answer'].strip()!=y['truth']for x,y in pairs)
                 wtc=sum(x['raw_answer'].strip()!=x['truth'] and y['raw_answer'].strip()==y['truth']for x,y in pairs)
-                row[a+b+'_answer_changes']=changed;row[a+b+'_correct_to_wrong']=ctw;row[a+b+'_wrong_to_correct']=wtc
+                row[a+b+'_paired_n']=len(pairs)
+                row[a+b+'_answer_changes']=changed if pairs else None
+                row[a+b+'_correct_to_wrong']=ctw if pairs else None;row[a+b+'_wrong_to_correct']=wtc if pairs else None
                 transitions.append({'model':model,'task':task,'from':a,'to':b,'paired_n':len(pairs),
-                    'answer_changes':changed,'correct_to_wrong':ctw,'wrong_to_correct':wtc,
-                    'prompt_token_layout_changes':sum(x['actual_prompt_token_ids']!=y['actual_prompt_token_ids']for x,y in pairs)})
+                    'answer_changes':changed if pairs else None,'correct_to_wrong':ctw if pairs else None,'wrong_to_correct':wtc if pairs else None,
+                    'prompt_token_layout_changes':sum(x['actual_prompt_token_ids']!=y['actual_prompt_token_ids']for x,y in pairs) if pairs else None})
             matrix.append(row)
             for sid in ids:
                 item=sources[sid];p=item['row']['source_parameters'];truth=item['row']['truth']
@@ -198,12 +202,13 @@ def reconcile(root, partial=False):
                     st={'model':model,'task':task,'stratifier':field,'value':value,'expected_n':len(ss)}
                     for arm in 'ABC':
                         st[arm+'_complete']=sum(r[arm+'_answer']is not None for r in ss)
-                        st[arm+'_correct']=sum(r[arm+'_correct']is True for r in ss)
+                        st[arm+'_correct']=sum(r[arm+'_correct']is True for r in ss) if st[arm+'_complete'] else None
                     for a,b in itertools.combinations('ABC',2):
                         pp=[r for r in ss if r[a+'_answer']is not None and r[b+'_answer']is not None]
-                        st[a+b+'_changes']=sum(r[a+'_answer']!=r[b+'_answer']for r in pp)
-                        st[a+b+'_correct_to_wrong']=sum(r[a+'_correct']and not r[b+'_correct']for r in pp)
-                        st[a+b+'_wrong_to_correct']=sum(not r[a+'_correct']and r[b+'_correct']for r in pp)
+                        st[a+b+'_paired_n']=len(pp)
+                        st[a+b+'_changes']=sum(r[a+'_answer']!=r[b+'_answer']for r in pp) if pp else None
+                        st[a+b+'_correct_to_wrong']=sum(r[a+'_correct']and not r[b+'_correct']for r in pp) if pp else None
+                        st[a+b+'_wrong_to_correct']=sum(not r[a+'_correct']and r[b+'_correct']for r in pp) if pp else None
                     strata.append(st)
     status='COMPLETE_PASS' if not partial else 'PARTIAL_NO_FINAL_CLAIM'
     report={'status':status,'expected':1728,'technical_pass':len(data),'missing_tuples':missing,
@@ -211,7 +216,8 @@ def reconcile(root, partial=False):
         'closures':closures,'loading_separate_from_requests':loads,'observed_actual_inputs':inputs,
         'observation_cold_requests_separate':[{'model':m,'arm':a,**t}for(m,a,s),t in timings.items()if t.get('observed_or_cold')],
         'formal_auto_resume':False,
-        'timing_interpretation':'ordinary same-host/same-GPU paired arms only; nested reader/processor times included in engine request; bridge/IPC not independently separable, never equate remainder to GPU',
+        'timing_interpretation':'ordinary same-host/same-GPU paired arms only; B and Gemma C observed native-reader counter duplicates the external read_decode stage; other C native reader and native processor are inside engine request. Never add overlapping counters; bridge/IPC not independently separable, never equate remainder to GPU',
+        'analysis_source_sha256':file_sha256(__file__),
         'Gemma_C':'official OpenCV uint8 -> native HF video processor, 280 spatial budget -> post-processor BF16 -> shared spatial/input adapter; not unmodified vLLM native file video',
         'historical_timing':'not used for causal speed comparison',
         'bindings':{n:file_sha256(plan/n)for n in ['plan.json','sources.json','allocation.json','historical.csv']}}
