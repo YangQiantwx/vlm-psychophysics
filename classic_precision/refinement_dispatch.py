@@ -7,7 +7,9 @@ import csv
 import json
 import os
 from pathlib import Path
+import shutil
 import socket
+import statistics
 import subprocess
 import sys
 import time
@@ -253,11 +255,58 @@ def queue(root, card):
         raise
 
 
+def _tail_records(path, limit=64, maximum_bytes=32*1024**2):
+    path=Path(path)
+    if not path.exists():return []
+    with path.open('rb') as f:
+        size=f.seek(0,2);start=max(0,size-maximum_bytes);f.seek(start);data=f.read()
+    if start:data=data.split(b'\n',1)[-1]
+    return [json.loads(line) for line in data.split(b'\n')[:-1][-limit:] if line]
+
+
+def status(root):
+    """One bounded operational snapshot, without rereading scientific raw arrays."""
+    root=Path(root);plan=root/'plans/classic-refinement'
+    result={'host':socket.gethostname(),'workers':{},'queues':{}}
+    for p in sorted(plan.glob('*-profile.json')):
+        q=read(p);out=Path(q['output']);timing=out/'request-timings.jsonl'
+        # Small scalar-only journal, bounded by the sealed finite allocation.
+        complete=timing.read_bytes().count(b'\n') if timing.exists() else 0
+        recent=[x for x in _tail_records(timing) if not x.get('deep')][-20:]
+        mean=statistics.mean(x['full_request_seconds'] for x in recent) if recent else None
+        wait=out.with_suffix('.wait.json')
+        result['workers'][q['worker']]={'completed_with_durable_technical_proof':complete,
+            'expected':q['maximum_model_calls'],'last_ordinary_n':len(recent),
+            'last_ordinary_mean_request_seconds':mean,'request_timing_scope':recent[-1]['scope'] if recent else None,
+            'remaining_seconds_at_this_worker_rate':mean*(q['maximum_model_calls']-complete) if mean else None,
+            'wait':read(wait) if wait.exists() else None,
+            'progress':read(out/'progress.json') if (out/'progress.json').exists() else None,
+            'failure':read(out/'failure.json') if (out/'failure.json').exists() else None}
+        if result['workers'][q['worker']]['wait']:
+            result['workers'][q['worker']]['wait'].pop('completed_ids',None)
+    for p in plan.glob('*-queue.json'):
+        d=read(p);result['queues'][p.stem]={'status':d['status'],'error':d.get('error')}
+    for name,path in [('generation',root/'runs/classic-refinement-20261026/generation.json'),
+                      ('source_QA',root/'runs/reproducibility/operator/classic-refinement-source-qa-20261026/progress.json')]:
+        if path.exists():result[name]=read(path)
+    mem={line.split(':')[0]:int(line.split()[1]) for line in Path('/proc/meminfo').read_text().splitlines() if line.split()[1].isdigit()}
+    result['memory_GiB']={k:mem[k]/1024**2 for k in ('MemAvailable','MemTotal','SwapFree','SwapTotal')}
+    result['load_average']=os.getloadavg();result['cpu_count']=os.cpu_count()
+    def counters():return list(map(int,Path('/proc/stat').read_text().splitlines()[0].split()[1:9]))
+    before=counters();time.sleep(.2);after=counters();delta=[b-a for a,b in zip(before,after)]
+    result['CPU_busy_percent']=100*(1-(delta[3]+delta[4])/sum(delta)) if sum(delta) else 0
+    result['PSI']={k:(Path('/proc/pressure')/k).read_text().strip() for k in ('cpu','memory','io')}
+    disk=shutil.disk_usage(root);result['disk_GiB']={'free':disk.free/2**30,'total':disk.total/2**30}
+    result['GPU']=subprocess.run(['nvidia-smi','--query-gpu=index,uuid,memory.used,memory.total,utilization.gpu',
+        '--format=csv,noheader'],check=True,capture_output=True,text=True).stdout.strip().splitlines()
+    return result
+
+
 def main():
-    p=argparse.ArgumentParser(description=__doc__);p.add_argument('command',choices=('sources','seal','queue'))
+    p=argparse.ArgumentParser(description=__doc__);p.add_argument('command',choices=('sources','seal','queue','status'))
     p.add_argument('--root',required=True);p.add_argument('--host',choices=HOSTS);p.add_argument('--card',choices=GPUS)
     a=p.parse_args()
-    result=sources(a.root) if a.command=='sources' else seal(a.root,a.host) if a.command=='seal' else queue(a.root,a.card)
+    result=sources(a.root) if a.command=='sources' else seal(a.root,a.host) if a.command=='seal' else status(a.root) if a.command=='status' else queue(a.root,a.card)
     print(json.dumps(result,sort_keys=True))
 
 
