@@ -22,6 +22,22 @@ HOSTS = {'fourier': '/home/yang/cvpr2027_benchmark', 'radon': '/mnt/sda/q/cvpr20
 GPUS = {'fourier0': 'GPU-c89c0c8c-8081-5ba9-c73f-d08af5875193',
         'fourier1': 'GPU-94d2f97e-b0db-db79-5423-467860a66e2f',
         'radon0': 'GPU-25d52640-5cbc-8521-f1f9-baaf52852f5d'}
+COMPILER_KEYS = ('CUDA_HOME', 'FLASHINFER_NVCC', 'FLASHINFER_CUDA_ARCH_LIST', 'PATH', 'MAX_JOBS')
+
+
+def compiler_preflight(environment):
+    """Reject a missing SM120 compiler binding before loading any model weights."""
+    env={**os.environ,**environment}
+    nvcc=env.get('FLASHINFER_NVCC')
+    require(nvcc and Path(nvcc).is_file(),'Qualified NVCC path missing')
+    version=subprocess.run([nvcc,'--version'],env=env,check=True,capture_output=True,text=True).stdout
+    script='import json;from flashinfer.compilation_context import current_compilation_context as c;print(json.dumps(c.get_nvcc_flags_list([12])))'
+    flags=subprocess.run([sys.executable,'-B','-c',script],env=env,check=True,capture_output=True,text=True).stdout
+    line=next(x for x in reversed(flags.splitlines()) if x.startswith('['))
+    values=json.loads(line)
+    require(any('120' in x for x in values),'SM120 compiler target absent')
+    return {'status':'PASS','nvcc':nvcc,'nvcc_version':version.strip(),'SM120_flags':values,
+        'model_loads':0,'scientific_calls':0,'environment':{k:env[k] for k in COMPILER_KEYS}}
 
 
 def allocation(manifest):
@@ -148,6 +164,10 @@ def seal(root, host):
             'CLASSIC_PRECISION_DEFER_MODELS':'gemma','HF_HUB_OFFLINE':'1','TRANSFORMERS_OFFLINE':'1',
             'NUMPY_MADVISE_HUGEPAGE':'0','VLLM_ALLOW_INSECURE_SERIALIZATION':'1'}
         cleared=[]
+        # Compiler/toolchain bindings belong to the retained launch environment,
+        # including for generic Nemo/Qwen sessions. Never reconstruct only their
+        # model/input flags and fall back to Radon's older system CUDA compiler.
+        for key in COMPILER_KEYS:env[key]=runtime['environment'][key]
         if model=='qwen':
             env.update(qwen['profile']['environment']);cleared=qwen['profile']['cleared_environment']
         elif model=='nemo':
@@ -180,6 +200,7 @@ def seal(root, host):
             profile['checkpoint']=str(root/'runs/inference_models_20261003'/spec['checkpoint_relative'])
             profile['checkpoint_assets']=checkpoint_asset_identity(profile['checkpoint'])
             profile['qualified_model_spec']=spec;profile['resources']=spec['resources']
+            profile['compiler_preflight']=compiler_preflight(env)
             if model=='qwen':
                 profile['qualified_profile']=qwen['profile'];profile['qualified_anchor']=descriptor(op/'qwen-t2-extension-single-20261024-plan.json')
                 require(profile['checkpoint_assets']==qwen['checkpoint_assets'],'Qwen current assets differ')
