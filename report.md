@@ -1,34 +1,32 @@
 # Selected findings · 16–27 October 2026
 
 <!-- reader-route-smoke-current -->
-**2026-10-27 03:54:18 HST Nemo运行协议更正：** 下表Nemo A/B/C实际采用了与旧历史不同的FlashInfer NVFP4/FP8/MoE后端。旧历史→A的14改答包含这处额外混淆，不能归于uint8或宣称原受控数学已复现。原9360实际CUTLASS已从启动原日志确认；通过官方KernelConfig恢复相同实际backend后，3固定ID×旧/新入口×3次冷载入的18输出完整token/finish/stop匹配历史，GPU输入/视觉输出亦逐字节匹配；尚未复验全部14。Nemo432 smoke及836正式均保留、暂停旧协议验收/合并；完整1268条技术修复须调整原科学调用预算，准确ID和原答/claim绑定已封，当前未新发这些修复推理。完整证据见`runs/reproducibility/nemo-reproduction-diagnosis-20261027/diagnosis.json`。其余模型旧表及原答不改，不用本段有限诊断替换科学答案。
+## 读取路线 smoke：原始账齐，Nemo原协议验收HOLD
 
-## 读取路线 smoke：部分结果，2026-10-27 HST
+2026-10-27 04:18:29 HST 完整逐ID技术账已回传：1728唯一raw/PASS与1728时长，15个成功逻辑worker真实wait0/owned退出/原同inode lease free齐全；两条原0raw CPU失败及原claim保留。新repair1队列终态COMPLETE，旧HELD未改。**这是原始技术账齐，不是四模型原协议最终验收。** Nemo432条实际使用与历史不同的FlashInfer后端，以下Nemo*行仅保留变体，不当原协议数据。正式补点没有恢复。
 
-以下表格保留修复前1344条完整组的比较基线；repair1运行中的零散回答暂不写成完整cell。2026-10-27 01:34:46 HST 核账为 **1344/1728唯一回答 PASS，382未claimed、2条CPU预处理失败的原claim保留**。10个arm完整、2个失败、3个未启动；12个已启动worker的真实wait/owned退出/原同inode lease释放均保存。F0队列COMPLETE；F1与R0为HELD_NO_RETRY，正式补点继续暂停。下表“—”是未完成，不是0分。A为RGB16→FP32原协议，B仅替换官方OpenCV uint8读取再转FP32，C为官方读取/原生处理（Gemma保留共用空间/输入适配）。
+A为原RGB16→FP32读取，B只换官方OpenCV uint8→FP32，C为官方读取/原生处理；Gemma C保留共用空间/输入适配。全部180帧0..179、有效768×512，Gemma另底pad16到768×528，176有效视觉token/帧。原题目、greedy/seed/nativeEOS与QSA约束沿用。
 
-| 模型 |任务/分母|旧历史|A|B|C|A→B 改答(对→错/错→对)|B→C|A→C|普通E2E均值秒 A/B/C|
+|模型|任务/分母|旧历史|A|B|C|A→B 改答(对→错/错→对)|B→C|A→C|普通E2E均值秒 A/B/C|
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---|
-|qwen|T2/48|38|38|37|—|17 (9/8)|—|—|14.75/13.10/—|
-|qwen|T3/96|54|54|60|—|22 (8/14)|—|—|15.51/13.77/—|
-|cosmos|T2/48|37|—|—|—|—|—|—|—/—/—|
-|cosmos|T3/96|81|81|73|—|12 (10/2)|—|—|20.16/18.71/—|
+|qwen|T2/48|38|38|37|37|17 (9/8)|0 (0/0)|17 (9/8)|14.75/13.10/12.67|
+|qwen|T3/96|54|54|60|60|22 (8/14)|0 (0/0)|22 (8/14)|15.51/13.77/13.50|
+|cosmos|T2/48|37|37|42|42|9 (2/7)|0 (0/0)|9 (2/7)|14.31/12.50/12.18|
+|cosmos|T3/96|81|81|73|73|12 (10/2)|0 (0/0)|12 (10/2)|20.16/18.71/18.36|
 |gemma|T2/48|24|24|24|24|0 (0/0)|0 (0/0)|0 (0/0)|21.14/20.32/19.74|
 |gemma|T3/96|49|49|51|51|6 (2/4)|0 (0/0)|6 (2/4)|21.24/20.41/19.75|
-|nemo|T2/48|28|26|30|28|10 (3/7)|8 (5/3)|10 (4/6)|10.63/9.48/9.21|
-|nemo|T3/96|48|48|48|48|0 (0/0)|0 (0/0)|0 (0/0)|10.84/9.54/9.26|
+|nemo*|T2/48|28|26|30|28|10 (3/7)|8 (5/3)|10 (4/6)|10.63/9.48/9.21|
+|nemo*|T3/96|48|48|48|48|0 (0/0)|0 (0/0)|0 (0/0)|10.84/9.54/9.26|
 
-已完成配对中，A→B为67/528改答（32对转错、35错转对）；B→C为8/288（5对转错、3错转对）；A→C为16/288（6对转错、10错转对）。覆盖集合不同，不能将这些比例当成全四模型的同一总体比较。Nemo T2旧历史→本轮A有14/48改答（8对转错、6错转对，28→26正确）；其余已测历史/A逐ID相同。Nemo该格的历史复现受到现已定位的实际后端漂移混淆；规范后端下的有限回放已匹配，完整14条仍待科学重做核实，不能把全部改答归因像素路线。所有有数据的同轮A/B/C配对最终prompt token布局相同。
+**Qwen/Cosmos/Gemma三个模型：** 在这两个固定点的432个model/sample配对中，历史→A为0改答；A→B为66/432改答，B→C为0/432改答。该结果说明实际RGB16与官方uint8解码差异会改变答案，而这三个模型本次剩余输入路线没有继续改答；A/B包含实际解码及颜色转换差异，不是理想量化单因素。不能据此推广为所有点或任意路线可互换，也不能只看净正确数。其余三模型1296条调用的逐ID、三组两两转移、LR/sign/onset及阶段mean/median/p90/吞吐在partial CSV/summary。
 
-时间收益主要来自读取与cast/pad：A→B普通E2E约省0.81–1.74秒/条，RGB16读取约1.23–1.51秒降至uint8约0.30秒，cast/pad也变化；引擎请求合计没有相应下降，不能称GPU加速。Gemma B→C约省0.59–0.66秒，cast/pad约0.65–0.66降至0.09秒，引擎仍约18.6秒。Nemo B→C约省0.27–0.28秒，与省去外部FP32转换相符；原生chat内部processor/IPC/H2D/模型仍合计，未拆成GPU-only。B与Gemma C的`native_reader_nested_seconds`是外部`read_decode_seconds`中的同一次读取，不能再次相加；Nemo C读取/processor才在engine内部。每阶段普通median/mean/p90、E2E吞吐及加载/首条冷观察分别保存在partial CSV/summary中。
+**Nemo*后端更正与修复状态：** 原正式/成功复现实用CutlassNvFp4LinearKernel、CutlassFP8ScaledMMLinearKernel、VLLM_CUTLASS MoE；本轮A/B/C及836条正式补点却auto改成FlashInfer对应实现。权重/processor/源码不变仍不等于实际算子不变。现用官方KernelConfig(linear_backend=cutlass,moe_backend=cutlass)恢复原实现，8项相关CPU检查通过；3个固定ID×旧/新入口×Radon两次冷载入/Fourier一次，共18次诊断的完整历史token/finish/stop全部匹配，入口间FP32/prompt/GPU视觉输入与输出hash相同。只测试其中2个原改答，未声称14条全部复验。诊断真实闭合证据在runs/reproducibility/nemo-reproduction-diagnosis-20261027/diagnosis.json。
 
-已通过组保留180帧0..179与有效768×512；Qwen/Cosmos A/B实际grid为[90,32,48]；Gemma全部组为768×528（底16行）、每帧176有效视觉token，prompt T2/T3为33447/33457；Nemo prompt为37483/37491。Gemma C是官方uint8读取＋原生HF video processor＋后processor BF16＋共用输入/空间适配，不是未经改动的vLLM file入口。首条观察计入配额；相同page-cache预读/fresh engine、prefix/MM/decoded缓存关闭，旧历史计时不用于加速结论。
+Nemo432 smoke与836正式的原答/claim保留，不混原协议或覆盖旧9360。准确1268个技术修复tuple/ID及旧profile/raw/claim SHA已封plans/reader-route-smoke-20261026/nemo-legacy-restoration-intent.json；追加预算已问，尚未执行。完整reconcile与正式continuation守卫继续HOLD，未签发COMPLETE/REPORTED决定。
 
-**运行失败已修复并有限续跑（2026-10-27 02:48:27 HST）：** 原C漏传旧成功入口已有的请求级`mm_processor_kwargs`，metadata覆盖引擎默认而二次抽成6帧，检查在模型生成前拒绝，两条均0raw。最新人类修复指令下，原失败/claim不删除，新版只补固定384缺口，1344完整原答不重跑。5个分片实际vLLM CPU预检PASS、6项回归PASS；Qwen C与Cosmos T3 C首条实际GPU均PASS，180帧0..179/grid[90,32,48]，Qwen QSA applied，实际prompt与A一致，SamplingParams/原生EOS锁定。Fourier GPU1 Qwen C→Cosmos T2三组，Radon GPU0 Cosmos T3 C；Gemma已完成无须重跑。旧HELD队列保留，修复执行commit6acf02d，原3aaa14d源保存于运行根implementation-v1，不改共享processor/SDK/模型计算/权重。
+**计时口径：** 普通请求与首task冷观察、load分开；同worker monotonic从读取到durable raw/PASS。B与Gemma C的native_reader计数是外部read_decode中的同一次读取，不再相加；其他C的native读/processor位于engine内部。engine-inclusive并非GPU-only，bridge/IPC/H2D/视觉/prefill/decode未独立拆开。相同source OS页缓存预读、fresh engine、prefix/MM/decoded cache关闭，旧历史耗时不用于同输入加速结论。Gemma C准确是官方uint8＋原生HF video processor＋processor后BF16＋共用空间/输入适配，不能称未经改动的vLLM file70路径。
 
-逐ID协议审计在`partial/protocol-audit.json`，实际GPU资格在`partial/repair1-startup-acceptance.json`；Nemo代表历史改答样本已CPU核旧/新180帧FP32、BF16 processor输出及完整prompt token逐元素相同，仍不能将历史14条输出差异解释为已解决或位深效应。固定seed/greedy是配置约束，不能代替逐答复现证据。
-
-当前判断：输入路线影响逐ID答案，净正确数不能替代改答；这份不完整面板不能证明三路线可交换，也不足以支持全量新协议重跑。完整逐ID、LEFT/RIGHT/sign/onset分层、全token、GT/源/配置与技术pass保留于`runs/reproducibility/reader-route-smoke-20261026/`，只读分析在`partial/`，未生成COMPLETE/REPORTED决定、未覆盖正式曲线。原正式2149已答与10523未尝试的续跑授权仍保留，但完整smoke验收条件尚未满足。具体384条缺口及2条保留原claim的新attempt授权/配置见`plans/reader-route-smoke-20261026/repair1-*-manifest.json`。
+完整逐ID技术闭合独立审计：runs/reproducibility/reader-route-smoke-20261026/partial/terminal-ledger-audit.json。科学原答和负结果保持原版本；本表属于带Nemo原协议HOLD的部分分析，不覆盖正式曲线。
 <!-- /reader-route-smoke-current -->
 
 This is the consolidated experiment log. Counts describe completed historical inputs, not files still on disk. These exploratory results explain the current protocol; they do not authorize a queue or become answers for newly rendered videos. The historical sections below retain their original scope. The current controlled-input NVFP4 panel is complete for Qwen/Nemo/Cosmos/Gemma:9,360 videos and1,416 static responses per model. The next common T2/T3 extension is prepared but not executed; see README and EXPERIMENT_PLAN.
