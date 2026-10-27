@@ -135,10 +135,13 @@ def reconcile(root, partial=False):
     alloc=read(plan/'allocation.json');sources=read(plan/'sources.json')['items']
     replacements,retained_failures,card_completion=repaired_workers(plan,run)
     canonical_restoration=None
-    if hold.exists() and read(hold)['status']=='RESOLVED' and (plan/'nemo-restore1-authorization.json').exists():
+    restoration_audit=root/'runs/reproducibility/nemo-canonical-restoration-20261027/canonical-audit.json'
+    if (plan/'nemo-restore1-authorization.json').exists() and restoration_audit.exists():
         # Completed-but-different runtime answers are replaced only through the
         # separate explicit1268 authorization and a full five-worker audit.
-        # Empty-arm repair validation above remains unchanged.
+        # Empty-arm repair validation above remains unchanged. Partial analysis
+        # may describe all corrected outputs while an explicit historical-replay
+        # hold still blocks COMPLETE_PASS and formal continuation at entry.
         from .nemo_restoration_results import audit
         canonical_restoration=audit(root)
         require(canonical_restoration['status']=='COMPLETE_PASS', 'Canonical Nemo restoration incomplete')
