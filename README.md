@@ -105,10 +105,10 @@ The next bounded extension covers both late transitions, using the same new grid
 | Task | New levels | New videos | Four-model answers |
 |---|---|---:|---:|
 | T2 | ΔY .16/.17/.18/.19/.25/.30/.35 | 2,016 | 8,064 |
-| T3 | 1.2/1.4/1.6/1.8/2.1/2.2 degrees | 576 | 2,304 |
-| Total | | 2,592 | 10,368 |
+| T3 | Complete1.0–2.5° in0.1° steps;12 missing levels | 1,152 | 4,608 |
+| Total | | 3,168 | 12,672 |
 
-T2 retains three backgrounds, two durations,24 onsets and paired sides. T3 retains24 onsets, both tilt signs and both reference sides. The earlier proposed .225 increment was removed before any rendering/inference. Existing1.75° and2.25° answers remain; no old IDs or levels are removed or rerun. The six new angles fill the late Gemma/Nemo rises without adding points to the already saturated high-angle range. These are finite curve refinements, not a measured precise JND.
+T2 retains three backgrounds, two durations,24 onsets and paired sides. T3 retains24 onsets, both tilt signs and both reference sides. The earlier proposed .225 increment was removed before any rendering/inference. Existing1.75° and2.25° answers remain; no old IDs or levels are removed or rerun. The regular1.0–2.5° grid reuses1.0/1.5/2.0/2.5° and adds1.1/1.2/1.3/1.4/1.6/1.7/1.8/1.9/2.1/2.2/2.3/2.4°. Together with existing0.5–1.0°, this gives0.1° steps over0.5–2.5°; retain1.75°/2.25° as additional measured points. Plot numeric angles on a numeric axis, never equally spaced category labels. These are finite curve refinements, not a measured precise JND.
 
 ```bash
 python -B -m classic_precision.refinement plan \
@@ -118,7 +118,7 @@ python -B -m classic_precision.refinement plan \
 
 This produces `manifest.json`, `plan.json` and `video-names.csv`, with zero model calls. Source-generation manifests intentionally contain no model launch defaults. Bind separate finite per-model NVFP4 profiles after new-source acceptance. Historical Cosmos/Gemma BF16 defaults must not be used. Existing IDs, prompts, source bytes and answers remain immutable.
 
-After rendering and auditing only the new sources, `refinement extend-index --base-index ... --new-index ... --output ...` validates an append-only11,952-video index. It rejects overlapping IDs, path collisions and missing source evidence. The `dataset` loader resolves stable IDs to readable names; inference results join on ID. Never publish unrendered entries with invented byte hashes.
+After rendering and auditing only the new sources, `refinement extend-index --base-index ... --new-index ... --output ...` validates an append-only12,528-video index. It rejects overlapping IDs, path collisions and missing source evidence. The `dataset` loader resolves stable IDs to readable names; inference results join on ID. Never publish unrendered entries with invented byte hashes.
 
 ## Code release and validation scope
 

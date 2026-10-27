@@ -85,11 +85,14 @@ def full_source_index():
 def test_revised_common_grid_has_complete_T2_T3_pairs_and_no_old_ids():
     base = full_source_index()
     manifest, plan, names = build_plan(base)
-    assert plan['new_videos_by_task'] == {'T2':2016,'T3':576}
-    assert plan['new_videos'] == len(manifest['rows']) == len(names) == 2592
-    assert plan['new_model_calls'] == 10368
-    assert plan['expected_combined_videos'] == 11952
+    assert plan['new_videos_by_task'] == {'T2':2016,'T3':1152}
+    assert plan['new_videos'] == len(manifest['rows']) == len(names) == 3168
+    assert plan['new_model_calls'] == 12672
+    assert plan['expected_combined_videos'] == 12528
     assert .225 not in plan['delta_Y']
+    assert plan['T3_regular_grid_deg'] == [i/10 for i in range(10,26)]
+    assert plan['T3_existing_grid_levels_reused'] == [1,1.5,2,2.5]
+    assert set(plan['angle_deg']) == set(plan['T3_regular_grid_deg']) - {1,1.5,2,2.5}
     assert not (set(base['items']) & {r['sample_id'] for r in manifest['rows']})
     from collections import Counter
     groups = Counter()
@@ -97,7 +100,7 @@ def test_revised_common_grid_has_complete_T2_T3_pairs_and_no_old_ids():
         if r['task'] == 'T3':
             p = r['source_parameters']
             groups[(p['angle_deg'], p['tilt_sign'], p['reference_side'])] += 1
-    assert len(groups) == 6*2*2 and set(groups.values()) == {24}
+    assert len(groups) == 12*2*2 and set(groups.values()) == {24}
     assert manifest['models'] == {} and plan['GPU_calls_started'] == 0
 
 

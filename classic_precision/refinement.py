@@ -12,7 +12,7 @@ from .dataset_names import filename
 from .manifest import atomic_json, digest, load_protocol, make_manifest
 
 DELTA_LEVELS = (.16, .17, .18, .19, .25, .30, .35)
-ANGLE_LEVELS = (1.2, 1.4, 1.6, 1.8, 2.1, 2.2)
+ANGLE_GRID = tuple(i / 10 for i in range(10, 26))
 MODELS = ("qwen", "nemo", "cosmos", "gemma")
 
 
@@ -20,17 +20,20 @@ def build_plan(index):
     validate_index(index)
     if index['counts'] != {'T1': 3840, 'T2': 3744, 'T3': 1776}:
         raise ValueError('This extension is defined against the completed 9360-video panel')
+    existing_angles = {e['nominal_parameters']['angle_deg'] for e in index['items'].values()
+                       if e['task'] == 'T3'}
+    angle_levels = tuple(a for a in ANGLE_GRID if a not in existing_angles)
     c = load_protocol()
-    c['protocol_name'] = 'classic_t2_t3_transition_extension_v2'
+    c['protocol_name'] = 'classic_t2_t3_transition_extension_v3'
     # This is a source-generation manifest. Legacy model defaults must not launch
     # a BF16 Cosmos/Gemma job; GPU plans are bound separately to qualified NVFP4.
     c['models'] = {}
     c['T2']['delta_Y'] = list(DELTA_LEVELS)
     c['T2']['control_10frame_delta_Y'] = list(DELTA_LEVELS)
     c['T2']['initial_dot_policy'] = 'Fixed object Y=.5 across all backgrounds'
-    c['T3']['angle_degrees'] = list(ANGLE_LEVELS)
+    c['T3']['angle_degrees'] = list(angle_levels)
     t2_n = len(DELTA_LEVELS) * 3 * 2 * 24 * 2
-    t3_n = len(ANGLE_LEVELS) * 24 * 2 * 2
+    t3_n = len(angle_levels) * 24 * 2 * 2
     c['counts'] = {'T2_main': t2_n // 2, 'T2_167ms_control': t2_n // 2,
                    'T2_total': t2_n, 'T3_total': t3_n, 'total_per_model': t2_n+t3_n,
                    'four_models_total_calls': (t2_n+t3_n)*len(MODELS)}
@@ -68,16 +71,18 @@ def build_plan(index):
         names.append({'sample_id': r['sample_id'], 'video_relative': task + '/' + filename(entry)})
     if len({r['video_relative'] for r in names}) != len(names):
         raise ValueError('Readable filename collision')
-    plan = {'schema': 'classic-refinement-plan-v2', 'status': 'PREPARED_NOT_RENDERED',
+    plan = {'schema': 'classic-refinement-plan-v3', 'status': 'PREPARED_NOT_RENDERED',
             'base_index_id': index['index_id'], 'base_videos': len(index['items']),
             'source_protocol_id': m['protocol_id'], 'models': list(MODELS),
             'model_precision': 'Existing qualified official NVFP4 mixed checkpoints; retain BF16 excluded layers/KV',
             'input_protocol': 'controlled-rgb16', 'delta_Y': list(DELTA_LEVELS),
-            'angle_deg': list(ANGLE_LEVELS), 'new_videos_by_task': {'T2': t2_n, 'T3': t3_n},
+            'angle_deg': list(angle_levels),
+            'T3_regular_grid_deg': list(ANGLE_GRID), 'T3_grid_step_deg': .1,
+            'T3_existing_grid_levels_reused': sorted(set(ANGLE_GRID) & existing_angles), 'new_videos_by_task': {'T2': t2_n, 'T3': t3_n},
             'new_videos': len(names), 'new_model_calls': len(names)*len(MODELS),
             'expected_combined_videos': len(index['items'])+len(names),
             'GPU_calls_started': 0, 'model_execution_plans': 'Bind qualified per-model runtime separately; do not use legacy default pipeline',
-            'selection_basis': 'Common finite T2 grid without .225 and six T3 angles covering the 1-2.25 degree late rises; selected before new answers',
+            'selection_basis': 'Common finite T2 grid without .225; T3 completes a regular 0.1-degree grid from1.0 to2.5, reusing existing levels and retaining extra historical points; selected before new answers',
             'stop_rule': 'No automatic additional levels or retries of completed/uncertain IDs',
             'id_policy': 'Existing IDs/paths/bytes unchanged; new ID = task prefix + canonical source-parameter digest[:20]',
             'source_acceptance': 'Render and validate only new videos before extending the public index',
