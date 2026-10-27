@@ -54,6 +54,9 @@ def validate_handoff(summary, decision, summary_sha):
 
 def prepare(root, host, report_path, decision_path):
     root=Path(root);plan=root/'plans/classic-refinement'
+    hold=root/'plans/reader-route-smoke-20261026/nemo-reproduction-HOLD.json'
+    require(not hold.exists() or read(hold)['status']=='RESOLVED',
+            'Nemo reproduction diagnosis is unresolved; formal continuation held')
     summary,decision=read(report_path),read(decision_path)
     validate_handoff(summary,decision,file_sha256(report_path))
     formal=root/'runs/reproducibility/classic-refinement-20261026'
