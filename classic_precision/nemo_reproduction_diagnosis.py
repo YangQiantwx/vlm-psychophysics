@@ -19,6 +19,12 @@ from .refinement_worker import read, require, write_new, verified, physical_leas
 from .storage import atomic_json, _append, digest, file_sha256, owner_identity
 
 
+def validate_launch(p):
+    for key,value in {'CLASSIC_PRECISION_KV_COMPAT':'1',
+        'CLASSIC_PRECISION_NEMO_DUMMY_CONFIG_COMPAT':'1','CLASSIC_PRECISION_DEFER_MODELS':'gemma'}.items():
+        require(p['environment'].get(key)==value, 'Qualified Nemo startup environment missing: '+key)
+
+
 def fingerprint(tensor):
     import torch
     value=tensor.detach().contiguous().cpu()
@@ -55,6 +61,7 @@ def run(path):
     from .reader_route_smoke import decode,metadata,prompt,file_loader_settings,Events,generation_receipt
     from .refinement_dispatch import compiler_preflight
     p=read(path);out=Path(p['output'])
+    validate_launch(p)
     require(p['maximum_model_calls']==len(p['cases'])==len(p['assigned_ids'])==6,'Only six calls per cold')
     require(not out.exists() and socket.gethostname()==p['hostname'],'No resume/wrong host')
     require(file_sha256(__file__)==p['implementation']['sha256'],'Diagnosis source changed')
