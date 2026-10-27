@@ -129,6 +129,9 @@ def status(root):
 
 def reconcile(root, partial=False):
     root=Path(root);plan=root/'plans'/NAME;run=root/'runs/reproducibility'/NAME
+    hold=plan/'nemo-reproduction-HOLD.json'
+    require(partial or not hold.exists() or read(hold)['status']=='RESOLVED',
+            'Nemo actual-kernel protocol drift is unresolved; only partial analysis is allowed')
     alloc=read(plan/'allocation.json');sources=read(plan/'sources.json')['items']
     replacements,retained_failures,card_completion=repaired_workers(plan,run)
     data={};timings={};closures=[];loads=[];inputs=[];expected=set();missing=[]
@@ -264,6 +267,7 @@ def reconcile(root, partial=False):
         'formal_auto_resume':False,
         'timing_interpretation':'ordinary same-host/same-GPU paired arms only; B and Gemma C observed native-reader counter duplicates the external read_decode stage; other C native reader and native processor are inside engine request. Never add overlapping counters; bridge/IPC not independently separable, never equate remainder to GPU',
         'analysis_source_sha256':file_sha256(__file__),
+        'canonical_protocol_hold':read(hold) if hold.exists() else None,
         'Gemma_C':'official OpenCV uint8 -> native HF video processor, 280 spatial budget -> post-processor BF16 -> shared spatial/input adapter; not unmodified vLLM native file video',
         'historical_timing':'not used for causal speed comparison',
         'bindings':{n:file_sha256(plan/n)for n in ['plan.json','sources.json','allocation.json','historical.csv']}}

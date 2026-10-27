@@ -18,6 +18,19 @@ from .storage import atomic_json,file_sha256
 CONTRACT={'linear_backend':'cutlass','moe_backend':'cutlass'}
 
 
+def validate_inventory(selected):
+    for item in selected:
+        require({k:item['actual_kernel_config'][k]for k in CONTRACT}==CONTRACT,
+                'Actual public kernel configuration differs')
+        names=' '.join(item['classes'])
+        require('CutlassNvFp4LinearKernel'in names and 'CutlassFP8ScaledMMLinearKernel'in names,
+                'Actual mixed NVFP4/FP8 linears did not restore legacy CUTLASS')
+        require('FlashInferCutlassNvFp4LinearKernel'not in names and 'FlashInferFP8ScaledMMLinearKernel'not in names,
+                'Unexpected FlashInfer linear retained')
+        require('nvfp4_backend=NvFp4MoeBackend.VLLM_CUTLASS' in item['backends'],
+                'Actual MoE backend did not restore legacy VLLM_CUTLASS')
+
+
 def inventory(worker):
     model=worker.get_model();classes=Counter();backends=set()
     def visit(obj,depth):
@@ -51,13 +64,7 @@ def run(path):
         try:
             selected=engine.collective_rpc(inventory)
             atomic_json(Path(p['output'])/'restored-kernels.json',selected)
-            for item in selected:
-                require({k:item['actual_kernel_config'][k]for k in CONTRACT}==CONTRACT,'Actual public kernel configuration differs')
-                names=' '.join(item['classes'])
-                require('CutlassNvFp4LinearKernel'in names and 'CutlassFP8ScaledMMLinearKernel'in names,
-                    'Actual mixed NVFP4/FP8 linears did not restore legacy CUTLASS')
-                require('FlashInferCutlassNvFp4LinearKernel'not in names and 'FlashInferFP8ScaledMMLinearKernel'not in names,
-                    'Unexpected FlashInfer linear retained')
+            validate_inventory(selected)
         except BaseException:
             g.shutdown_owned_engine(engine,owned,Path(p['output']));raise
         return engine

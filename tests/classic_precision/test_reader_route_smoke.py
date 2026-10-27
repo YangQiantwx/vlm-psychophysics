@@ -4,6 +4,8 @@ import pytest
 
 from classic_precision import reader_route_smoke as s
 from classic_precision import reader_route_repair as r
+from classic_precision import reader_route_results as results
+from classic_precision import nemo_kernel_replay as nemo
 
 
 class Engine:
@@ -49,3 +51,21 @@ def test_repair_refuses_existing_answer_and_unapproved_claim(tmp_path):
     with pytest.raises(ValueError,match='claim set changed'):r.check_parent(parent,{})
     (claims/'a.json').unlink();out.mkdir();(out/'raw.jsonl').write_text('{"sample_id":"a"}\n')
     with pytest.raises(ValueError,match='Original raw exists'):r.check_parent(parent,{})
+
+
+def test_nominal_matching_config_does_not_certify_different_actual_kernels():
+    original={'actual_kernel_config':dict(nemo.CONTRACT),
+        'classes':{'vllm.CutlassNvFp4LinearKernel':1,'vllm.CutlassFP8ScaledMMLinearKernel':1},
+        'backends':['nvfp4_backend=NvFp4MoeBackend.VLLM_CUTLASS']}
+    nemo.validate_inventory([original])
+    changed={**original,'classes':{'vllm.FlashInferCutlassNvFp4LinearKernel':1,
+        'vllm.FlashInferFP8ScaledMMLinearKernel':1}}
+    with pytest.raises(ValueError,match='Actual mixed'):nemo.validate_inventory([changed])
+    changed={**original,'backends':['nvfp4_backend=NvFp4MoeBackend.FLASHINFER_CUTLASS']}
+    with pytest.raises(ValueError,match='Actual MoE'):nemo.validate_inventory([changed])
+
+
+def test_unresolved_protocol_drift_blocks_final_reconciliation(tmp_path):
+    hold=tmp_path/'plans'/s.NAME/'nemo-reproduction-HOLD.json'
+    r.write_new(hold,{'status':'HOLD_FORMAL_CONTINUATION_PENDING_CAUSAL_DIAGNOSIS'})
+    with pytest.raises(ValueError,match='only partial analysis'):results.reconcile(tmp_path)
