@@ -7,6 +7,7 @@ import csv
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import socket
 import statistics
@@ -31,7 +32,9 @@ def compiler_preflight(environment):
     nvcc=env.get('FLASHINFER_NVCC')
     require(nvcc and Path(nvcc).is_file(),'Qualified NVCC path missing')
     version=subprocess.run([nvcc,'--version'],env=env,check=True,capture_output=True,text=True).stdout
-    script='import json;from flashinfer.compilation_context import current_compilation_context as c;print(json.dumps(c.get_nvcc_flags_list([12])))'
+    parsed=re.search(r'release (\d+)\.(\d+)',version)
+    require(parsed and tuple(map(int,parsed.groups())) >= (12,9),'SM120 requires the retained CUDA >=12.9 compiler')
+    script='import json;from flashinfer.compilation_context import CompilationContext;print(json.dumps(CompilationContext().get_nvcc_flags_list([12])))'
     flags=subprocess.run([sys.executable,'-B','-c',script],env=env,check=True,capture_output=True,text=True).stdout
     line=next(x for x in reversed(flags.splitlines()) if x.startswith('['))
     values=json.loads(line)
@@ -236,13 +239,22 @@ def seal(root, host):
     return {'status':'SEALED_NO_GPU_CALLS','profiles':profiles}
 
 
-def queue(root, card):
+def queue(root, card, first_profile=None, queue_name=None):
     """Two sealed stages, actual wait between them, never retries or reassigns."""
     root=Path(root);plan=root/'plans/classic-refinement'
     first={'fourier0':'qwen','fourier1':'cosmos','radon0':'nemo'}[card]
     order=('gemma',first) if card=='fourier1' else (first,'gemma')
     stages=[plan/(model+'-'+card+'-profile.json') for model in order]
-    state=plan/(card+'-queue.json')
+    if first_profile:
+        replacement=Path(first_profile).resolve();original=read(stages[0]);new=read(replacement)
+        require(replacement.parent==plan.resolve() and new['worker']==original['worker']
+            and new['model']==original['model'] and new['assigned_ids']==original['assigned_ids']
+            and new['allocation']==original['allocation'],'Replacement cannot reassign or change the finite scientific scope')
+        require(queue_name and queue_name.startswith(card+'-'),'Keep the failed original queue and use a new explicit queue name')
+        stages[0]=replacement
+    name=queue_name or card
+    require(Path(name).name==name and name not in ('.','..'),'Invalid queue name')
+    state=plan/(name+'-queue.json')
     require(not state.exists(),'Existing queue requires reconciliation, no automatic resume')
     write_new(state,{'status':'RUNNING','stages':list(map(str,stages)),'automatic_retry':False})
     reports=[]
@@ -337,8 +349,9 @@ def status(root):
 def main():
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('command',choices=('sources','seal','queue','status'))
     p.add_argument('--root',required=True);p.add_argument('--host',choices=HOSTS);p.add_argument('--card',choices=GPUS)
+    p.add_argument('--first-profile');p.add_argument('--queue-name')
     a=p.parse_args()
-    result=sources(a.root) if a.command=='sources' else seal(a.root,a.host) if a.command=='seal' else status(a.root) if a.command=='status' else queue(a.root,a.card)
+    result=sources(a.root) if a.command=='sources' else seal(a.root,a.host) if a.command=='seal' else status(a.root) if a.command=='status' else queue(a.root,a.card,a.first_profile,a.queue_name)
     print(json.dumps(result,sort_keys=True))
 
 
