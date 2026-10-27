@@ -53,6 +53,7 @@ def repaired_workers(plan, run):
             require(logical not in replacements, 'Duplicate repair logical arm')
             pp=plan/Path(ref['profile']['path']).name;p=read(pp)
             require(file_sha256(pp)==ref['profile']['sha256'], 'Repair profile changed')
+            require(p['repair']['authorization']==m['authorization'], 'Repair profile authority differs')
             old=read(plan/(logical+'-profile.json'))
             require(digest(old)==digest(read(plan/Path(ref['parent_profile']['path']).name)), 'Parent profile differs')
             require(file_sha256(plan/(logical+'-profile.json'))==ref['parent_profile']['sha256'], 'Parent profile changed')
@@ -172,6 +173,7 @@ def reconcile(root, partial=False):
                 wait=out.with_suffix('.wait.json')
                 if wait.exists():
                     w=read(wait);closures.append({'worker':worker,**w})
+                    require(profile and w['profile_sha256']==digest(profile), 'Wait/profile identity differs: '+worker)
                     if not partial:
                         require(w['returncode']==0 and w['real_wait_observed'] and w['owned_engines_exited']
                             and w['original_physical_lease_released'] and w['terminal_status']=='COMPLETE'

@@ -1,4 +1,33 @@
-# Selected findings · 16–26 October 2026
+# Selected findings · 16–27 October 2026
+
+<!-- reader-route-smoke-current -->
+## 读取路线 smoke：部分结果，2026-10-27 HST
+
+以下表格保留修复前1344条完整组的比较基线；repair1运行中的零散回答暂不写成完整cell。2026-10-27 01:34:46 HST 核账为 **1344/1728唯一回答 PASS，382未claimed、2条CPU预处理失败的原claim保留**。10个arm完整、2个失败、3个未启动；12个已启动worker的真实wait/owned退出/原同inode lease释放均保存。F0队列COMPLETE；F1与R0为HELD_NO_RETRY，正式补点继续暂停。下表“—”是未完成，不是0分。A为RGB16→FP32原协议，B仅替换官方OpenCV uint8读取再转FP32，C为官方读取/原生处理（Gemma保留共用空间/输入适配）。
+
+| 模型 |任务/分母|旧历史|A|B|C|A→B 改答(对→错/错→对)|B→C|A→C|普通E2E均值秒 A/B/C|
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---|
+|qwen|T2/48|38|38|37|—|17 (9/8)|—|—|14.75/13.10/—|
+|qwen|T3/96|54|54|60|—|22 (8/14)|—|—|15.51/13.77/—|
+|cosmos|T2/48|37|—|—|—|—|—|—|—/—/—|
+|cosmos|T3/96|81|81|73|—|12 (10/2)|—|—|20.16/18.71/—|
+|gemma|T2/48|24|24|24|24|0 (0/0)|0 (0/0)|0 (0/0)|21.14/20.32/19.74|
+|gemma|T3/96|49|49|51|51|6 (2/4)|0 (0/0)|6 (2/4)|21.24/20.41/19.75|
+|nemo|T2/48|28|26|30|28|10 (3/7)|8 (5/3)|10 (4/6)|10.63/9.48/9.21|
+|nemo|T3/96|48|48|48|48|0 (0/0)|0 (0/0)|0 (0/0)|10.84/9.54/9.26|
+
+已完成配对中，A→B为67/528改答（32对转错、35错转对）；B→C为8/288（5对转错、3错转对）；A→C为16/288（6对转错、10错转对）。覆盖集合不同，不能将这些比例当成全四模型的同一总体比较。Nemo T2旧历史→本轮A有14/48改答（8对转错、6错转对，28→26正确）；其余已测历史/A逐ID相同。Nemo该格尚不能声称严格历史复现，也不能把全部改答归因像素路线。所有有数据的同轮A/B/C配对最终prompt token布局相同。
+
+时间收益主要来自读取与cast/pad：A→B普通E2E约省0.81–1.74秒/条，RGB16读取约1.23–1.51秒降至uint8约0.30秒，cast/pad也变化；引擎请求合计没有相应下降，不能称GPU加速。Gemma B→C约省0.59–0.66秒，cast/pad约0.65–0.66降至0.09秒，引擎仍约18.6秒。Nemo B→C约省0.27–0.28秒，与省去外部FP32转换相符；原生chat内部processor/IPC/H2D/模型仍合计，未拆成GPU-only。B与Gemma C的`native_reader_nested_seconds`是外部`read_decode_seconds`中的同一次读取，不能再次相加；Nemo C读取/processor才在engine内部。每阶段普通median/mean/p90、E2E吞吐及加载/首条冷观察分别保存在partial CSV/summary中。
+
+已通过组保留180帧0..179与有效768×512；Qwen/Cosmos A/B实际grid为[90,32,48]；Gemma全部组为768×528（底16行）、每帧176有效视觉token，prompt T2/T3为33447/33457；Nemo prompt为37483/37491。Gemma C是官方uint8读取＋原生HF video processor＋后processor BF16＋共用输入/空间适配，不是未经改动的vLLM file入口。首条观察计入配额；相同page-cache预读/fresh engine、prefix/MM/decoded缓存关闭，旧历史计时不用于加速结论。
+
+**运行失败已修复并有限续跑（2026-10-27 02:48:27 HST）：** 原C漏传旧成功入口已有的请求级`mm_processor_kwargs`，metadata覆盖引擎默认而二次抽成6帧，检查在模型生成前拒绝，两条均0raw。最新人类修复指令下，原失败/claim不删除，新版只补固定384缺口，1344完整原答不重跑。5个分片实际vLLM CPU预检PASS、6项回归PASS；Qwen C与Cosmos T3 C首条实际GPU均PASS，180帧0..179/grid[90,32,48]，Qwen QSA applied，实际prompt与A一致，SamplingParams/原生EOS锁定。Fourier GPU1 Qwen C→Cosmos T2三组，Radon GPU0 Cosmos T3 C；Gemma已完成无须重跑。旧HELD队列保留，修复执行commit6acf02d，原3aaa14d源保存于运行根implementation-v1，不改共享processor/SDK/模型计算/权重。
+
+逐ID协议审计在`partial/protocol-audit.json`，实际GPU资格在`partial/repair1-startup-acceptance.json`；Nemo代表历史改答样本已CPU核旧/新180帧FP32、BF16 processor输出及完整prompt token逐元素相同，仍不能将历史14条输出差异解释为已解决或位深效应。固定seed/greedy是配置约束，不能代替逐答复现证据。
+
+当前判断：输入路线影响逐ID答案，净正确数不能替代改答；这份不完整面板不能证明三路线可交换，也不足以支持全量新协议重跑。完整逐ID、LEFT/RIGHT/sign/onset分层、全token、GT/源/配置与技术pass保留于`runs/reproducibility/reader-route-smoke-20261026/`，只读分析在`partial/`，未生成COMPLETE/REPORTED决定、未覆盖正式曲线。原正式2149已答与10523未尝试的续跑授权仍保留，但完整smoke验收条件尚未满足。具体384条缺口及2条保留原claim的新attempt授权/配置见`plans/reader-route-smoke-20261026/repair1-*-manifest.json`。
+<!-- /reader-route-smoke-current -->
 
 This is the consolidated experiment log. Counts describe completed historical inputs, not files still on disk. These exploratory results explain the current protocol; they do not authorize a queue or become answers for newly rendered videos. The historical sections below retain their original scope. The current controlled-input NVFP4 panel is complete for Qwen/Nemo/Cosmos/Gemma:9,360 videos and1,416 static responses per model. The next common T2/T3 extension is prepared but not executed; see README and EXPERIMENT_PLAN.
 
