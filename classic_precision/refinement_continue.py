@@ -65,7 +65,10 @@ def prepare(root, host, report_path, decision_path):
         'reported_decision':descriptor(decision_path),'automatic_retry':False}
     profiles={}
     for card in cards:
-        smoke_queue=read(root/'plans/reader-route-smoke-20261026'/(card+'-queue.json'))
+        current=summary.get('card_completion',{}).get(card)
+        queue_path=Path(current['queue_path']) if current else root/'plans/reader-route-smoke-20261026'/(card+'-queue.json')
+        if current:require(file_sha256(queue_path)==current['queue_sha256'], 'Current smoke queue changed since report')
+        smoke_queue=read(queue_path)
         require(smoke_queue['status']=='COMPLETE', 'Card smoke queue is not complete')
         last=read(smoke_queue['profiles'][-1]);last_wait=Path(last['output']).with_suffix('.wait.json')
         w=read(last_wait)

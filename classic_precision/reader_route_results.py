@@ -40,6 +40,43 @@ def stats(values):
             'p90':values[lo]+(values[hi]-values[lo])*(q-lo)}
 
 
+def repaired_workers(plan, run):
+    """Resolve versioned empty-arm repairs while retaining original failure proof."""
+    from .reader_route_repair import AUTHORIZATION, EXECUTION_FIELDS, EXCEPTIONS
+    replacements={};failed=[];cards={}
+    for path in sorted(plan.glob('repair1-*-manifest.json')):
+        m=read(path);a_path=plan/Path(m['authorization']['path']).name
+        require(file_sha256(a_path)==m['authorization']['sha256'], 'Repair authority changed')
+        auth=read(a_path)
+        require(auth['human_message']==AUTHORIZATION and not auth['automatic_retry'], 'Repair authority missing')
+        for logical,ref in m['replacements'].items():
+            require(logical not in replacements, 'Duplicate repair logical arm')
+            pp=plan/Path(ref['profile']['path']).name;p=read(pp)
+            require(file_sha256(pp)==ref['profile']['sha256'], 'Repair profile changed')
+            old=read(plan/(logical+'-profile.json'))
+            require(digest(old)==digest(read(plan/Path(ref['parent_profile']['path']).name)), 'Parent profile differs')
+            require(file_sha256(plan/(logical+'-profile.json'))==ref['parent_profile']['sha256'], 'Parent profile changed')
+            require({k:v for k,v in p.items() if k not in EXECUTION_FIELDS}==
+                {k:v for k,v in old.items() if k not in EXECUTION_FIELDS}, 'Repair changed scientific settings')
+            require(not records(run/logical/'raw.jsonl'), 'Old raw cannot be replaced')
+            preserved=p['repair']['preserved_claims']
+            require(set(preserved)==({EXCEPTIONS[logical]} if logical in EXCEPTIONS else set()), 'Unexpected retry exception')
+            claim_dir=run/'claims'/old['model']/old['arm']
+            require(({x.stem for x in claim_dir.glob('*.json')} & set(old['assigned_ids']))==set(preserved), 'Original claim set changed')
+            for sid,claim in preserved.items():
+                require(file_sha256(claim_dir/(sid+'.json'))==claim['sha256'], 'Original failed claim changed')
+            if preserved:
+                w=read((run/logical).with_suffix('.wait.json'))
+                require(w['returncode']==1 and not w['completed_ids'] and w['real_wait_observed']
+                    and w['owned_engines_exited'] and w['original_physical_lease_released'], 'Original failed attempt not closed')
+                failed.append({'worker':logical,**w})
+            replacements[logical]=p['worker']
+        q_path=plan/Path(m['queue']['path']).name
+        cards[m['card']]={'queue_path':m['queue']['path'],'queue_status':read(q_path)['status'],
+                          'queue_sha256':file_sha256(q_path)}
+    return replacements,failed,cards
+
+
 def status(root):
     """One bounded host snapshot. No tails, retries, launches or model imports."""
     root=Path(root);plan=root/'plans'/NAME;reports=[];all_sources={}
@@ -92,12 +129,13 @@ def status(root):
 def reconcile(root, partial=False):
     root=Path(root);plan=root/'plans'/NAME;run=root/'runs/reproducibility'/NAME
     alloc=read(plan/'allocation.json');sources=read(plan/'sources.json')['items']
+    replacements,retained_failures,card_completion=repaired_workers(plan,run)
     data={};timings={};closures=[];loads=[];inputs=[];expected=set();missing=[]
     for card,segments in alloc['cards'].items():
         for segment in segments:
             model=segment['model']
             for arm in segment['arms']:
-                worker=model+'-'+card+'-'+arm;out=run/worker
+                logical=model+'-'+card+'-'+arm;worker=replacements.get(logical,logical);out=run/worker
                 ids=segment['sample_ids'];expected.update((model,arm,s) for s in ids)
                 raw=records(out/'raw.jsonl');events=records(out/'events.jsonl')
                 passes={e['sample_id']:e for e in events if e.get('event')=='TECHNICAL_PASS'}
@@ -143,7 +181,11 @@ def reconcile(root, partial=False):
     if not partial:
         require(len(expected)==1728 and not missing and set(timings)==expected,'1728 finite ledger incomplete')
         for card in alloc['cards']:
-            require(read(plan/(card+'-queue.json'))['status']=='COMPLETE','Queue not terminal')
+            if card not in card_completion:
+                qp=plan/(card+'-queue.json');q=read(qp)
+                card_completion[card]={'queue_path':str(Path(q['profiles'][0]).with_name(card+'-queue.json')),
+                    'queue_status':q['status'],'queue_sha256':file_sha256(qp)}
+            require(card_completion[card]['queue_status']=='COMPLETE','Current versioned queue not terminal')
     historical={}
     for r in csv.DictReader((plan/'historical.csv').open()):
         key=(r['model'],r['sample_id']);require(key not in historical,'Duplicate history');historical[key]=r
@@ -213,7 +255,9 @@ def reconcile(root, partial=False):
     status='COMPLETE_PASS' if not partial else 'PARTIAL_NO_FINAL_CLAIM'
     report={'status':status,'expected':1728,'technical_pass':len(data),'missing_tuples':missing,
         'matrix':matrix,'paired_transitions':transitions,'timing':timing_rows,
-        'closures':closures,'loading_separate_from_requests':loads,'observed_actual_inputs':inputs,
+        'closures':closures,'retained_failed_attempt_closures':retained_failures,
+        'logical_arm_replacements':replacements,'card_completion':card_completion,
+        'loading_separate_from_requests':loads,'observed_actual_inputs':inputs,
         'observation_cold_requests_separate':[{'model':m,'arm':a,**t}for(m,a,s),t in timings.items()if t.get('observed_or_cold')],
         'formal_auto_resume':False,
         'timing_interpretation':'ordinary same-host/same-GPU paired arms only; B and Gemma C observed native-reader counter duplicates the external read_decode stage; other C native reader and native processor are inside engine request. Never add overlapping counters; bridge/IPC not independently separable, never equate remainder to GPU',

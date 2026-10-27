@@ -30,6 +30,27 @@ def metadata():
             'frames_indices': list(range(180)), 'do_sample_frames': False}
 
 
+def submit(engine, model, arm, request, sampling):
+    """Keep A/B identical; public per-request controls prevent C resampling."""
+    if arm == 'C' and model != 'gemma':
+        kwargs = ({'mm_processor_kwargs': {'do_resize': False, 'do_sample_frames': False}}
+                  if model in ('qwen', 'cosmos') else {})
+        return engine.chat(request, sampling_params=sampling, use_tqdm=False,
+            chat_template_kwargs={'enable_thinking': False}, **kwargs)[0]
+    return engine.generate(request, sampling, use_tqdm=False)[0]
+
+
+def generation_receipt(sampling):
+    fields = {k: getattr(sampling, k) for k in ('n', 'temperature', 'top_p', 'seed',
+        'repetition_penalty', 'max_tokens', 'ignore_eos', 'stop', 'stop_token_ids')}
+    require(fields == {'n': 1, 'temperature': 0., 'top_p': 1., 'seed': 0,
+        'repetition_penalty': 1., 'max_tokens': 16384, 'ignore_eos': False,
+        'stop': [], 'stop_token_ids': []}, 'Qualified greedy/native-EOS settings changed')
+    require(sampling.structured_outputs.choice == ['LEFT', 'RIGHT'], 'Choice grammar changed')
+    return {**fields, 'choice': sampling.structured_outputs.choice, 'thinking': False,
+            'sampling_repr': repr(sampling), 'native_EOS_override': False}
+
+
 def state(path):
     s = Path(path).stat()
     return [s.st_dev, s.st_ino, s.st_size, s.st_mtime_ns]
@@ -325,6 +346,14 @@ def run(profile_path):
     p=read(profile_path); out=Path(p['output']); model=p['model']; arm=p['arm']
     require(socket.gethostname()==p['hostname'] and not out.exists(),'Wrong host or attempted implicit resume')
     require(file_sha256(__file__)==p['implementation']['sha256'],'Worker changed after sealing')
+    require(p.get('entry_implementation') or model=='cosmos' and p.get('runtime_identity'),
+            'Qualified scientific implementation binding missing')
+    for name, sha in p.get('entry_implementation',{}).items():
+        path = Path(__file__).with_name(name) if '/' not in name else Path(__file__).parent.parent/name
+        require(file_sha256(path) == sha, 'Qualified implementation changed: '+name)
+    if p.get('repair'):
+        from .reader_route_repair import validate_repair_profile
+        validate_repair_profile(p)
     for k,v in p['environment'].items():require(os.environ.get(k)==v,'Environment differs: '+k)
     for k in p.get('cleared_environment',[]):require(k not in os.environ,'Unexpected environment: '+k)
     catalog=verified(p['source_catalog']);verified(p['allocation']);verified(p['experiment'])
@@ -386,6 +415,8 @@ def run(profile_path):
             from vllm.sampling_params import StructuredOutputsParams
             sampling=SamplingParams(n=1,temperature=0.,top_p=1.,seed=0,repetition_penalty=1.,max_tokens=16384,
                 structured_outputs=StructuredOutputsParams(choice=['LEFT','RIGHT']))
+            generation=generation_receipt(sampling)
+            atomic_json(out/'generation.json',generation)
             warm(p,out);seen=set()
             observation=stack.enter_context(NativeObservation(model))
             try:
@@ -394,7 +425,10 @@ def run(profile_path):
                     item=catalog['items'][sid];ref=p['sources'][sid]
                     require(state(ref['path'])==ref['stat'],'Source changed after sealing')
                     observed=item['task'] not in seen;seen.add(item['task']);pending=sid
-                    write_new(Path(p['claim_root'])/(sid+'.json'),{'sample_id':sid,'worker':p['worker'],'profile_sha256':digest(p)})
+                    attempt=2 if sid in p.get('repair',{}).get('preserved_claims',{}) else 1
+                    write_new(Path(p['claim_root'])/(sid+'.json'),{'sample_id':sid,'worker':p['worker'],
+                        'profile_sha256':digest(p),'attempt':attempt,
+                        'preserved_prior_claim':p.get('repair',{}).get('preserved_claims',{}).get(sid)})
                     _append(out/'events.jsonl',{'event':'INTENT','sample_id':sid,'ordinal':ordinal,'observed':observed})
                     observation.clear();observation.active=True
                     if model=='gemma':engine.collective_rpc(g._set_deep,args=(False,))
@@ -411,15 +445,7 @@ def run(profile_path):
                         request=[{'role':'user','content':[{'type':'video_url','video_url':{'url':Path(ref['path']).as_uri()}},
                             {'type':'text','text':item['row']['prompt']}]}]
                     ts=time.monotonic()
-                    if arm=='C' and model!='gemma':
-                        # Qwen3-VL's file path may derive do_sample_frames from
-                        # video metadata, overriding only an engine-level default.
-                        # Retain the request-level settings used by native_path_smoke.
-                        native_kwargs=({'mm_processor_kwargs':{'do_resize':False,'do_sample_frames':False}}
-                                       if model in ('qwen','cosmos') else {})
-                        answer=engine.chat(request,sampling_params=sampling,use_tqdm=False,
-                            chat_template_kwargs={'enable_thinking':False},**native_kwargs)[0]
-                    else:answer=engine.generate(request,sampling,use_tqdm=False)[0]
+                    answer=submit(engine,model,arm,request,sampling)
                     engine_seconds=time.monotonic()-ts;choice=answer.outputs[0];tp=time.monotonic()
                     raw={'sample_id':sid,'task':item['task'],'model':model,'arm':arm,'ordinal':ordinal,
                         'observed_or_cold':observed,'truth':item['row']['truth'],'raw_answer':choice.text,
@@ -435,11 +461,15 @@ def run(profile_path):
                         'timing':{**phases,'engine_request_inclusive_seconds':engine_seconds,
                             'native_reader_nested_seconds':observation.read_seconds,
                             'native_processor_nested_seconds':observation.processor_seconds},
-                        'route_label':p['route_label'],'vllm_metrics':str(answer.metrics)}
+                        'route_label':p['route_label'],'vllm_metrics':str(answer.metrics),
+                        'generation':generation,'attempt':attempt}
                     # Durable raw precedes every post-output assertion/probe. Never retry it.
                     _append(out/'raw.jsonl',raw)
                     require(choice.finish_reason=='stop' and choice.text.strip() in ['LEFT','RIGHT'],'Unexpected scientific completion; raw retained')
                     require(len(answer.prompt_token_ids)+16384<=65536,'Context budget differs')
+                    if p.get('repair'):
+                        require(digest(list(answer.prompt_token_ids))==p['repair']['prompt_tokens_by_task'][item['task']],
+                                'Actual prompt token layout differs from retained A')
                     if model=='gemma':
                         gpu=engine.collective_rpc(g._read_observer)
                         require(list(answer.prompt_token_ids)==controls['expected_prompt_token_ids'],'Gemma actual prompt expansion differs')
