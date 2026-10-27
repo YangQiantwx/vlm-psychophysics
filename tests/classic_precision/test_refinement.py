@@ -60,3 +60,52 @@ def test_existing_generator_has_stable_condition_ids():
     before = {r['sample_id']: r for r in a['rows']}
     after = {r['sample_id']: r for r in b['rows']}
     assert all(after[k] == v for k, v in before.items())
+
+
+def full_source_index():
+    c = load_protocol()
+    c['T2']['delta_Y'] = [.05,.06,.07,.08,.09,.1,.11,.12,.13,.14,.15,.2,.4]
+    c['T2']['control_10frame_delta_Y'] = list(c['T2']['delta_Y'])
+    c['T3']['angle_degrees'] = [.5,.6,.7,.8,.9,1,1.5,1.75,2,2.25,2.5,3,3.5,4,8,16,32,45,90]
+    c['counts'].update(T2_total=3744,T3_total=1776)
+    rows = make_manifest(c)['rows']
+    items = {}
+    for r in rows:
+        sid = r['sample_id']
+        items[sid] = {**item(sid, r['task']+'/'+sid+'.mkv'), 'task': r['task'],
+                      'truth': r['truth'], 'prompt': r['prompt'],
+                      'nominal_parameters': r['source_parameters']}
+    for i in range(3840):
+        sid = f't1-fixture-{i}'
+        items[sid] = {**item(sid, 'T1/'+sid+'.mkv'), 'task': 'T1'}
+    d = {'schema': SCHEMA, 'items': items, 'counts': {'T1':3840,'T2':3744,'T3':1776}}
+    return {**d, 'index_id': digest(d)}
+
+
+def test_revised_common_grid_has_complete_T2_T3_pairs_and_no_old_ids():
+    base = full_source_index()
+    manifest, plan, names = build_plan(base)
+    assert plan['new_videos_by_task'] == {'T2':2016,'T3':576}
+    assert plan['new_videos'] == len(manifest['rows']) == len(names) == 2592
+    assert plan['new_model_calls'] == 10368
+    assert plan['expected_combined_videos'] == 11952
+    assert .225 not in plan['delta_Y']
+    assert not (set(base['items']) & {r['sample_id'] for r in manifest['rows']})
+    from collections import Counter
+    groups = Counter()
+    for r in manifest['rows']:
+        if r['task'] == 'T3':
+            p = r['source_parameters']
+            groups[(p['angle_deg'], p['tilt_sign'], p['reference_side'])] += 1
+    assert len(groups) == 6*2*2 and set(groups.values()) == {24}
+    assert manifest['models'] == {} and plan['GPU_calls_started'] == 0
+
+
+def test_T3_fixed_geometry_change_is_rejected():
+    base = full_source_index()
+    for e in base['items'].values():
+        if e['task'] == 'T3':
+            e['nominal_parameters']['bar_wh'] = [21,190]
+    base.pop('index_id');base['index_id'] = digest(base)
+    with pytest.raises(ValueError, match='source/prompt control'):
+        build_plan(base)

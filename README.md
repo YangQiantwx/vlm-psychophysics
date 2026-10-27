@@ -100,17 +100,25 @@ Pause an active Gemma worker with `python -m classic_precision.gemma_nvfp4_conti
 
 ## Append-only refinement
 
-The next bounded source extension adds T2 increments `.16,.17,.18,.19,.225,.25,.30,.35` across the existing three backgrounds, two durations,24 onsets and paired sides: **2,304 new videos /9,216 answers across the four current models**. It is prepared, not rendered or inferred. T1/T3 and the existing9,360 IDs remain unchanged.
+The next bounded extension covers both late transitions, using the same new grid for all four current models:
+
+| Task | New levels | New videos | Four-model answers |
+|---|---|---:|---:|
+| T2 | ΔY .16/.17/.18/.19/.25/.30/.35 | 2,016 | 8,064 |
+| T3 | 1.2/1.4/1.6/1.8/2.1/2.2 degrees | 576 | 2,304 |
+| Total | | 2,592 | 10,368 |
+
+T2 retains three backgrounds, two durations,24 onsets and paired sides. T3 retains24 onsets, both tilt signs and both reference sides. The earlier proposed .225 increment was removed before any rendering/inference. Existing1.75° and2.25° answers remain; no old IDs or levels are removed or rerun. The six new angles fill the late Gemma/Nemo rises without adding points to the already saturated high-angle range. These are finite curve refinements, not a measured precise JND.
 
 ```bash
 python -B -m classic_precision.refinement plan \
   --index /data/classic-t1-t3-v0.3/dataset-index.json \
-  --output /data/plans/t2-refinement
+  --output /data/plans/classic-refinement
 ```
 
-This produces `manifest.json`, `plan.json` and `video-names.csv`, with zero model calls. Source-generation manifests intentionally contain no model launch defaults. Bind separate finite per-model NVFP4 profiles after new-source acceptance. Existing Cosmos/Gemma BF16 defaults in historical entrypoints must not be used for this extension. Fixed old answers are never rerun or overwritten.
+This produces `manifest.json`, `plan.json` and `video-names.csv`, with zero model calls. Source-generation manifests intentionally contain no model launch defaults. Bind separate finite per-model NVFP4 profiles after new-source acceptance. Historical Cosmos/Gemma BF16 defaults must not be used. Existing IDs, prompts, source bytes and answers remain immutable.
 
-After rendering and auditing only the new sources, `refinement extend-index --base-index ... --new-index ... --output ...` validates an append-only11,664-video index. It rejects overlapping IDs, path collisions and missing source evidence. The existing `dataset` loader resolves stable IDs to readable names; inference results join on ID, never parsed filenames. Do not publish unrendered entries with invented byte hashes.
+After rendering and auditing only the new sources, `refinement extend-index --base-index ... --new-index ... --output ...` validates an append-only11,952-video index. It rejects overlapping IDs, path collisions and missing source evidence. The `dataset` loader resolves stable IDs to readable names; inference results join on ID. Never publish unrendered entries with invented byte hashes.
 
 ## Code release and validation scope
 

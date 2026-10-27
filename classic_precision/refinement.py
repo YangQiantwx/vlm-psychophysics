@@ -1,4 +1,4 @@
-"""Plan an append-only T2 source extension; never launches inference or uploads."""
+"""Plan an append-only T2/T3 source extension; never launches inference or uploads."""
 from __future__ import annotations
 
 import argparse
@@ -11,7 +11,8 @@ from .dataset import load_index, validate_index
 from .dataset_names import filename
 from .manifest import atomic_json, digest, load_protocol, make_manifest
 
-DELTA_LEVELS = (.16, .17, .18, .19, .225, .25, .30, .35)
+DELTA_LEVELS = (.16, .17, .18, .19, .25, .30, .35)
+ANGLE_LEVELS = (1.2, 1.4, 1.6, 1.8, 2.1, 2.2)
 MODELS = ("qwen", "nemo", "cosmos", "gemma")
 
 
@@ -20,57 +21,67 @@ def build_plan(index):
     if index['counts'] != {'T1': 3840, 'T2': 3744, 'T3': 1776}:
         raise ValueError('This extension is defined against the completed 9360-video panel')
     c = load_protocol()
-    c['protocol_name'] = 'classic_t2_transition_extension_v1'
+    c['protocol_name'] = 'classic_t2_t3_transition_extension_v2'
     # This is a source-generation manifest. Legacy model defaults must not launch
     # a BF16 Cosmos/Gemma job; GPU plans are bound separately to qualified NVFP4.
     c['models'] = {}
     c['T2']['delta_Y'] = list(DELTA_LEVELS)
     c['T2']['control_10frame_delta_Y'] = list(DELTA_LEVELS)
     c['T2']['initial_dot_policy'] = 'Fixed object Y=.5 across all backgrounds'
-    c['T3']['angle_degrees'] = []
-    c['counts'] = {'T2_main': 1152, 'T2_167ms_control': 1152,
-                   'T2_total': 2304, 'T3_total': 0, 'total_per_model': 2304,
-                   'four_models_total_calls': 9216}
+    c['T3']['angle_degrees'] = list(ANGLE_LEVELS)
+    t2_n = len(DELTA_LEVELS) * 3 * 2 * 24 * 2
+    t3_n = len(ANGLE_LEVELS) * 24 * 2 * 2
+    c['counts'] = {'T2_main': t2_n // 2, 'T2_167ms_control': t2_n // 2,
+                   'T2_total': t2_n, 'T3_total': t3_n, 'total_per_model': t2_n+t3_n,
+                   'four_models_total_calls': (t2_n+t3_n)*len(MODELS)}
     m = make_manifest(c)
-    # Bind unchanged parameters/prompt to an existing row of the same condition.
+    # All controls except the newly varied signal must match the existing panel.
+    def control_key(task, p):
+        if task == 'T2':
+            return (task, p['background_Y'], p['offset_frame']-p['onset_frame'],
+                    p['onset_index'], p['target_side'])
+        return (task, p['onset_index'], p['reference_side'], p['tilt_sign'])
+
+    def fixed_parameters(task, p):
+        varied = 'delta_Y' if task == 'T2' else 'angle_deg'
+        return {k: v for k, v in p.items() if k != varied}
+
     old = {}
     for e in index['items'].values():
-        if e['task'] != 'T2':
+        task = e['task']
+        if task not in ('T2', 'T3'):
             continue
         p = e['nominal_parameters']
-        key = (p['background_Y'], p['offset_frame'] - p['onset_frame'],
-               p['onset_index'], p['target_side'])
-        q = {k: v for k, v in p.items() if k != 'delta_Y'}
-        value = (q, e['prompt'])
+        key = control_key(task, p)
+        value = (fixed_parameters(task, p), e['prompt'])
         if key in old and old[key] != value:
-            raise ValueError('Existing T2 rows disagree beyond luminance increment')
+            raise ValueError('Existing rows disagree beyond the varied signal')
         old[key] = value
     names = []
     for r in m['rows']:
-        p = r['source_parameters']
-        key = (p['background_Y'], p['offset_frame'] - p['onset_frame'],
-               p['onset_index'], p['target_side'])
-        if old.get(key) != ({k: v for k, v in p.items() if k != 'delta_Y'}, r['prompt']):
+        task, p = r['task'], r['source_parameters']
+        if old.get(control_key(task, p)) != (fixed_parameters(task, p), r['prompt']):
             raise ValueError('Extension would change an existing source/prompt control')
         if r['sample_id'] in index['items']:
             raise ValueError('Requested scientific ID already exists')
-        entry = {'task': 'T2', 'truth': r['truth'], 'nominal_parameters': p}
-        names.append({'sample_id': r['sample_id'], 'video_relative': 'T2/' + filename(entry)})
+        entry = {'task': task, 'truth': r['truth'], 'nominal_parameters': p}
+        names.append({'sample_id': r['sample_id'], 'video_relative': task + '/' + filename(entry)})
     if len({r['video_relative'] for r in names}) != len(names):
         raise ValueError('Readable filename collision')
-    plan = {'schema': 'classic-refinement-plan-v1', 'status': 'PREPARED_NOT_RENDERED',
+    plan = {'schema': 'classic-refinement-plan-v2', 'status': 'PREPARED_NOT_RENDERED',
             'base_index_id': index['index_id'], 'base_videos': len(index['items']),
             'source_protocol_id': m['protocol_id'], 'models': list(MODELS),
             'model_precision': 'Existing qualified official NVFP4 mixed checkpoints; retain BF16 excluded layers/KV',
             'input_protocol': 'controlled-rgb16', 'delta_Y': list(DELTA_LEVELS),
+            'angle_deg': list(ANGLE_LEVELS), 'new_videos_by_task': {'T2': t2_n, 'T3': t3_n},
             'new_videos': len(names), 'new_model_calls': len(names)*len(MODELS),
             'expected_combined_videos': len(index['items'])+len(names),
             'GPU_calls_started': 0, 'model_execution_plans': 'Bind qualified per-model runtime separately; do not use legacy default pipeline',
-            'selection_basis': 'Common fixed grid covering the observed .15-.20 rise and .20-.40 gap; selected before new answers',
+            'selection_basis': 'Common finite T2 grid without .225 and six T3 angles covering the 1-2.25 degree late rises; selected before new answers',
             'stop_rule': 'No automatic additional levels or retries of completed/uncertain IDs',
-            'id_policy': 'Existing IDs/paths/bytes unchanged; new ID = t2_ + canonical source-parameter digest[:20]',
+            'id_policy': 'Existing IDs/paths/bytes unchanged; new ID = task prefix + canonical source-parameter digest[:20]',
             'source_acceptance': 'Render and validate only new videos before extending the public index',
-            'independent_unit': '24 onset placements with paired sides, not 48 independent scenes'}
+            'independent_unit': '24 onset placements with paired sides; T3 also retains both signs. These are not independent scenes'}
     return m, plan, names
 
 
