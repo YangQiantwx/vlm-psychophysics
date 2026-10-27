@@ -74,6 +74,17 @@ def sources(root):
     require(summary['status']=='COMPLETE' and not summary['failed_IDs']
         and summary['completed_counts']=={'T2':2016,'T3':1152}
         and summary['decoded_frames']==570240, 'New source QA incomplete')
+    # The source runner did not bracket its unique-state preparation separately.
+    # Replace its unset sentinel before sealing, rather than report a measured0s.
+    if summary.get('source_qa_seconds') == 0:
+        from .storage import atomic_json
+        summary['source_qa_seconds']=None
+        summary['source_state_timing_scope']='not separately measured; full audit wall and video-worker seconds remain recorded'
+        atomic_json(qa/'summary.json',summary)
+        progress=read(qa/'progress.json');progress.update(source_qa_seconds=None,
+            source_state_timing_scope=summary['source_state_timing_scope']);atomic_json(qa/'progress.json',progress)
+        source_qa=read(qa/'source-qa.json');source_qa.update(seconds=None,
+            timing_scope=summary['source_state_timing_scope']);atomic_json(qa/'source-qa.json',source_qa)
     manifest=read(run/'manifest.json')
     ready={r['sample_id']:r for r in map(json.loads,(run/'ready.jsonl').read_text().splitlines())}
     audits={r['sample_id']:r for r in map(json.loads,(qa/'per-id.jsonl').read_text().splitlines())}
