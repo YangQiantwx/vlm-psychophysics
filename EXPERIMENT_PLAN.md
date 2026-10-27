@@ -2,7 +2,7 @@
 
 This document defines stimuli, denominators and validated scope. It is not a scheduler or permission to resume a queue. Exact reproduction requires the versioned manifest, model/processor/code identities and complete raw references. Current local decisions are maintained in the benchmark registry.
 
-## Source panel
+## Completed v0.3 baseline
 
 | Task | Conditions | Videos per model |
 |---|---|---:|
@@ -93,6 +93,6 @@ Natural backgrounds and object appearance retain their baselines. Deterministic 
 
 Published naming uses `dataset_names` and three task folders (`T1/`, `T2/`, `T3/`). Stable IDs/parameters/source bytes are unchanged; trial labels follow the original phase/onset bank. Active remote formal catalogs and source paths remain frozen.
 
-## Bounded T2/T3 extension (prepared, not executed)
+## Bounded T2/T3 extension (source accepted; inference running)
 
-Use `classic_precision.refinement` against v0.3. T2 adds ΔY .16/.17/.18/.19/.25/.30/.35 across three backgrounds,10/30-frame exposure,24 onsets and two sides:2,016 videos. T3 completes1.0–2.5° at0.1° intervals, reusing1.0/1.5/2.0/2.5° and adding12 levels across24 onsets, both signs and both reference sides:1,152 videos. Total3,168 new videos and12,672 answers for Qwen/Nemo/Cosmos/Gemma under their existing qualified mixed NVFP4 controlled-input protocol. The earlier .225 proposal was removed before execution. Existing1.75/2.25° and all9,360 original IDs remain unchanged. The common grid is fixed before new answers; do not expand it automatically. New-source QA and runtime admission remain pending. No new static grid, T4/T5, natural content or additional models are included.
+Use `classic_precision.refinement` against v0.3. T2 adds ΔY .16/.17/.18/.19/.25/.30/.35 across three backgrounds,10/30-frame exposure,24 onsets and two sides:2,016 videos. T3 completes1.0–2.5° at0.1° intervals, reusing1.0/1.5/2.0/2.5° and adding12 levels across24 onsets, both signs and both reference sides:1,152 videos. Total3,168 new videos and12,672 answers for Qwen/Nemo/Cosmos/Gemma under their existing qualified mixed NVFP4 controlled-input protocol. The earlier .225 proposal was removed before execution. Existing1.75/2.25° and all9,360 original IDs remain unchanged. The common grid was fixed before new answers; do not expand it automatically. New-source QA passed all3,168 videos/570,240 frames, with zero failures or decoded-code differences and maximum PTS error0.333ms. The append-only source index contains12,528 videos (T1 3,840/T2 5,760/T3 2,928); formal inference is running under sealed finite profiles. Each fresh worker's first two formal inputs must pass its runtime/input checks before ordinary requests. Complete four-model result merging and v0.4 publication remain pending. No new static grid, T4/T5, natural content or additional models are included.
