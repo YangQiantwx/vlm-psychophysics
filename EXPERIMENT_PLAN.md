@@ -1,130 +1,98 @@
-# T2 / T3 · 当前唯一生产协议
+# Classic protocol and reproducibility
 
-**状态：生产协议已冻结；当前进度以生产registry.execution和LATEST为准。** 本轮共3,504个视频条目，四模型各回答一次，计划14,016条唯一答案。意外没有完整答案的刺激最多重试一次；实际尝试数另记。旧T2/T3回答不填入新曲线；T1暂不重做。机器配置以 `classic_precision/protocol.json` 为准，执行前冻结 `manifest.json`。
+This document defines stimuli, denominators and validated scope. It is not a scheduler or permission to resume a queue. Exact reproduction requires the versioned manifest, model/processor/code identities and complete raw references. Current local decisions are maintained in the benchmark registry.
 
-## 1. 固定视频规格
+## Source panel
 
-| 项目 | 固定值 |
-| --- | --- |
-| 画面 | 768×512，像素坐标原点在左上；像素覆盖区域[x,x+1]×[y,y+1] |
-| 时间 | 3秒，60 fps，180源帧；不抽帧 |
-| 编码 | FFV1 level 3，MKV，gbrp16le；RGB每通道16bit |
-| 合成 | FP64线性亮度/像素覆盖面积，最后一次量化成sRGB16；不经过8bit中间图 |
-| 出现时刻 | 24个：第18+5k帧，k=0…23，即0.300–2.2167秒 |
-| 主曝光 | 30帧=500ms，窗口[onset,onset+30) |
-| 相同配置的实例 | 改onset；位置/大小/形状/亮度/角度不随onset变化 |
-| 答案 | LEFT或RIGHT；两侧平衡，prompt不提供真值或事件时刻 |
+| Task | Conditions | Videos per model |
+|---|---|---:|
+| T1 | 8 spatial frequencies × 10 modulation depths × 24 phases × 2 directions | 3,840 |
+| T2 | 13 increments × 3 backgrounds × 24 onsets × 2 sides × 2 durations | 3,744 |
+| T3 | 19 angles × 24 onsets × sign/side; equivalent signs at 90° deduplicated | 1,776 |
+| Total | 180 frames per video, 60 Hz | 9,360 |
 
-24个onset是同一内容的24个时间实例，不是24个不同物体。每点的左右成对结果一起分析；统计置信度不能解释成对任意背景/物体的总体保证。
+Videos are 768×512, FFV1 level 3 in MKV, gbrp16le, 16 bits per channel. Continuous linear-light stimuli use FP64 pixel-area integration followed by one sRGB16 quantization. Decode into `uint16 [180,512,768,3]` in RGB order; the FP32 entry mapping is `codes * 255/65535`. No uint8 intermediate, frame subsampling or hidden resize. Gemma adds 16 background rows at the bottom without changing the original active region.
 
-## 2. T2：短暂亮度增量
+T2/T3 onsets are `18 + 5k`, k=0…23; event windows are half-open. These are timing instances of the same content, not 24 independent scenes. T1 instead varies initial phase and moves throughout the clip. Each manifest row retains frame indices, PTS, event support, truth, prompt and parameters.
 
-| 项目 | 固定值 |
-| --- | --- |
-| 背景线性Y | .05 / .20 / .40 |
-| 两个dot初始Y | **三个背景均为.50**；旧实验是BG+.10，两者不同 |
-| 形状/大小 | 两个圆，覆盖面积5118.7529296875 px²，直径80.73040721938105 px |
-| 中心(x,y) | (224,302)、(544,302) |
-| 增量ΔY | **.05/.06/.07/.08/.09/.10/.11/.12/.13/.14/.15/.20/.40** |
-| 事件 | 仅目标圆从.50增到.50+ΔY，随后恢复；背景和参考圆不变 |
-| 最大目标Y | .90，无裁切到1 |
-| 主面板 | 13增量×3背景×24onset×2目标侧=**1,872** |
-| 时长控制 | 仅.08/.09/.10，10帧=166.67ms；3×3×24×2=**432** |
-| T2合计 | **2,304 / 模型**，主/控制同条件可形成432个时长配对 |
-| 每单独背景/增量/时长 | 48视频=24onset×左右；三背景汇总144视频 |
+## Stimuli
 
-ΔY是目标自身线性亮度的绝对增加，不是屏幕亮度百分比或cd/m²。主图用线性x轴，显示全部预定档位；各背景各一条线，另可显示等分母合并曲线。新固定初始Y用于比较背景效应，不能把旧固定dot−BG结果当作新协议已验证。
+**T1 — motion direction.** SF is .5/1/2/4/8/16/32/64 cycles per 448 px aperture; modulation is .05/.1/.2/.3/.4/.6/.7/.8/.9/1. Phase is `7.5 + 15k` degrees; temporal frequency is 5 Hz. The aperture is centered at (384,256), flat for r≤192 px and cosine tapered over 192–224 px. Mean linear Y is .31. The continuous field is `Y = μ[1 + mW(r)cos(2πSF(x−384)/448 + φ − s2π5t)]`, with s=+1 for RIGHT. Each SF×m cell has 48 videos.
 
-## 3. T3：与竖直轴的角度差
+**T2 — transient brightening.** Background Y is .05/.20/.40. Both circles initially have Y=.50, centers (224,302)/(544,302), diameter 80.73040721938105 px and area 5118.7529296875 px². Only the target increases by ΔY=.05/.06/.07/.08/.09/.10/.11/.12/.13/.14/.15/.20/.40 for 10 or 30 frames, then returns to baseline. The reference and background stay fixed; there is no clipping. Each background×increment×duration cell has 48 videos. The current set has 1,872 matched duration pairs: the original 2,304-video panel plus 1,440 short-duration extensions. The old BG+.10 object baseline is a separate version.
 
-| 项目 | 固定值 |
-| --- | --- |
-| 背景/前景线性Y | .10 / .82 |
-| 两根条形 | 连续几何20×190 px；中心(224,304)、(544,304) |
-| 角度 | **.5/1/1.5/2/2.5/3/3.5/4/8/16/32/45/90°** |
-| 呈现 | 两条同时出现500ms；一条竖直，另一条已经倾斜；无转动动画 |
-| 标签 | 更竖直的那一侧，不是倾斜侧 |
-| 方向/位置 | 倾斜正负号×竖直条左右位置平衡；轴按180°周期定义 |
-| 90° | +90/-90为同一条形，使用唯一canonical符号，避免重复计数 |
-| T3合计 | 12角度×24onset×2符号×2侧 + 90°的24×2 = **1,200 / 模型** |
-| 每点 | 普通角度96视频，90°48视频；左右双对分母分别48/24对 |
+**T3 — image-plane orientation.** Background/foreground Y is .10/.82. Rectangles are continuously defined as 20×190 px at (224,304)/(544,304). Both appear for 30 frames; one is vertical, the other already tilted by ±θ. There is no rotation animation. The answer is the more vertical side. Angles are .5/.6/.7/.8/.9/1/1.5/1.75/2/2.25/2.5/3/3.5/4/8/16/32/45/90°. Ordinary cells contain 96 videos; 90° contains 48. Coverage comes from continuous polygon/pixel intersections, not repeated rotation of a small bitmap. Axes are periodic over 180°; this is not a retinal visual angle or 3D pose measurement.
 
-条长、条宽和中心在连续坐标中保持不变，旋转不是拉伸。栅格像素值用连续矩形与每个像素方格的相交面积决定，避免先做小位图再旋转造成小角度量化消失。
+## Validation and model input
 
-## 4. 生成与独立验证
+The full source audit passed 9,360 videos and 1,684,800 frames: decoded RGB codes equal their sources, no failed IDs, maximum PTS rounding error .333 ms. All eight T1 basis images were rebuilt; 648 sampled pixels were independently integrated. Maximum T1 blind-readout errors were 4.730e−6 in modulation, 3.267e−6 cycles/aperture in SF and 1.445e−6 Hz in temporal frequency. T2 core ΔY error was at most 2.2641e−5, with no change outside the target. T3 maximum errors were 5.3904e−5° by PCA and 3.4647e−6° by an independent boundary fit.
 
-生产绘制器是保留原函数的FP64解析面积积分；T3另用GEOS独立多边形裁剪求同一覆盖面积。T2圆边界另用独立数值积分检查。两个实现相互核对，不能只用生成器自己的真值公式“验证自己”。
+Repeated onsets share a state measurement only when bound by full decoded-frame equality. Do not count them as independent geometries. Source acceptance is T2 increment error <1e−4; for T3, each estimator has MAE <.0002° and each geometry has error <.001°. RGB16→FP32 roundtrip preserves all 65,536 codes. These checks do not certify every BF16 signal or a physical display. Brightness is digital linear luminance, not cd/m².
 
-T3还从最终像素反测角度：①亮度恢复后的二阶矩/PCA；②不输入GT角度的独立半平面边缘拟合。统计按52个唯一几何计算，不把重复的竖直参考条或24个onset重复充当独立几何。
+Retain official normalization, patch construction and position handling. Some processors return FP32 before the model casts to BF16. New geometry, processor, modality or engine gets representative actual CPU/GPU qualification. Ordinary requests then retain identity, frame/shape/event/prompt/runtime checks and full outputs, without repeated pixel inversion, processor passes or permanent tensor dumps. Do not compensate source values according to model scores.
 
-| 层级 | 接受条件/实际证据 |
-| --- | --- |
-| T2 RGB16源图 | 核心增量和alpha回归的最大ΔY误差<.0001；目标外逐像素不变 |
-| T3 RGB16源图 | 两个图像估计器各自MAE<.0002°，且每个几何误差<.001° |
-| 编码后 | 全180帧解码成uint16，与对应源图逐值完全相同，最大码值误差0；PTS误差≤1ms |
-| RGB48→FP32入口 | 不丢帧、不变尺寸、不转uint8；反算回uint16最大码值误差0 |
-| 官方processor内BF16转换之前 | 每个唯一状态检查反排/反归一化回码0；Nemo在原生归一化函数内检查FP32阶段，其余模型检查FP32输出；真实GPU worker首2再核实际引擎入口 |
-| BF16之后 | 测量并报告实际增量/轴估计误差，不设虚假的全模型.001亮度保证，不改GT补偿模型 |
+## Native deployment sensitivity is a separate protocol
 
-已完成的当前源网格独立审核：T2核心最大误差约.000022641；T3 PCA MAE/最大误差约.000017345°/.000053903°，盲半平面约.000000990°/.000003465°。这不是尚未生成的3,504个编码文件或四模型全网格的完成声明。
+The `native-default` and `native-original` routes both use the official file uint8 reader and all indices0…179. Disable processor frame sampling as well as requesting180 frames in the reader; requesting180 at only one boundary was insufficient for Qwen/Cosmos. Preserve the exact prompt and generation controls below. Observers record dtype, source shape, actual processor frame/grid output and timing; they do not cast pixels. The first two observed requests are excluded from ordinary-request timing.
 
-此前确实在Linux运行过Psychtoolbox Screen和Manson原作者FilterBox代码。共同几何的FilterBox与解析面积法覆盖差约2.55e−13，统一16bit像素全同。PTB超采样是独立复核路径，生产使用解析面积法以避免有限超采样误差和昂贵的逐像素采样。参考：[Manson scanline rasterization](https://josiahmanson.com/research/scanline_rasterization/)、[analytic anti-aliasing](https://www.cg.tuwien.ac.at/research/publications/2012/Auzinger_2012_AAA/)、[Psychtoolbox precision](https://psychtoolbox.org/docs/PsychImaging)。
+Original-size Qwen/Cosmos use `do_resize=False` at global and request scope. Nemo uses native vision-config fields `video_target_num_patches=1536` and `video_maintain_aspect_ratio=True`; it does not accept Qwen's do_resize switch. Native default Nemo resizes768×512 to512×512 rather than letterboxing. Native Qwen/Cosmos default output is448×288. Neither operation is geometrically identical to the source; image-plane angle and pixel support can change.
 
-## 5. 四模型输入、精度和生成设置
+Pinned Gemma native video forces70 soft tokens/frame. Disabling resize on512×768 yields1536 patches, incompatible with its original pooling/token-count path; no valid original-size native GPU timing is claimed. Its existing all180 default-resize T2 median is7.81s, versus about21.38s on a matched historical Fourier subset; host, geometry, soft-token budget and input route change together. This is not a bit-depth-only speedup.
 
-共同入口：**FFV1 RGB16 → RGB48 uint16解码 → FP32×255/65535 → 官方processor → BF16视觉张量 → 原模型**。明确输入解码器替换为无损RGB48；不修改官方归一化、patch打包或网络。使用公开尺寸/帧数配置关闭resize和抽帧。Nemo配置1536视觉patch及保持比例；Gemma只在底部补16行同背景至768×528，原768×512区域不变。
+Processor outputs in these pinned native paths are FP32 for Gemma/Qwen/Cosmos and BF16 for Nemo, followed by native vLLM's model-dtype conversion. Gemma's internal `2*(x-.5)` then operates on the received BF16 in native vLLM. Direct HF FP32 input can have a different order. Our Gemma bridge's explicit earlier cast must be disclosed, not described as leaving all postprocessor work untouched. The two static151 configurations remain valid separate observations (102 versus100 correct;18 changed answers).
 
-| 模型 | 权重 | processor视觉输出（已校准） | 特有内存设置 |
-| --- | --- | --- | --- |
-| Nemotron 3.5 Super | 官方NVFP4混合checkpoint | BF16；内部FP32归一化 | BF16 KV 2GiB |
-| Qwen3.8 Next | 官方NVFP4混合checkpoint | FP32 | BF16 KV 4GiB；原n-gram CPU路径；专家CPU offload默认24GiB，本轮Radon经独立资源兼容层调整为16GiB，Fourier保留24GiB |
-| Cosmos3-Super | BF16 understanding/Reasoner | FP32 | 官方兼容shim及SDPA |
-| Gemma4-31B | BF16 | FP32 | 官方KV offload；仅补边 |
+The old-to-native comparisons change more than bit depth. They do not establish that RGB16 preservation universally improves or harms VLM accuracy. Same-uint8 native A/B comparisons isolate the supported spatial setting more closely. Keep selected cells and full curves separate, and do not select the highest configuration per model/cell for the main result.
 
-精确repo/revision写在protocol.json，复用现有权重。不能把输入16bit、视觉激活BF16和权重NVFP4混为一谈。
+## Model paths and generation
 
-Nemotron使用已锁定vLLM原生`NanoNemotronVLProcessor`的视频ndarray路径：`torch.from_numpy(video)`保留FP32，经原生归一化输出BF16，不经过其PIL图片的uint8分支。其余三模型使用各自已锁定的Transformers processor，FP32输出在实际模型路径转为BF16。两端四模型各128状态均已完成CPU校准：BF16前回码误差0，Nemo实际BF16输出与直接FP32归一化后转BF16的差为0。每个新GPU worker仍以本轮首次真实T2/T3回执验收；当前完成情况见registry，不由CPU校准代替。
+| Validated path | Precision and framework |
+|---|---|
+| Qwen3.8 Flash Next, fc694b54… | Official mixed NVFP4/FP8/BF16; vLLM 0.31; QSA-only deterministic selection; BF16 KV 4 GiB; native 24 GiB expert offload |
+| Nemotron3.5 Super VL, 82d93699… | Official mixed NVFP4/FP8/BF16; vLLM 0.31; BF16 KV 2 GiB |
+| Cosmos3 Super, f543c562… | Official BF16 Reasoner and Transformers 5.17/SDPA; complete classic reference |
+| Cosmos official NGC NVFP4, manifest 7bbfe34d… | ModelOpt W4A4 and vLLM/FlashInfer; BF16 vision/lm_head/KV 17 GiB; all9,360 complete |
+| Gemma4-31B official NVFP4, 4135a98… | MLP W4A4; BF16 attention/vision/lm_head/KV 32 GiB; vLLM0.31; no CPU offload; original3,145 preserved;explicit same-protocol resume1 of6,215 active |
 
-共同生成：native thinking OFF、seed0、greedy。vLLM温度0/top_p1；HF do_sample=False/num_beams1；repetition_penalty1；输出上限16,384、上下文上限65,536。实际样例输入约33,447–37,491 tokens，未填满或截断到65,536。输出必须使用真正的vLLM `StructuredOutputsParams(choice=['LEFT','RIGHT'])`，或HF等价的标签token前缀+EOS约束；只写prompt不算约束。约束改变允许的输出集合，因此旧无约束成绩不混入新曲线。
+Pin checkpoints, processor/tokenizer/chat template, code, SDK, kernels, Torch policy and frame/prompt identities. Fix thinking OFF, temperature=0, top_p=1, seed=0, greedy decoding, context=65,536, output cap=16,384 and repetition penalty=1. HF uses do_sample=False and num_beams=1. Native vLLM LEFT/RIGHT choice constraints or the equivalent HF prefix/EOS constraint are part of the evaluated system. Contexts are independent. Source, processor, visual activation, weight and KV precision are different quantities; NVFP4 does not mean every layer is four-bit.
 
-保留官方processor的理由：它定义预训练模型所期待的数值尺度、归一化和token组织。改这一部分会把“评估模型”变成另一套输入系统。高精度解码只移除进入这一约定之前可避免的8bit舍入，BF16仍按模型部署行为记录。官方支持[已解码视频数组与帧数配置](https://huggingface.co/docs/transformers/en/main_classes/video_processor)；[Cai等CVPR2025](https://arxiv.org/html/2502.20256v2#S3.SS1)也为低层视觉测量使用float输入避免uint8量化，但其image-encoder实验不替我们的VLM结果作精度保证。
+A fixed decode/processor pipeline is not model-generated Python or agentic tool use. Optional API/agent evaluations need separate enforceable tool permissions. A sentence in a prompt does not prove service behavior; completed native results do not need rerunning merely to reword that statement.
 
-本轮测量目标是：在统一的高保真视频输入、完整帧序列和固定二选一回答条件下，测得各固定版本完整模型的亮度与角度辨别曲线。RGB48解码、保留180帧及关闭resize属于预先固定的实验输入控制；模型原生归一化、patch/token组织、网络、官方权重格式及现有BF16计算路径均保留。结果表同时提供源刺激参数、各模型实际入模信号误差与推理配置，作为该配置下的能力规格。当前决策是继续既有生产，不按得分改processor、升降计算精度、补偿刺激或重抽完整答案。本次文档澄清不改变protocol.json、manifest、推理源码或已经产生的结果。
+## Completed reproducibility and precision evidence
 
-历史实际单点：ΔY=.09在四模型BF16后的绝对误差约.000924/.001281/.001281/.003468；ΔY=.10则约.001331/.001448/.001448/.000034。0.5°两图像轴估计器最大误差约.000279/.000487/.000487/.000731°。说明BF16误差随数值变化，不能从一个点推全网格，也不能按模型分数选择补偿值。先生成128个唯一状态的代表视频后运行 `calibrate`，每模型做一次实际官方CPU处理；其余视频继续并行生成。校准不加载权重或额外问模型。
+Gemma original3,145 formal outputs remain preserved; the human authorized same-protocol three-card resume1 of6,215 never-attempted IDs. Each new worker's first2 actual source/CPU/GPU/fullprompt checks passed. This does not change input geometry/dtype policy or authorize old-worker restart.
 
-## 6. 三卡执行与重试
+Latest native QSA follow-up: T2 default46/48 and original-size48/48, with48/48 full prompt/output/answer/finish/stop MATCH per arm across Fourier cards. T3 .7° default61/96 independently replayed96/96 full-output MATCH. Existing unpatched T2 and controlled-input references remain separate.
 
-科学行按onset_index%3分三片；每模型每片768条T2+400条T3=1,168，三卡同时运行，四模型共14,016条独立答案。四模型不是12个独立数据集，同一3504视频复用。
 
-采用生成—验证—传输—推理流水线。Fourier优先生成128个唯一状态代表以及各shard首个T2/T3，逐视频完成源/解码/时间戳验证后才原子发布ready。每卡约100个本地可用ready且该模型128状态校准完成后即可开始，不等待全部3504视频；生成已完整结束时允许不足100的末批。Radon只消费完整传输并校验通过的本地文件。worker加载一次模型，持续处理后续ready，暂时缺输入只等待、不计推理attempt；完整manifest和最终分母始终不变。每卡普通Python supervisor按实际free VRAM和MemAvailable选择能放入的剩余模型，保留余量；已有其他用户进程不自动拒绝。只有没有剩余模型可安全放入才等候，绝不kill/卸载他人模型。资源数值是调度预算，不冒充实测最低峰值；新聊天可根据真实loader回执调整内存安排，不能以减帧/resize换取准入。
+- Corrected Qwen: 49 T2/T3 inputs across four observations and four T1 inputs across four observations matched in full tokens; 48 cross-host T1 controls also matched. Old QSA0 and 2,240 legacy answers remain separate.
+- Nemo: the same 48 inputs matched across two cold loads and two observations per load on Fourier. Three differences against 16 old Radon inputs are cross-runtime historical disagreement, not internal instability of the four Fourier observations.
+- Cosmos BF16: 49 inputs across four independent cold observations matched corresponding production. Official NVFP4 completed 432 fixed IDs: T1 70→74/144, T2 120→121/144, T3 144→144/144; total 334→339 with 23 changed answers. Precision and backend/timing scopes change together. Subsequent all-T3 work independently repeated the original144 pilot IDs across three cards with full-token/answer/finish MATCH. Old actual-prompt hashes exist for 144/432 IDs and GPU-content hashes for 0/432; retain these gaps.
+- Gemma NVFP4: the same 48 videos in two independent cold engines on Radon had zero input/full-token/answer/finish differences. This does not establish all-input or arbitrary-hardware equivalence. One of the initial 20 answers changed against BF16 C3; offload changed from 8 to 0 GiB and the publisher did not disclose the exact BF16 parent revision.
 
-每次新worker先跑预先固定的T2、T3各一条，检查实际180帧/尺寸/native OFF/预算/真实choice。两条必须normal stop且原文恰好LEFT或RIGHT；可以答错，技术验收不按准确率筛选。技术通过后自动继续有限剩余行。没有任意总wall/累计length永久停机。
+Qwen, Nemo, Cosmos NVFP4 and Gemma NVFP4 each completed9,360 controlled-input videos. Their single-image456 and ordered-image960 controls are also complete. Earlier BF16 runs, speed-search and six-cold plans remain historical, not an automatic schedule.
 
-**意外重试：**没有durable完整原答的FAILED、INTERRUPTED或中断遗留INFLIGHT，按原视频、prompt、参数最多再试一次，总attempt≤2。第二次仍无答则记exhausted并报告。已完整落盘的错误、length或格式异常答案保持终态，不重抽。原raw先fsync，派生结果可从raw恢复。生成完成但技术回执缺失时先从持久证据恢复，不能再生成一条答案冒充修复。
+## Reporting and finite execution
 
-稳定启动后只需每小时一次有界增量同步。CPU supervisor负责连续队列；不需要LLM、agent持续tail。日志/失败/精确输入ID保留。最终完成按唯一ID和technical verdict确认，不凭PID或raw条数宣称完成。
+A normal record needs one durable complete raw response, tokens/finish, exact sample/attempt identity and a bound technical pass. Persist generate intent before the call and raw before derived technical results. Preserve actual exit codes and separate load, decode, prepare, generation and recording costs. Missing durable output requires diagnosis. Current refinement plans permit no automatic retry; completed or uncertain IDs are not redispatched. Do not resample complete wrong answers or redispatch an uncertain commit. Use the existing physical GPU lease and protect other processes.
 
-代码同时提供独立的生成、验算、校准、推理、汇总入口和 `pipeline` 自动编排入口。生产进程按可用CPU、实际空闲RAM和ready缓冲调整在途任务，单worker限制codec/BLAS线程，避免线程超卖；输入代表未齐时优先补齐，缓冲充足时降低并发但最终仍完成全表。每卡一次只加载一个模型，一次只处理一个独立视频；100条是启动缓冲，不是100视频混合上下文，也不改变每个答案的独立性。
+Report correct/N, side/sign/onset bias, strict format and paired-duration wins/losses. Plot measured points without forced monotonic fitting. Phase/onset-block uncertainty describes the fixed stimulus set, not arbitrary natural content. Answer changes and full-token changes are distinct. Speed comparisons name their timing scope, host, backend and loading cost; do not subtract clocks from different hosts.
 
-## 7. 统计与报告
+Post-run selection uses seed `cvpr2027-postrun-cells-20261023-v1`: rank complete cells by exact correct/N, order ties by seed, split into rank thirds, select one random cell per third and run every ID once. Seal all candidates, reference hashes and IDs before calling a model. Changed inputs/runtime are INVALID; different full tokens under matched controls are DIFFERENT and stop the affected group for diagnosis. Keep coverage gaps explicit.
 
-主要分母：T2每BG×Δ×时长48；T3普通角度96、90°48。报告准确数/分母、左右正确率与输出倾向、严格格式、invalid/length、左右成对双对率、各onset和T2的432时长配对wins/losses。未齐或技术未决的cell不画完整accuracy；不会把缺失答补成0或静默删掉。
+## T4/T5 and natural transfer
 
-给原始点连线，不强制单调拟合。置信区间按24个onset块重采样，左右/符号一起保留；这是固定刺激集的点位不确定性，不证明所有内容泛化。全部正确的bootstrap区间也不证明总体错误率为0。
+Current T4 results are ordered endpoint images. Seven new RDM source videos passed 1,260-frame QA; actual processor/model pilots and human review remain pending. The proposed three-interleaved-set, Bernoulli-signal, random-position-noise stimulus is a versioned Kiani-style variant. Record visible membership, motion, edge handling and 0% response bias. Endpoint validity does not establish full-video validity.
 
-成本记录同一进程monotonic模型加载+返回调用时间；vLLM generate内部处理计入，外部解码/prepare、无答失败、inflight和空档另列。计划答案数、实际attempt数、retry数分别报告。不同SDK/runner/checkpoint的结果不能静默拼成同一模型曲线。
+T5 mask/bias results remain in report.md. The proposed next pilot separates long-duration visibility, no/short mask and single/double events, with balanced YES/NO. Report hits and false alarms. This is a combined-task proposal, not a demonstrated human attentional-blink mechanism. Review actual samples before new formal GPU work.
 
-## 8. 自然背景/物体迁移（后续，未启动）
+Natural backgrounds and object appearance retain their baselines. Deterministic target manipulations use FP64 linear RGB, premultiplied alpha and one final RGB16 quantization. T1 grating-on-background transfer is separate from moving texture. T2 uses `F1=F0+k(1−F0)`, `k=Δ/(1−μ0)`: Δ is an alpha-weighted mean increment, not the same increment at every pixel. T3 uses one affine transform from the original cutout, fixed axis/scale/pivot and independent geometric readout. T4 reuses trajectories when changing appearance; large sprites require matched size/alpha controls. T5 uses finite masks and matched event timing. The material pool is not an exhaustive BG×OBJ cross product. Full natural-video/processor acceptance and formal inference await review.
 
-T2使用相同空间alpha覆盖面积和事件窗口，先在线性RGB定义物体基线Y=.50，保留受限色差/纹理，再仅在物体ROI增加ΔY；所有档共用同一颜色缩放系数，预先确保最高档无clip。逐像素实测核心/alpha加权增量，不用“RGB加常数”冒充线性亮度。原素材8bit纹理不会因16bit容器恢复已丢失细节。
+## Code and publication
 
-T3从原始alpha cutout定义主轴、保留长宽比，按190px主轴归一化；每角度由原图直接刚性旋转一次，premultiplied alpha面积重采样，不能连续旋转累积插值。用alpha二阶矩与独立配准验证实际变换，并单独说明主轴定义可靠性。自然物体不自动继承理想矩形的半平面精度证书。
+[README](README.md) documents usable entrypoints and the legacy 3,504-video CLI. [report.md](report.md) preserves historical findings. The current 9,360-video index, QA and finite-run references are separate release inputs. A local wheel/help check is not a published reproduction. Complete portable T1–T4 integration, frozen dependencies/reference bundles, clean-checkout curve/sample reconstruction, selected same-version GPU audits and verification of the actual published commit. The T1–T3 source dataset/read-only reader v0.1 is now public at https://huggingface.co/datasets/DrQY/vlm-psychophysics-classic-t1-t3 (v0.3 commit a28b0add9ee7621191b453c03d9a69d60e30f83e); all9,360 remote source hashes match and anonymous clean downloads from all four source families passed. This does not complete the full GPU/code reproduction release; reuse licensing remains unspecified.
 
-背景/obj迁移不在当前14,016答案范围内。先完成classic后再决定有限、配对的迁移子集。
+Published naming uses `dataset_names` and three task folders (`T1/`, `T2/`, `T3/`). Stable IDs/parameters/source bytes are unchanged; trial labels follow the original phase/onset bank. Active remote formal catalogs and source paths remain frozen.
 
-## 9. 代码与启动入口
+## Bounded T2 extension (prepared, not executed)
 
-[README](README.md)给出生成、校准、下载、三卡supervisor、汇总命令。[report.md](report.md)是唯一历史smoke结论日志。精确失败/完整正式结果与代码恢复索引留在本地archive_index，不把大量旧实验文件复制进新GitHub代码库。
-
-本轮独立审核使用Astra/xhigh；常规执行、同步和清理使用gpt-6.1-sol/xhigh并报告配置。新聊天应先读本协议、README和独立审核记录，修复尚未关闭的实质问题，再执行已授权全量；已有审核通过且源码未变的数学/像素检查不重复全做。
+Use `classic_precision.refinement` against the v0.3 index. New ΔY is .16/.17/.18/.19/.225/.25/.30/.35, retaining three backgrounds,10/30-frame exposure,24 onsets and two sides:2,304 new videos and9,216 answers for Qwen/Nemo/Cosmos/Gemma, all using their existing qualified mixed NVFP4 controlled-input protocol. This common grid was selected before new answers. It covers the observed .15–.20 transition and the .20–.40 gap; do not add levels adaptively without a new decision. Existing IDs, prompts, source bytes and answers are immutable. Source generation/QA and model admission remain pending. No new static grid, T4/T5, natural content or additional models are included in this finite video budget.

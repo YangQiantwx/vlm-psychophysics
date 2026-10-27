@@ -1,139 +1,119 @@
 # Classic Precision
 
-Lossless T2 luminance-increment and T3 orientation-discrimination stimuli, with finite four-model evaluation. The source signal, official preprocessing and BF16 input are measured separately.
+Controlled visual psychophysics with lossless RGB16 source videos. Source accuracy, framework preprocessing and model outputs are separate measurements. [Protocol](EXPERIMENT_PLAN.md) defines stimuli and numerical scope; [findings](report.md) retains observations and negative results. Local operational decisions are in the benchmark registry and project `LATEST.md`.
 
-**Current state:** the implementation is frozen and all 22 local tests passed, including incremental readiness and CPU pipeline fault handling. Full runtime acceptance remains pending. Historical input paths passed eight real GPU qualification calls. This 3,504-video / four-model panel has not started; its CPU calibration and real worker first-two checks remain runtime acceptance steps. The independent review record is linked below.
+## Choose the protocol first
 
-- [Protocol](EXPERIMENT_PLAN.md): exact stimuli, denominators, model settings and acceptance criteria.
-- [Independent validation](validation/code_review.json): frozen source hashes, checks and runtime limits.
-- [Experiment log](report.md): completed smoke findings and why the protocol changed.
-- `classic_precision/protocol.json`: pinned scientific configuration and model revisions.
-- `classic_precision/`: rendering, validation, RGB48 input, inference, durable storage, scheduling and analysis.
-- `tests/classic_precision/`: meaningful source, codec, restart and scoring checks; no model downloads.
+| Protocol | Input contract | Evidence |
+|---|---|---|
+| `controlled-rgb16` | RGB48 decode → FP32 `code*255/65535`; frozen per-model adapters and geometry | Complete Qwen/Nemo/Cosmos/Gemma T1–T3 curves |
+| `native-default` | Official file uint8 reader; all180 frames; official default spatial processing and numerical order | Selected-cell deployment sensitivity |
+| `native-original` | Same official uint8/all180 route; only supported native spatial configuration changes | Qwen/Cosmos/Nemo supported; Gemma native video unsupported in pinned vLLM |
 
-| Task | Conditions | Videos/model |
-| --- | --- | ---: |
-| T2 main | 13 increments × 3 backgrounds × 24 onsets × 2 sides; 500 ms | 1,872 |
-| T2 control | 3 increments × 3 backgrounds × 24 onsets × 2 sides; 167 ms | 432 |
-| T3 | 12 angles × 24 onsets × 2 signs × 2 sides; plus 90° deduplicated | 1,200 |
-| Total | Same 3,504 videos for each of four models | 14,016 planned answers |
+Keep versions separate. The highest-scoring protocol at each cell is not a valid composite main curve. No completed comparison isolates only uint8 versus FP32.
 
-A failed unfinished request may be retried once. Completed raw answers are terminal, including incorrect or malformed answers. Attempts and retries are counted separately from unique scientific rows.
+The current panel has **T1 3,840 + T2 3,744 + T3 1,776 = 9,360 unique videos**. Current Qwen (QSA-corrected), Nemo, Cosmos and Gemma each completed the panel using their qualified official mixed NVFP4 checkpoint. Cosmos NVFP4 is1,743/3,840;3,112/3,744;1,673/1,776 and independently repeated144 T3 inputs with full-token/answer/finish agreement. The earlier Cosmos BF16 curve remains a historical reference, not part of the current NVFP4 panel.
 
-## Environment
+Gemma O0 passed the same24 complete input/output cases on three cards across two hosts. Its controlled-input panel is now complete: **1,920/3,840 T1, 2,145/3,744 T2 and1,447/1,776 T3**. The original3,145 answers and later6,215 unique answers were merged only after finite shard closure; no old worker is active. All four models now have456 single-image controls plus960 ordered T1 controls each. The final Gemma static gap used three finite shards324/318/318; every assigned ID, durable raw/PASS binding, real wait0, owned-process exit and original-lock release passed. Old configurations and diagnostic answers remain separate.
 
-Use an existing Python 3.11+ environment. CPU construction dependencies are in `pyproject.toml`; no command creates an environment or upgrades Torch/CUDA. On the established workstations, use the existing `qy` for construction and the already qualified inference SDK for model work. Do not install a second conflicting SDK merely to match a generic requirements list.
-
-The previously qualified Linux SDK recorded torch 2.13.0, transformers 5.17.0, numpy 2.3.5, av 17.1.0 and accelerate 1.12.0. vLLM 0.31.0 and the official `transformers-cosmos3` package are required by their respective loaders; exact installed versions/source identities are written to each run. Cosmos requires `--cosmos-package /path/to/transformers-cosmos3` from the existing official framework checkout. Model licenses/access remain those of the upstream repositories. The qualified Cosmos shim is from [NVIDIA/cosmos-framework](https://github.com/NVIDIA/cosmos-framework/tree/0fa3ba479a7c1c5be28f81fe084b9ea544d697c9/packages/transformers-cosmos3), commit `0fa3ba479a7c1c5be28f81fe084b9ea544d697c9`. Reuse that package or check out that exact revision; do not substitute an unpinned fork.
-
-For the reviewed `04a2d52` runner with vLLM hybrid KV groups, the optional `runtime_compat/` layer reads capacity from vLLM's initialized, group-aware native API. Enable it only for the owned run with `CLASSIC_PRECISION_KV_COMPAT=1` and prepend `runtime_compat` plus this repository to `PYTHONPATH`. The original runner must match its pinned SHA or startup exits with code 78. This changes only `_kv_capacity`; the existing 65,536-token gate, scientific inputs, generation and calibration remain unchanged. Capacity receipts record the compatibility layer, original runner and installed native helper SHA values. Verify the installed SDK separately and require actual worker first-two acceptance. The existing local-function RPC probes also require `VLLM_ALLOW_INSECURE_SERIALIZATION=1` in these trusted local processes; do not apply it globally or expose an untrusted RPC service.
-
-For a separately reviewed Qwen residency adjustment, `CLASSIC_PRECISION_QWEN_CPU_OFFLOAD_GB=16` opts into the resource helper; exact values `12`, `16`, and `24` are supported. It changes only the pinned loader's expert CPU offload budget; Engram placement, precision, inputs and generation stay unchanged. Without this variable the original loader is used. `MODEL_LOADED.settings` records the actual budget and `RUNTIME_RESOURCE_OVERRIDE` records helper/base/AST identities. The production resource recovery enables this only on Radon; Fourier retains its existing 24 GiB budget. Keep each launch and measure actual memory and throughput after restarting the owned worker.
-
-For vLLM 0.31 model-type discovery, `CLASSIC_PRECISION_NEMO_DUMMY_CONFIG_COMPAT=1` allows only its exact native Nemotron dummy config to pass the geometry callback unchanged. Actual Nemo configurations still call the original pinned geometry function, preserving the 1,536-patch/aspect-ratio settings; the compatibility layer loads no model and does not alter SDK files.
-
-For an operator-authorized Gemma deferral, `CLASSIC_PRECISION_DEFER_MODELS=gemma` filters only queue selection and prioritizes remaining Cosmos, Nemo, then Qwen while retaining the original GPU/RAM admission checks. Existing answers and the four-model manifest stay intact; when only Gemma remains, supervisors wait and identify the deferred model rather than claiming full completion.
+## Inspect a configuration without starting inference
 
 ```bash
-python -B -m pytest -q -p no:cacheprovider tests/classic_precision
-python -B -m classic_precision --help
+python -B -m classic_precision.reproduce list
+python -B -m classic_precision.reproduce show --model qwen --protocol native-original \
+  --model-dir /absolute/pinned-checkpoint --data-root /absolute/videos \
+  --output qwen-native-original.json
 ```
 
-Commands run from this repository root (or after installing this package into an approved existing environment). Set these task-specific paths:
+This CPU-only entry exports pinned settings and classifies current versus historical code. It does not download weights, import Torch, initialize CUDA or launch a model. It refuses unsupported Gemma/no-resize and refuses to replace a controlled-input profile with generic native settings. The export is not a complete GPU job.
+
+For actual native inference, use the corresponding sealed `native_path_smoke` plan. Preserve exact IDs/prompts, checkpoint/tokenizer revisions, model assets, SDK identities and generation controls. Bind local paths explicitly rather than copying another workstation's absolute paths. Query plan checks with:
 
 ```bash
-RUN=/absolute/path/to/new-classic-run
-MODELS=/absolute/path/to/model-snapshots
-COSMOS_PACKAGE=/absolute/path/to/transformers-cosmos3
-INFERENCE_PYTHON=/absolute/path/to/existing/inference/python
+python -B -m classic_precision.native_path_smoke --help
+python -B -m classic_precision.native_path_smoke pair-check --plan /absolute/sealed-pair.json
 ```
 
-## Integrated pipeline
+The finite worker records INTENT → original raw answer → byte-bound PASS, with no automatic retry. Original physical GPU leases and real worker waits/engine closure control transitions. A wrong answer remains a completed result. Generic clean-machine launch/lease bootstrap is still a release gap, not something the configuration exporter claims to solve.
 
-`pipeline` connects the same independently callable stages. Run it as an ordinary detached process on each workstation. On the producing host, use the existing CPU environment for the coordinator and the qualified inference interpreter for model work:
+## Model-specific native requirements
+
+- **Qwen:** existing scoped QSA deterministic selector, installed in the worker; retain actual `state=applied` evidence. A fixed seed/temperature alone is not a cross-card guarantee. Default/original spatial variants use `do_resize=True/False` at global and request scope.
+- **Cosmos:** native ModelOpt/FlashInfer NVFP4; same resize settings as Qwen. The older BF16 HF/SDPA deployment is a separate reference.
+- **Nemo:** original-size mode uses native vision-config fields `video_target_num_patches=1536` and `video_maintain_aspect_ratio=True`, through `native_path_smoke.nemo_original_geometry`. It does not accept Qwen's `do_resize` switch. The callback sets configuration, not pixels.
+- **Gemma:** fixed vLLM0.31 video processing forces70 soft tokens/frame. Original512×768 yields1536 patches, incompatible with its original pooling/prompt-count path. No valid native original-size video speed is available; do not substitute the7.81s default-resize result or the controlled280-token/padded route.
+
+All four native routes request reader indices0…179 and disable processor frame sampling. Verify both boundaries: requesting180 only at the reader was insufficient for Qwen/Cosmos. Actual native outputs are448×288 for default Qwen/Cosmos and512×512 for default Nemo; original-size geometry is768×512. Source size is **W×H768×512**.
+
+Pinned native processors return FP32 for Gemma/Qwen/Cosmos and BF16 for Nemo; vLLM's common postprocessor converts floating values to model BF16. Gemma then applies internal `2*(x-.5)`. Our retained Gemma bridge explicitly casts before this scaling too, while its input/geometry differs. Direct HF FP32 input may scale before casting. Neither order is described as universally invalid. The two historical static151 configurations changed18 answers (102 versus100 correct) and remain separate evidence.
+
+Static RGB16-to-FP32 ingress does **not** mean every model skips native resizing. Qwen/Cosmos retain768×512 with native resize disabled; Nemo retains source geometry with its qualified float-input adapter; Gemma single/ordered images retain native image resizing,768×512→960×624, before its BF16 visual-input bridge. Gemma controlled video instead retains the effective768×512 source and adds16 background rows for its native pooling grid. Static T1 uses two initial phases and ordered2/4-frame inputs; T2/T3 use152 unique event images across three frozen prompts. These controls test available spatial information, not an identical image/video processor or a uniquely isolated temporal mechanism.
+
+## Dataset and source validation
+
+Use the release's portable `dataset-index.json`, preserving IDs, prompts, LEFT/RIGHT truth, nominal parameters, file/decoded-stream SHA and audit identities. The complete9,360 source videos are public at [DrQY/vlm-psychophysics-classic-t1-t3](https://huggingface.co/datasets/DrQY/vlm-psychophysics-classic-t1-t3), v0.3, immutable commit `a28b0add9ee7621191b453c03d9a69d60e30f83e`; all remote file SHA256 identities match, and the original v0.1 four-family download and the v0.2 three-template download/readout both passed.
+
+```python
+from classic_precision.dataset import load_index, read_sample, rgb16_to_fp32
+index = load_index("dataset-index.json")
+codes, pts, receipt = read_sample(index, "t1rgb16_i00_sf0p5_m0p05_left", "data")
+frames = rgb16_to_fp32(codes)  # controlled-input route only
+```
+
+The reader returns `uint16 [180,512,768,3]` in RGB order and verifies source integrity. This example is not the native uint8 route. The single complete `validation/source-qa.jsonl` supplies nominal/measured values, errors and their units. `metadata.jsonl` supports the standard HF table; `dataset-index.json` supports stable-ID lookup and integrity checks, so they serve distinct loader interfaces. Its audit-row SHA identifies each actual canonical audit row, not the common audit configuration.
+
+**All9,360 videos /1,684,800 frames passed source QA**, with zero decoded RGB-code differences and no failed IDs. Maximum PTS rounding is0.333ms; onset/exposure frame membership is exact. T1 modulation error≤4.730e−6;T2 core ΔY error≤2.2641e−5;T3 PCA error≤5.3904e−5°. This does not certify unchanged model-side geometry/luminance or physical display calibration. T2/T3 share24 onsets `18+5k`,k0…23; these are timing repetitions, not24 independent scenes.
+
+`python -m classic_precision.dataset --help` exposes bounded index/QA export and reading. Use `fetch --repo DrQY/vlm-psychophysics-classic-t1-t3 --revision a28b0add9ee7621191b453c03d9a69d60e30f83e --id ...` for the published source release. The legacy root CLI `python -m classic_precision --help` reconstructs only the original3,504 T2/T3 videos, not the current full9,360; do not silently use its base manifest for the final panel.
+
+The workstations also expose `datasets/classic-t1-t3-v0.3/` with the same index and9,360 readable symlinks to retained originals. Use that directory as `data_root`; its `reader/` is the byte-verified public snapshot. Original active catalogs/paths remain unchanged. Readable names contain conditions/labels: pass the benchmark question and media to models, keeping filenames, parameters and truth out of model text.
+
+### Readable names and stable IDs
+
+Public videos are grouped in `T1/`, `T2/`, and `T3/`, with names such as `T1_left_sf4_contrast0.6_trial01.mkv`, `T2_right_bg0.05_delta0.15_10frames_trial01.mkv` and `T3_verticalLeft_tiltRight_0.7deg_trial01.mkv`. T3 tilt names describe the upper end;90° uses `horizontal`. Trial01–24 comes from the original phase/onset index. Stable sample IDs stay in the index and join existing QA/predictions; filenames carry no random suffix.
+
+`classic_precision.dataset_names` is the single exporter for naming policy `classic-readable-v1`. It emits a new index and an old/new path map, rejecting collisions or inconsistent truth/trial metadata. `dataset.load_index/read_sample/fetch_sample` already resolves the index path without parsing filenames. Neither naming nor path lookup changes a model's reader/dtype/resize protocol. Frozen active workstation catalogs/profiles keep their original paths; new releases use the versioned index. Ten targeted naming/layout tests and all9,360 mappings passed; no video was rendered or re-encoded. Old publicv0.1 remains pinned in its tag. The pre-existing general candidate wheel is not claimed to contain this later naming delta; the public reader snapshot does.
+
+## Code by purpose
+
+| Purpose | Maintained modules |
+|---|---|
+| Dataset/source QA | `dataset`, `dataset_names`, `stimuli`, `source_audit`, `source_audit_t1` |
+| Native deployment sensitivity | `native_path_smoke`; configuration/navigation: `reproduce`, `reproduction.json` |
+| Controlled Cosmos NVFP4 | `nvfp4_cosmos_official`, `nvfp4_cosmos_classic`, `nvfp4_cosmos_t3` |
+| Controlled Gemma/continuation | `gemma_nvfp4_continuation`, `gemma_speed`, `gemma_production`, `nvfp4_gemma` |
+| Current static controls | `static_current`, `multi_current`, `gemma_static_current`, `gemma_multi_current` |
+| Persistence/analysis/replay | `storage`, `summary`, `replay_audit` |
+| Runtime compatibility | run-bound `runtime_compat`; QSA helper is `classic_precision_qsa_determinism.py` |
+
+Adapter/minimal-config/batch-invariant/early-stop/parallel modules retain historical scientific code; they are not default reproduction routes. Frozen source paths/hashes are not renamed for appearance. Runtime, tests and validation evidence remain separate. `reproduce list` gives the code map without importing historical engines.
+
+## Fixed controls, speed and safe pause
+
+The qualified stack is Torch2.13.0, Transformers5.17.0, vLLM0.31.0, numpy2.3.5 and FlashInfer0.7.0.post1 with matching cu130/SM120f support. Use an existing approved environment; do not upgrade shared SDKs merely to replay a result. Exact package/source identities are run-specific. No input route makes all weight, activation and KV precision identical across architectures.
+
+Generation is thinking OFF, temperature0,top_p1,seed0,greedy,context65536,output cap16384,repetition penalty1 and LEFT/RIGHT constrained with native EOS. Independent contexts and complete terminal token IDs are retained. CPU offload is placement, not an extra quantization step. Qwen native uses24GiB expert offload/BF16KV4GiB; NemoKV2GiB; CosmosNVFP4KV17GiB; GemmaO0 offload0/KV32GiB. FlashInfer dummy autotuning is disabled in these qualified profiles.
+
+The same-input Radon Gemma speed search was native-kernel32.039s,O0 26.742s,compiled-O0 26.621s (ordinary request medians). Native kernels here still used the controlled180-frame input bridge. They are not the later official uint8/default-resize route. O0 was selected; its three-card24-case medians were21.430/21.885/26.742s. Compilation saved0.12s/request but added26.35s loading. These finite results do not establish an absolute speed limit.
+
+Pause an active Gemma worker with `python -m classic_precision.gemma_nvfp4_continuation pause --profile EXACT_PROFILE.json`, after setting the controller's global pause marker when it could launch a successor. The current request is persisted before engine shutdown and original-lock release. CLI return alone is not closure proof. Reconcile real raw/intents/waits before any authorized resume; use a fresh profile/output and only proven never-attempted IDs. UNCERTAIN is never automatically retried. Actual safe pause and explicit GPU resume1 were demonstrated: each resumed card's first2 matched the newly bound source/CPU references, actual BF16 GPU input/position/projection hashes and full prompt. This finite validation does not guarantee every untested input/hardware combination.
+
+## Append-only refinement
+
+The next bounded source extension adds T2 increments `.16,.17,.18,.19,.225,.25,.30,.35` across the existing three backgrounds, two durations,24 onsets and paired sides: **2,304 new videos /9,216 answers across the four current models**. It is prepared, not rendered or inferred. T1/T3 and the existing9,360 IDs remain unchanged.
 
 ```bash
-python -B -m classic_precision manifest --run "$RUN"
-python -B -m classic_precision pipeline --run "$RUN" --model-root "$MODELS" \
-  --produce --gpu-shards 0:0 1:1 --shard-count 3 \
-  --worker-python "$INFERENCE_PYTHON" --cosmos-package "$COSMOS_PACKAGE" \
-  --cpu-memory-gib 32 --ram-reserve-gib 4
+python -B -m classic_precision.refinement plan \
+  --index /data/classic-t1-t3-v0.3/dataset-index.json \
+  --output /data/plans/t2-refinement
 ```
 
-On the receiving host, use `--gpu-shards 0:2` and omit `--produce`. Supply the same immutable manifest and mirror verified inputs using `sync-ready` below. For direct host-to-host copying, the producing pipeline can instead start the mirror with `--sync-destination-root`, `--destination-ssh`, `--destination-python` and `--destination-code-root`. Keep only one producer and one destination mirror for each run. A pipeline's `COMPLETE` applies to its assigned local GPU shards; the final global summary still requires all 14,016 answers from both hosts.
+This produces `manifest.json`, `plan.json` and `video-names.csv`, with zero model calls. Source-generation manifests intentionally contain no model launch defaults. Bind separate finite per-model NVFP4 profiles after new-source acceptance. Existing Cosmos/Gemma BF16 defaults in historical entrypoints must not be used for this extension. Fixed old answers are never rerun or overwritten.
 
-By default, the CPU ceiling follows the process's available cores, with two reserved for control and inference. `--cpu-max-workers` can lower that ceiling. Admission adapts to available RAM and the ready backlog. Calibration inputs receive priority; enough buffered inputs reduce production concurrency, but do not stop eventual full generation. Codec/BLAS threads are capped to prevent each worker spawning another full thread pool. A shortage of memory or input is a visible waiting state, not a model attempt.
+After rendering and auditing only the new sources, `refinement extend-index --base-index ... --new-index ... --output ...` validates an append-only11,664-video index. It rejects overlapping IDs, path collisions and missing source evidence. The existing `dataset` loader resolves stable IDs to readable names; inference results join on ID, never parsed filenames. Do not publish unrendered entries with invented byte hashes.
 
-Each GPU loads one model at a time and processes one independent video request at a time. Its startup buffer defaults to 100 locally verified videos, together with the model's completed calibration. After loading, it consumes further ready videos without reloading. This is streaming execution, not a batch of 100 videos in one context. The manifest still fixes all 3,504 videos and all 14,016 planned answers.
+## Code release and validation scope
 
-## Independent generation and validation
+This branch contains the current source adapters, finite workers, static controls, reader/naming tools and bounded refinement planner. Portable CPU dataset/naming/refinement tests and configuration/help entrypoints are checked from a clean source export. Tests that bind private historical operator receipts require those experiment files; they are not clean-machine smoke tests. The qualified CUDA SDK and actual GPU results remain tied to their original run profiles. A new machine still needs explicit model/data paths and physical-lease/profile binding; this source publication does not claim a fresh GPU reproduction on a clean machine.
 
-```bash
-python -B -m classic_precision manifest --run "$RUN"
-python -B -m classic_precision generate --run "$RUN" --shard-count 3
-python -B -m classic_precision validate --run "$RUN" --require-complete
-```
-
-Run generation in its own ordinary detached process while the calibration and GPU supervisors below run concurrently. Generation prioritizes the 128 unique-state representatives and each shard's first T2/T3 qualification inputs. Each completed video is decoded and checked before its atomic sidecar and durable ready record are published. The complete 3,504-row manifest is frozen at the start; a partial file is never a ready input.
-
-`validate` is also available independently for a deliberate recheck of existing files. Generation already validates each video before publication, so a second whole-panel validation is not required merely to begin inference. Without `--require-complete`, validation reports partial coverage explicitly; it never certifies missing files as complete.
-
-Copy the immutable manifest to the second workstation once. Incrementally transfer only newly verified ready videos with checksums and atomic destination publication. The destination publishes a row only after its own file is complete; its ready journal can temporarily lag behind the source. It must contain the same immutable per-row records, not a repeatedly overwritten snapshot of a growing source journal. No full media download to the Mac is required. Run the finite mirror as an ordinary process alongside generation, preferably on the source workstation:
-
-```bash
-python -B -m classic_precision sync-ready --manifest "$RUN/manifest.json" \
-  --source-root "$RUN" --destination-root "$DEST_RUN" \
-  --destination-ssh "$DEST_SSH" --destination-python "$DEST_PYTHON" \
-  --destination-code-root "$DEST_CODE" --poll-seconds 10
-```
-
-The destination variables specify its run directory, an existing authorized SSH command, approved Python interpreter and this deployed codebase. If direct workstation SSH is unavailable, run the mirror on the Mac with `--source-ssh`, `--source-python` and `--source-code-root` as well. This relays bytes in memory and requires the Mac and mirror process to remain running until transfer completes. The worker queues themselves run on the workstations. Do not start two mirrors for the same destination.
-
-Each model loads its own pinned official processor inside its own calibration/inference worker; no shared cross-model processor or extra processor network service is used. Only RGB48 decoding and the lossless FP32 array entry are common.
-
-For each model, use its official processor to measure the 128 unique states on CPU as soon as their representative videos are ready, while the remaining videos continue to generate. This loads no model weights and makes no VLM calls:
-
-```bash
-python -B -m classic_precision calibrate --manifest "$RUN/manifest.json"   --model nemo --model-root "$MODELS" --output "$RUN/calibration" --input-poll-seconds 10
-```
-
-Repeat `--model qwen`, `cosmos` (with `--cosmos-package "$COSMOS_PACKAGE"`), and `gemma` as separate CPU processes. These wait for their fixed representative inputs; no full-panel completion is required. Keep the calibration receipts. Pre-BF16 uint16 recovery must be exact; post-BF16 signal errors are reported, not used to rewrite labels.
-
-## Model snapshots
-
-Reuse existing pinned snapshot directories. Download only missing approved models:
-
-```bash
-python -B -m classic_precision download --model-root "$MODELS" --models nemo qwen cosmos gemma
-```
-
-`protocol.json` pins repository revisions and relative snapshot locations. The package does not download weights during inference. Actual model config/tokenizer/processor source hashes and weight-shard sizes are retained without repeatedly hashing all weights.
-
-## Three GPUs
-
-Use one supervisor per GPU, with distinct onset shards. Fourier GPU0/1 use shards0/1; Radon GPU0 uses shard2. Each model shard has1,168 videos (768T2+400T3). Run each command in an ordinary detached session on its assigned host:
-
-```bash
-python -B -m classic_precision supervise --manifest "$RUN/manifest.json"   --output "$RUN/outputs" --model-root "$MODELS"   --cosmos-package "$COSMOS_PACKAGE" --gpu 0 --shard-index 0 --start-ready 100 --input-poll-seconds 10 --calibration-root "$RUN/calibration"
-```
-
-Use `--gpu 1 --shard-index 1` on the second Fourier card and `--gpu 0 --shard-index 2` on Radon. Each supervisor selects a fitting unfinished model from real free VRAM/RAM, performs a finite queue, releases its model and proceeds. Foreign processes are protected. A shared card is allowed; no fitting remaining model means resource waiting, not a fake GPU workload.
-
-A worker starts once its model checkpoint and 128-state calibration are ready and its shard has 100 locally verified inputs (or generation is already complete). It loads the model once and consumes later ready rows without reloading. Waiting for an input never begins a model attempt. Each worker qualifies a predetermined T2/T3 pair for input integrity, native OFF, actual GPU tensor geometry, context and exact single-label output. Correctness is not an acceptance criterion. After technical qualification it continues automatically. No arbitrary whole-run wall deadline; no retry of completed answers. A missing answer has at most two persisted attempts in total. Real configuration/technical failures are surfaced rather than retried indefinitely.
-
-For an explicitly scoped single model/shard, use `run` with the same arguments plus `--model nemo`. All requests have independent contexts. The source code uses actual vLLM choice constraints or the HF equivalent token-prefix/EOS grammar.
-
-## Monitor and summarize
-
-After all three workers start normally, one bounded check per hour is sufficient. The supervisors continue without an LLM. Copy small output journals/receipts from both hosts into distinct local directories; keep raw/token IDs. `status` reads journals without querying GPUs:
-
-```bash
-python -B -m classic_precision status --manifest "$RUN/manifest.json"   --inputs /path/to/fourier-outputs /path/to/radon-outputs
-python -B -m classic_precision summarize --manifest "$RUN/manifest.json"   --inputs /path/to/fourier-outputs /path/to/radon-outputs   --output "$RUN/analysis" --require-complete --plot
-```
-
-Summary rejects duplicated answers, incompatible systems and unresolved technical outputs. It preserves failures, counts48/96 denominators, side/sign/onset effects, direction-pair success,432 matched duration pairs and model-load/call cost. Curves show measured points, not forced-monotone fits. Onset-block intervals are conditional on these fixed stimuli.
-
-## Historical records
-
-The research workspace retains `archive_index.json` and `archive/history.py` for verified compact formal trial records and retired source. Restore into a fresh destination before using historical analyzers. Historical smoke summaries belong in `report.md`; videos, credentials, model weights and raw reasoning do not belong in this code repository. The T4 originals and recent precision/input qualification evidence remain in the research workspace.
+The source dataset/read-only reader is public at the pinned v0.3 commit above and passed anonymous download acceptance. New refinement media and results have not been published. A reuse license remains unspecified. The poor/middle/good complete-cell GPU audit is a future check, not completed reproduction.

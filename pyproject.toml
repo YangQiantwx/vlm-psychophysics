@@ -15,12 +15,13 @@ test = ["pytest>=8"]
 
 [project.scripts]
 classic-precision = "classic_precision.__main__:main"
+classic-precision-reproduce = "classic_precision.reproduce:main"
 
 [tool.setuptools]
-packages = ["classic_precision"]
+packages = ["classic_precision", "runtime_compat"]
 
 [tool.setuptools.package-data]
-classic_precision = ["protocol.json"]
+classic_precision = ["protocol.json", "reproduction.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests/classic_precision"]

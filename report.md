@@ -1,6 +1,6 @@
-# Smoke findings · 16–20 October 2026
+# Selected findings · 16–26 October 2026
 
-This is the consolidated experiment log. Counts describe completed historical inputs, not files still on disk. These exploratory results explain the current protocol; they do not authorize a queue or become answers for newly rendered videos. T1 is deferred. The new RGB16 T2/T3 production curve has **not started**.
+This is the consolidated experiment log. Counts describe completed historical inputs, not files still on disk. These exploratory results explain the current protocol; they do not authorize a queue or become answers for newly rendered videos. The historical sections below retain their original scope. The current controlled-input NVFP4 panel is complete for Qwen/Nemo/Cosmos/Gemma:9,360 videos and1,416 static responses per model. The next common T2 extension is prepared but not executed; see README and EXPERIMENT_PLAN.
 
 ## Prompt length and native thinking
 
@@ -74,7 +74,7 @@ Independent video requests in batching windows 1 and 2 took 42.468 and 41.978 se
 
 ## Source precision and the four-model input path
 
-Four models completed two actual GPU input-qualification calls each on the same RGB16 samples. This was eight technical checks, not eight correct answers or a complete curve. RGB48 decode and FP32 arrays preserved all original uint16 codes through the official processor before BF16 conversion; frame count remained 180, with no external resize. Gemma needed only 16 background rows at the bottom. Other model weights and original failures were retained.
+Four models completed two actual GPU input-qualification calls each on the same RGB16 samples. This was eight technical checks, not eight correct answers or a complete curve. RGB48 decode and FP32 entry mapping preserved all original uint16 codes up to processor entry; official processing and later BF16 conversion have their own rounding; frame count remained 180, with no external resize. Gemma needed only 16 background rows at the bottom. Other model weights and original failures were retained.
 
 | Source point | Nemo BF16 error | Qwen BF16 error | Cosmos BF16 error | Gemma BF16 error |
 | --- | ---: | ---: | ---: | ---: |
@@ -87,8 +87,29 @@ These are measured points, not global bounds. Native file loaders decoded these 
 
 **Reason to retain the official processor:** normalization, patchification and token assembly define the pretrained input contract. The adapter preserves the source before that contract; it does not redesign the vision encoder. Float stimuli rather than uint8 quantization also have a low-level vision precedent in [Cai et al., CVPR 2025](https://arxiv.org/html/2502.20256v2#S3.SS1), which studied foundation image encoders and does not certify VLM BF16 precision.
 
+## Native-input follow-up · 25 October 2026 HST
+
+These later observations qualify the earlier rationale for preserving source precision. Same IDs and all180 source frames were used; native routes read uint8. Results are **old controlled / native default resize / native original size**:
+
+| Selected condition | Qwen | Cosmos | Nemo |
+|---|---:|---:|---:|
+| T1 SF4,m=.6;48 | 32/22/21 | 23/22/23 | 24/24/25 |
+| T1 SF64,m=.6;48 | 27/22/24 | 25/31/25 | 23/24/24 |
+| T3 .7°;96 | 54/61/57 | 81/48/73 | 48/48/48 |
+| T2 BG.05,Δ.15,10frames;48;native QSA not installed | 38/45/47 | 48/48/48 | 46/47/48 |
+
+The T2 native Qwen rows above are explicitly historical **without custom QSA**, while T1/T3 installed the deterministic selector. The new T2 QSA version is **46/48 default resize and48/48 original size**; each arm independently repeated all48 prompt/output token sequences, answers and finish/stop states identically on the second Fourier card. The default arm changed5 answers versus the unpatched route and gained1 net correct; the original-size arm changed1 and gained1. Old unpatched answers remain a separate version. Timing on Fourier0 was3.225/7.144s and Fourier1 was3.180/7.078s, excluding each arm's first2 observed requests; original unpatchedRadon3.699/8.127s is not a same-host QSA-only timing comparison. The .7° Qwen default-resize96 was replayed in a fresh engine on another Fourier card: all96 complete prompt/output tokens, answers and finish/stop fields matched, again61/96. This supports that exact finite deployment scope, not arbitrary hardware or every input. Its61 versus57 is four more correct answers at this point, not proof that resize universally helps.
+
+At the 0.7° T3 condition, Cosmos native original size scored 73/96 versus 48/96 with native default resize: 25 fewer correct answers, or 26.04 percentage points. The controlled route scored 81/96; its 8-answer gap against native original size is an input-route difference, not an isolated bit-depth estimate. Across tasks, Qwen T1 was 59/96 controlled versus 45/96 native original size, so the observed controlled/native-original differences cannot be ranked as universally largest for Cosmos.
+
+Preserving high-precision source stimuli remains useful for a measured, reusable dataset. These trials do **not** show a universal VLM accuracy benefit from the complete custom input route, and do not isolate uint8 quantization from every other change. In T1 Qwen scored higher under the old route; T2 favored the native route; Cosmos T3 suffered a large default-resize drop. Timing also changes with visual-token count, host and scope. Keep source accuracy, framework deployment and model capability claims separate.
+
+The official default-frame-sampling smoke was a different lower T2 cell (BG.4,Δ.05,30frames): Qwen34/48 with6 frames, Nemo34/48 with32, Cosmos24/48 with6, Gemma24/48 with32. It is not a same-cell6/32-versus180 experiment. At the higher full180 cell, native Gemma was24/48, with only14 historical paired IDs (9→7 correct); never infer a historical48 denominator. Gemma original-size native video is unsupported in pinned vLLM0.31 and has no new model outputs.
+
 ## Retention and reproduction
 
-Current production source and settings: [README](README.md) and [protocol](EXPERIMENT_PLAN.md). The new source is in `classic_precision/`; no formal new model calls have run. Historical formal trials are compacted with complete fields and raw/token IDs, rather than aggregate-only replacement. The private workspace’s `archive_index.json` records retained gzip bundles and verified reconstruction. `archive/history.py` verifies and restores them into an empty destination. T4 originals and the latest precision/input evidence remain separate.
+Current production source and settings: [README](README.md) and [protocol](EXPERIMENT_PLAN.md). The current and historical implementation is retained in `classic_precision/`; current full and paused formal coverage is described in README and the benchmark registry. Historical formal trials are compacted with complete fields and raw/token IDs, rather than aggregate-only replacement. The private workspace’s `archive_index.json` records retained gzip bundles and verified reconstruction. `archive/history.py` verifies and restores them into an empty destination. T4 originals and the latest precision/input evidence remain separate.
 
 One-off smoke media, proxy frames and loose input receipts are retired when rebuildability or full-field conversion is verified. This log retains scientific findings and lessons; it is not a mirror of every failed scratch directory. Private meetings, source photographs/cutouts, model weights, environments and active website assets are protected.
+
+Completed full paired smoke tables, summaries and pinned settings are collected in the benchmark `runs/reproducibility/smoke-results/` index and synchronized to both workstations. Original raw answers/negative records remain in their run roots. Public datasetv0.2 changes filenames and paths only; formal inference IDs and protocols are unchanged.

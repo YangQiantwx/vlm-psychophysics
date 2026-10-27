@@ -1,0 +1,349 @@
+{
+  "schema": "classic-reproduction-config-v1",
+  "scope": "Configuration export only; does not launch, download, initialize CUDA or claim a public release.",
+  "packages": {
+    "vllm": "0.31.0",
+    "transformers": "5.17.0",
+    "torch": "2.13.0",
+    "numpy": "2.3.5",
+    "flashinfer": "0.7.0.post1; existing matching cu130/SM120f AOT support"
+  },
+  "generation": {
+    "temperature": 0,
+    "top_p": 1,
+    "seed": 0,
+    "max_tokens": 16384,
+    "thinking": false,
+    "structured_choice": [
+      "LEFT",
+      "RIGHT"
+    ],
+    "prompt": "exact per-task prompt in sealed plans"
+  },
+  "source": {
+    "width": 768,
+    "height": 512,
+    "fps": 60,
+    "frames": 180,
+    "master_bits_per_channel": 16,
+    "codec": "FFV1/gbrp16le",
+    "source_QA": "9360videos/1684800frames;zero decoded code difference;PTS rounding max0.333ms"
+  },
+  "protocols": {
+    "native-default": {
+      "reader": "official file uint8",
+      "all_frames": 180,
+      "spatial": "official default resize",
+      "postprocessor_dtype": "native vLLM BF16 conversion; no manual cast",
+      "supported_models": [
+        "qwen",
+        "nemo",
+        "cosmos",
+        "gemma"
+      ]
+    },
+    "native-original": {
+      "reader": "official file uint8",
+      "all_frames": 180,
+      "spatial": "original768x512 via model-supported geometry options",
+      "postprocessor_dtype": "native vLLM BF16 conversion; no manual cast",
+      "supported_models": [
+        "qwen",
+        "nemo",
+        "cosmos"
+      ],
+      "unsupported": {
+        "gemma": "vLLM0.31 native video forces70 soft tokens/frame and original1536patches cannot use its original pool/token contract; no valid speed"
+      }
+    },
+    "controlled-rgb16": {
+      "reader": "project RGB48 uint16 then FP32 code*255/65535",
+      "all_frames": 180,
+      "scope": "Frozen per-model adapters; not equivalent to native file route. Gemma video pads16 background rows and uses280-soft-token policy.",
+      "config_export_supported": false,
+      "supported_models": [
+        "qwen",
+        "nemo",
+        "cosmos",
+        "gemma"
+      ]
+    }
+  },
+  "models": {
+    "qwen": {
+      "model_version": "fc694b54fb0174e0913e6adf86691ef85a4ead47",
+      "tokenizer_version": "fc694b54fb0174e0913e6adf86691ef85a4ead47",
+      "engine_kwargs": {
+        "dtype": "bfloat16",
+        "tensor_parallel_size": 1,
+        "max_model_len": 65536,
+        "max_num_seqs": 1,
+        "enforce_eager": true,
+        "enable_prefix_caching": false,
+        "enable_chunked_prefill": true,
+        "kv_cache_dtype": "bfloat16",
+        "limit_mm_per_prompt": {
+          "video": 1,
+          "image": 0,
+          "audio": 0
+        },
+        "mm_processor_cache_gb": 0,
+        "disable_custom_all_reduce": true,
+        "seed": 0,
+        "kernel_config": {
+          "enable_flashinfer_autotune": false
+        },
+        "skip_mm_profiling": true,
+        "allowed_local_media_path": "${DATA_ROOT}",
+        "async_scheduling": false,
+        "model": "${MODEL_DIR}",
+        "trust_remote_code": true,
+        "max_num_batched_tokens": 49152,
+        "gpu_memory_utilization": 0.78,
+        "kv_cache_memory_bytes": 4294967296,
+        "quantization": "modelopt",
+        "compilation_config": {
+          "mode": 0
+        },
+        "engram_config": {
+          "cpu_offload": true
+        },
+        "cpu_offload_gb": 24,
+        "cpu_offload_params": [
+          "experts"
+        ],
+        "media_io_kwargs": {
+          "video": {
+            "video_backend": "opencv",
+            "num_frames": 180,
+            "fps": -1
+          }
+        },
+        "mm_processor_kwargs": {
+          "do_sample_frames": false,
+          "do_resize": true
+        }
+      },
+      "QSA_determinism_required": true,
+      "default_processed_geometry": [
+        288,
+        448
+      ],
+      "original_size_processed_geometry": [
+        512,
+        768
+      ]
+    },
+    "cosmos": {
+      "model_version": "ngc-7bbfe34d27a64641",
+      "tokenizer_version": "f543c56225b2e04d0ad141e29655be3a45d9c455",
+      "engine_kwargs": {
+        "dtype": "bfloat16",
+        "tensor_parallel_size": 1,
+        "max_model_len": 65536,
+        "max_num_seqs": 1,
+        "enforce_eager": true,
+        "enable_prefix_caching": false,
+        "enable_chunked_prefill": true,
+        "kv_cache_dtype": "bfloat16",
+        "limit_mm_per_prompt": {
+          "video": 1,
+          "image": 0,
+          "audio": 0
+        },
+        "mm_processor_cache_gb": 0,
+        "disable_custom_all_reduce": true,
+        "seed": 0,
+        "kernel_config": {
+          "enable_flashinfer_autotune": false
+        },
+        "skip_mm_profiling": true,
+        "allowed_local_media_path": "${DATA_ROOT}",
+        "async_scheduling": false,
+        "model": "${MODEL_DIR}",
+        "tokenizer": "${TOKENIZER_DIR}",
+        "trust_remote_code": false,
+        "max_num_batched_tokens": 36000,
+        "gpu_memory_utilization": 0.8,
+        "kv_cache_memory_bytes": 18253611008,
+        "quantization": "modelopt_fp4",
+        "linear_backend": "flashinfer_cutlass",
+        "compilation_config": {
+          "mode": 0
+        },
+        "cpu_offload_gb": 0,
+        "disable_chunked_mm_input": true,
+        "video_pruning_rate": 0.0,
+        "media_io_kwargs": {
+          "video": {
+            "video_backend": "opencv",
+            "num_frames": 180,
+            "fps": -1
+          }
+        },
+        "mm_processor_kwargs": {
+          "do_sample_frames": false,
+          "do_resize": true
+        }
+      },
+      "QSA_determinism_required": false,
+      "default_processed_geometry": [
+        288,
+        448
+      ],
+      "original_size_processed_geometry": [
+        512,
+        768
+      ]
+    },
+    "nemo": {
+      "model_version": "82d93699acd3be9e4617c53360fe5b3f5dbeb1b3",
+      "tokenizer_version": "82d93699acd3be9e4617c53360fe5b3f5dbeb1b3",
+      "engine_kwargs": {
+        "dtype": "bfloat16",
+        "tensor_parallel_size": 1,
+        "max_model_len": 65536,
+        "max_num_seqs": 1,
+        "enforce_eager": true,
+        "enable_prefix_caching": false,
+        "enable_chunked_prefill": true,
+        "kv_cache_dtype": "bfloat16",
+        "limit_mm_per_prompt": {
+          "video": 1,
+          "image": 0,
+          "audio": 0
+        },
+        "mm_processor_cache_gb": 0,
+        "disable_custom_all_reduce": true,
+        "seed": 0,
+        "kernel_config": {
+          "enable_flashinfer_autotune": false
+        },
+        "skip_mm_profiling": true,
+        "allowed_local_media_path": "${DATA_ROOT}",
+        "async_scheduling": false,
+        "model": "${MODEL_DIR}",
+        "trust_remote_code": true,
+        "max_num_batched_tokens": 4096,
+        "gpu_memory_utilization": 0.78,
+        "kv_cache_memory_bytes": 2147483648,
+        "video_pruning_rate": 0.0,
+        "media_io_kwargs": {
+          "video": {
+            "video_backend": "opencv",
+            "num_frames": 180,
+            "fps": -1
+          }
+        }
+      },
+      "QSA_determinism_required": false,
+      "default_processed_geometry": [
+        512,
+        512
+      ],
+      "original_size_processed_geometry": [
+        512,
+        768
+      ]
+    },
+    "gemma": {
+      "model_version": "4135a98a9b728a548947683219633b25682223ac",
+      "tokenizer_version": "842da3794eaa0b77d5f08bae87a17459d91ff475",
+      "engine_kwargs": {
+        "allowed_local_media_path": "${DATA_ROOT}",
+        "async_scheduling": false,
+        "compilation_config": {
+          "mode": 0
+        },
+        "cpu_offload_gb": 0,
+        "cpu_offload_params": [],
+        "disable_custom_all_reduce": true,
+        "dtype": "bfloat16",
+        "enable_chunked_prefill": true,
+        "enable_prefix_caching": false,
+        "enforce_eager": true,
+        "gpu_memory_utilization": 0.9,
+        "kernel_config": {
+          "enable_flashinfer_autotune": false
+        },
+        "kv_cache_dtype": "bfloat16",
+        "kv_cache_memory_bytes": 34359738368,
+        "limit_mm_per_prompt": {
+          "audio": 0,
+          "image": 0,
+          "video": 1
+        },
+        "max_model_len": 65536,
+        "max_num_batched_tokens": 34000,
+        "max_num_seqs": 1,
+        "media_io_kwargs": {
+          "video": {
+            "fps": -1,
+            "num_frames": 180,
+            "video_backend": "opencv"
+          }
+        },
+        "mm_processor_cache_gb": 0,
+        "mm_processor_kwargs": {
+          "do_sample_frames": false
+        },
+        "model": "${MODEL_DIR}",
+        "quantization": "modelopt",
+        "seed": 0,
+        "skip_mm_profiling": true,
+        "tensor_parallel_size": 1,
+        "tokenizer": "${TOKENIZER_DIR}"
+      },
+      "QSA_determinism_required": false,
+      "default_processed_geometry": "native image patch sequence630/frame after video frame decomposition",
+      "original_size_processed_geometry": null
+    }
+  },
+  "code_groups": {
+    "source_and_dataset": [
+      "dataset",
+      "stimuli",
+      "source_audit",
+      "source_audit_t1",
+      "dataset_names",
+      "refinement"
+    ],
+    "current_native_sensitivity": [
+      "native_path_smoke",
+      "reproduce"
+    ],
+    "controlled_model_execution": [
+      "inference",
+      "nvfp4_cosmos_official",
+      "nvfp4_cosmos_classic",
+      "nvfp4_cosmos_t3",
+      "gemma_nvfp4_continuation",
+      "gemma_speed",
+      "gemma_production",
+      "nvfp4_gemma"
+    ],
+    "static_controls": [
+      "static_current",
+      "multi_current",
+      "gemma_static_current",
+      "gemma_multi_current"
+    ],
+    "output_and_analysis": [
+      "storage",
+      "summary",
+      "replay_audit"
+    ],
+    "runtime_controls": [
+      "runtime_compat/classic_precision_qsa_determinism",
+      "runtime_compat/sitecustomize"
+    ],
+    "historical_experiments": "adapter_*, minimal_config_*, config_only_*, batch_invariant_*, early_stop_*, gemma_parallel and superseded runtime controls; never a default runner"
+  },
+  "release_gaps": [
+    "Dataset/model paths and exact prompts/ID manifests must accompany a run.",
+    "Use sealed run profiles for actual GPU execution; config export alone is not a run.",
+    "Qwen requires scoped QSA installation and actual applied receipt before a reproducibility claim.",
+    "Native Gemma original-size video unsupported in pinned framework.",
+    "Source branch clean-checkout CPU checks pass; finite fresh-machine GPU release audit and portable lease/profile bootstrap remain pending."
+  ]
+}

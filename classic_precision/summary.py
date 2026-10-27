@@ -281,32 +281,101 @@ def summarize(manifest_path, output_dirs, destination, require_complete=False):
     return summary
 
 
-def plot(summary, destination):
-    """Raw measured points only; no forced-monotone curve."""
+def plot(summary, destination, *, t2_extension_pending=False):
+    """Plot complete models and raw measured points; optional note is presentation only."""
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
+    from matplotlib.lines import Line2D
     dest = Path(destination)
     for task in ('T2', 'T3'):
-        fig, axes = plt.subplots(1, 4, figsize=(15, 3.8), sharey=True, constrained_layout=True)
-        for ax, family in zip(axes, summary['models']):
+        # An incomplete four-model run can still contain complete model panels.
+        families = [family for family, result in summary['models'].items()
+                    if result['accuracy'] is not None
+                    and any(c['model'] == family and c['cell'][0] == task for c in summary['cells'])
+                    and all(c['accuracy'] is not None for c in summary['cells']
+                            if c['model'] == family and c['cell'][0] == task)]
+        if not families:
+            continue
+        task_cells = [c for c in summary['cells']
+                      if c['model'] in families and c['cell'][0] == task]
+        levels = sorted({c['cell'][-1] for c in task_cells})
+        rows = 2 if task == 'T2' else 1
+        fig, axes = plt.subplots(rows, len(families), figsize=(4.25*len(families), 6.9 if rows == 2 else 4),
+                                 sharey=True, squeeze=False)
+        if task == 'T2':
+            backgrounds = sorted({c['cell'][1] for c in task_cells})
+            colors = dict(zip(backgrounds, ('#0072B2', '#D55E00', '#009E73', '#CC79A7')))
+            durations = sorted({c['cell'][2] for c in task_cells}, reverse=True)
+            duration_levels = {d: sorted({c['cell'][-1] for c in task_cells if c['cell'][2] == d})
+                               for d in durations}
+            notes = []
+            for duration, deltas in duration_levels.items():
+                prefix = f'{duration/60*1000:.0f} ms: '
+                if len(deltas) == len(levels):
+                    notes.append(prefix + f'complete {len(deltas)}-delta grid')
+                elif t2_extension_pending:
+                    notes.append(prefix + f'{len(deltas)} measured deltas; remaining '
+                                 f'{len(levels)-len(deltas)} pending extension')
+                else:
+                    notes.append(prefix + f'{len(deltas)} planned control deltas')
+            subtitle = '  |  '.join(notes)
+        else:
+            subtitle = f'Complete {len(levels)}-angle grid; 500 ms'
+        fig.suptitle(f'{task} | ' + ('Lightness-increment discrimination' if task == 'T2'
+                                     else 'Orientation discrimination'), fontsize=14, y=.99)
+        fig.text(.5, .94 if rows == 2 else .89, subtitle, ha='center', fontsize=10)
+        for column, family in enumerate(families):
             groups = defaultdict(list)
-            for cell in summary['cells']:
-                if cell['model'] != family or cell['cell'][0] != task or cell['accuracy'] is None:
+            for cell in task_cells:
+                if cell['model'] != family:
                     continue
                 key = cell['cell']
                 groups[(key[1], key[2]) if task == 'T2' else ('angles',)].append(cell)
-            for key, cells in sorted(groups.items()):
-                cells.sort(key=lambda c: c['cell'][-1])
-                label = f'BG {key[0]:g}, {key[1]/60*1000:.0f} ms' if task == 'T2' else '500 ms'
-                ax.plot([c['cell'][-1] for c in cells], [100*c['accuracy'] for c in cells],
-                        marker='o', ms=3, lw=1.3, label=label)
-            ax.axhline(50, color='#adb5bd', ls='--', lw=.7)
-            ax.set(title=family, ylim=(0, 103), xlabel='Light-dot increment ΔY' if task == 'T2' else 'Angle difference (°)')
-            ax.spines[['top', 'right']].set_visible(False)
-            ax.grid(axis='y', alpha=.2)
-            if groups:
-                ax.legend(fontsize=7, frameon=False)
-        axes[0].set_ylabel('Accuracy (%)')
+            for row in range(rows):
+                ax = axes[row, column]
+                for key, cells in sorted(groups.items()):
+                    cells.sort(key=lambda c: c['cell'][-1])
+                    main_curve = task != 'T2' or key[1] == durations[0]
+                    ax.plot([c['cell'][-1] for c in cells], [100*c['accuracy'] for c in cells],
+                            color=colors[key[0]] if task == 'T2' else '#0072B2',
+                            marker='o' if main_curve else 'D', ms=4 if main_curve else 6,
+                            markerfacecolor=None if main_curve else 'none',
+                            markeredgewidth=.9 if main_curve else 1.4,
+                            ls='-' if main_curve else 'none', lw=1.25, zorder=2 if main_curve else 3)
+                ax.axhline(50, color='#8d969e', ls='--', lw=.7, zorder=0)
+                ax.set(title=family.capitalize() + (' | ΔY = .05–.15' if row else ''),
+                       ylim=(0, 103), xlabel='Light-dot increment ΔY' if task == 'T2' else 'Angle difference (°)')
+                ax.set_yticks([0, 25, 50, 75, 100])
+                if task == 'T2':
+                    ticks = ([x for x in levels if x <= .15] if row
+                             else [x for x in levels if x in (.05, .1, .15) or x > .15])
+                    ax.set_xlim((.045, .155) if row else (min(levels)-.01, max(levels)+.01))
+                    ax.set_xticks(ticks, [f'{x:g}' for x in ticks], rotation=45, ha='right', fontsize=8)
+                ax.spines[['top', 'right']].set_visible(False)
+                ax.grid(axis='y', alpha=.18)
+                if not column:
+                    ax.set_ylabel('Accuracy (%)')
+        if task == 'T2':
+            handles = [Line2D([], [], color=colors[b], lw=1.5, label=f'Background Y = {b:g}')
+                       for b in backgrounds]
+            handles.extend([Line2D([], [], color='#38434e', marker='o', ms=4, lw=1.25,
+                                   label=f'{durations[0]/60*1000:.0f} ms: measured points + connecting lines'),
+                            Line2D([], [], color='#38434e', marker='D', ms=6, mfc='none', ls='none',
+                                   label=f'{durations[-1]/60*1000:.0f} ms: measured points only')])
+            fig.legend(handles=handles, loc='lower center', bbox_to_anchor=(.5, .035),
+                       ncol=3, frameon=False, fontsize=9)
+            denominators = sorted({c['expected'] for c in task_cells})
+            footer = (f'Each measured point: n = {", ".join(map(str, denominators))} videos '
+                      '(24 onsets × 2 sides). Chance = 50%. Both rows show the same measurements.')
+            fig.subplots_adjust(left=.055, right=.99, top=.86, bottom=.23, hspace=.65, wspace=.12)
+        else:
+            counts = defaultdict(list)
+            for cell in [c for c in task_cells if c['model'] == families[0]]:
+                counts[cell['expected']].append(cell['cell'][-1])
+            footer = 'Each angle: ' + '; '.join(f'n = {n} videos at ' + ', '.join(f'{a:g}°' for a in angles)
+                                                for n, angles in sorted(counts.items(), reverse=True)) + '. Chance = 50%.'
+            fig.subplots_adjust(left=.055, right=.99, top=.75, bottom=.22, wspace=.12)
+        fig.text(.5, .012 if rows == 2 else .035, footer, ha='center', fontsize=8)
         fig.savefig(dest/(task.lower()+'_curve.png'), dpi=180)
         plt.close(fig)
