@@ -16,7 +16,7 @@ import sys
 import time
 import uuid
 
-from .storage import RunStore, atomic_json, digest, file_sha256, owner_identity
+from .storage import RunStore, atomic_json, digest, file_sha256, owner_identity, _append
 
 
 def require(value, message):
@@ -155,6 +155,9 @@ def generic_run(profile, boundary):
                     store.event('ITERATION_COMPLETE', sample_id=sid, attempt_id=attempt,
                         raw_sha256=digest(raw), request_through_technical_pass_seconds=time.monotonic()-started,
                         scope='prepare through durable raw and technical-pass journal; excludes this timing record and progress write')
+                    _append(out/'request-timings.jsonl', {'sample_id':sid,'deep':ordinal<2,
+                        'full_request_seconds':time.monotonic()-started,
+                        'scope':'prepare through raw and technical-pass persistence; excludes timing/progress writes'})
                     completed.append(sid)
                     if ordinal == 1:
                         atomic_json(out/'first-two.json', {'status': 'PASS', 'sample_ids': completed[:2],
@@ -215,6 +218,10 @@ def gemma_run(profile, boundary):
         def intent(self, item):
             claim(profile, item['sample_id'])
             p.Worker.intent(self, item)
+        def commit(self, result, started):
+            p.Worker.commit(self, result, started)
+            g.append(self.output/'request-timings.jsonl', {**self.service_times[-1],
+                'scope':'prepare through raw, observer, technical pass and call-proof persistence; excludes timing write'})
 
     # AssignedItems asks for a reference before prepare. For new deep IDs the
     # ordinary geometry controls are sufficient until prepare records the hashes.
