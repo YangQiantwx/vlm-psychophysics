@@ -48,7 +48,7 @@ def fixture_worker(tmp_path, monkeypatch, after_raw=None):
     catalog=tmp_path/'catalog.json';w.write_new(catalog,{'items':items})
     profile={'schema':'classic-refinement-worker-v1','model':'nemo','worker':'test',
         'assigned_ids':list(items),'output':str(tmp_path/'output'),'checkpoint':'unused',
-        'checkpoint_assets':{},'resources':{},'implementation':{'refinement_worker.py':w.file_sha256(w.__file__)},
+        'checkpoint_assets':{},'resources':{},'implementation':{},'entry_implementation':{'refinement_worker.py':w.file_sha256(w.__file__)},
         'source_root':str(tmp_path),'worker_token':'unique','claim_root':str(tmp_path/'claims'),
         'pause_file':str(tmp_path/'PAUSE.json'),'catalog':w.descriptor(catalog)}
     boundary=w.Boundary(profile)

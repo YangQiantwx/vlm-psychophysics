@@ -136,7 +136,7 @@ def generic_run(profile, boundary):
                 for ordinal, sid in enumerate(profile['assigned_ids']):
                     if boundary.check():
                         break
-                    require(file_sha256(__file__) == profile['implementation']['refinement_worker.py'], 'Worker source changed')
+                    require(file_sha256(__file__) == profile['entry_implementation']['refinement_worker.py'], 'Worker source changed')
                     item = items[sid]; row, ready = item['row'], item['ready']
                     claim(profile, sid)
                     attempt = store.begin(sid, digest({'row': row, 'ready': ready}))
@@ -255,7 +255,7 @@ def run(profile_path):
         require(os.environ.get(name) == value, 'Launch environment differs: '+name)
     for name in profile.get('cleared_environment', []):
         require(name not in os.environ, 'Unexpected inherited environment: '+name)
-    for name, sha in profile['implementation'].items():
+    for name, sha in profile['entry_implementation'].items():
         path = Path(__file__).with_name(name) if '/' not in name else Path(__file__).parent.parent/name
         require(file_sha256(path) == sha, 'Qualified implementation changed: '+name)
     catalog = verified(profile['catalog'])

@@ -161,7 +161,7 @@ def seal(root, host):
             'profile_file':str(path),'admission_file':str(plan/(name+'-admission.json')),
             'claim_root':str(root/'runs/reproducibility/classic-refinement-20261026/claims'/model),
             'pause_file':str(plan/(name+'-PAUSE.json')),'environment':env,'cleared_environment':cleared,
-            'gpu_uuid':GPUS[card],'physical_lock':lock,'implementation':files,
+            'gpu_uuid':GPUS[card],'physical_lock':lock,'implementation':files,'entry_implementation':files,
             'source_QA':descriptor(op/'classic-refinement-source-qa-20261026/summary.json'),'input_protocol':'controlled-rgb16',
             'generation':oldmanifest['generation'],'runtime':runtime}
         if model in ('qwen','nemo'):
@@ -192,7 +192,7 @@ def seal(root, host):
             require(profile['runtime_identity']==cosmos_anchor['runtime_identity']
                 and profile['engine_settings']==cosmos_anchor['engine_settings'], 'Qualified Cosmos identity/settings differ')
         else:
-            for key in ('candidate','variant','checkpoint_assets','checkpoint_contract','runtime_sources',
+            for key in ('candidate','variant','implementation','checkpoint_assets','checkpoint_contract','runtime_sources',
                         'kernel','cpu_execution_overlay','cpu_copy','engine_settings','execution_signature','plan_sha256','references'):
                 profile[key]=deepcopy(anchor[key])
             profile['qualified_anchor']=descriptor(anchorpath)
