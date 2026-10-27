@@ -62,3 +62,25 @@ def test_paused_continuation_holds_successor_without_retry(tmp_path,monkeypatch)
     assert len(calls)==1 and c.read(q)['status']=='PAUSED'
     with pytest.raises(ValueError,match='cannot be replayed'):
         c.queue(q)
+
+
+def test_nemo_continuation_refuses_unaccepted_runtime_restoration(tmp_path,monkeypatch):
+    from classic_precision.nemo_kernel_replay import CONTRACT
+    p=tmp_path/'profile.json'
+    c.write_new(p,{'model':'nemo','continuation':{'nemo_legacy_runtime':{
+        'kernel_config':CONTRACT,'canonical_audit':{'path':'unused','sha256':'unused'}}}})
+    monkeypatch.setattr(c,'verified',lambda ref:{'status':'PARTIAL','technical_pass':1})
+    with pytest.raises(ValueError,match='not accepted'):c.run_nemo(p)
+
+
+def test_nemo_supervision_keeps_real_wait_but_selects_gated_entry(monkeypatch):
+    from classic_precision import refinement_worker as worker
+    observed=[]
+    def popen(argv,**kwargs):observed.append(argv);return 'child'
+    monkeypatch.setattr(worker.subprocess,'Popen',popen)
+    def supervise(path):
+        return worker.subprocess.Popen(['python','-B','-m','classic_precision.refinement_worker','run','--profile',path])
+    monkeypatch.setattr(worker,'supervise',supervise)
+    assert c.supervise_nemo('fixed.json')=='child'
+    assert observed==[['python','-B','-m','classic_precision.refinement_continue','run-nemo','--profile','fixed.json']]
+    assert worker.subprocess.Popen is popen

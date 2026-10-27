@@ -105,6 +105,14 @@ def prepare(root, host, report_path, decision_path):
                     'completed_before':len(a['completed_ids']),'unattempted_only':True,
                     'reported_decision':descriptor(decision_path),'same_original_GPU':True},
                 preceding_smoke_wait=descriptor(last_wait))
+            if p['model']=='nemo':
+                from .nemo_kernel_replay import CONTRACT
+                canonical=root/'runs/reproducibility/nemo-canonical-restoration-20261027/canonical-audit.json'
+                require(read(canonical)['status']=='COMPLETE_PASS', 'Nemo canonical restoration not accepted')
+                new['continuation']['nemo_legacy_runtime']={
+                    'kernel_config':CONTRACT,'canonical_audit':descriptor(canonical),
+                    'entry_source_sha256':{name:file_sha256(Path(__file__).with_name(name)) for name in
+                        ('nemo_canonical_restore.py','nemo_kernel_replay.py')}}
             require(not Path(new['output']).exists() and not Path(new['pause_file']).exists(), 'Continuation already exists')
             allocation['assignments'][new['worker']]=ids
             profiles[name]=(path,new)
@@ -145,7 +153,9 @@ def queue(queue_path):
                 write_new(p['admission_file'],{'plan_sha256':p['plan_sha256'],'profile_sha256':digest(p),
                     'qwen_t1_complete':3840,'all_owned_engines_exited':True,'physical_gpu_locks_released':True,
                     'preceding_wait':descriptor(previous),'scope':'Latest owned predecessor on the same GPU; native same-inode lease/live headroom rechecked at load'})
-            child=subprocess.Popen([sys.executable,'-B','-m','classic_precision.refinement_worker','supervise','--profile',str(path)])
+            module='classic_precision.refinement_continue' if p['model']=='nemo' else 'classic_precision.refinement_worker'
+            command='supervise-nemo' if p['model']=='nemo' else 'supervise'
+            child=subprocess.Popen([sys.executable,'-B','-m',module,command,'--profile',str(path)])
             code=child.wait();prior_wait=Path(p['output']).with_suffix('.wait.json');w=read(prior_wait);reports.append(w)
             require(code==0 and w['returncode']==0 and w['real_wait_observed'] and w['owned_engines_exited']
                 and w['original_physical_lease_released'], 'Worker failed or closure incomplete; no retry')
@@ -158,12 +168,49 @@ def queue(queue_path):
     return {'status':'COMPLETE','stages':len(reports)}
 
 
+def run_nemo(path):
+    """Keep the original formal worker, with the accepted legacy runtime gate."""
+    p=read(path);require(p['model']=='nemo','Nemo continuation only')
+    from .nemo_kernel_replay import CONTRACT
+    runtime=p['continuation']['nemo_legacy_runtime']
+    require(runtime['kernel_config']==CONTRACT,'Nemo legacy backend contract changed')
+    audit=verified(runtime['canonical_audit'])
+    require(audit['status']=='COMPLETE_PASS' and audit['technical_pass']==1268,
+            'Nemo canonical restoration not accepted')
+    for name,sha in runtime['entry_source_sha256'].items():
+        require(file_sha256(Path(__file__).with_name(name))==sha,'Qualified Nemo runtime entry changed')
+    decision=verified(p['continuation']['reported_decision'])
+    report=Path(runtime['canonical_audit']['path']).parents[1]/'reader-route-smoke-20261026/comparison/summary.json'
+    validate_handoff(read(report),decision,file_sha256(report))
+    root=Path(path).parents[2]
+    require(read(root/'plans/reader-route-smoke-20261026/nemo-reproduction-HOLD.json')['status']=='RESOLVED',
+            'Nemo scientific hold remains')
+    from .nemo_canonical_restore import legacy_session
+    from . import refinement_worker
+    with legacy_session(p['output']):return refinement_worker.run(path)
+
+
+def supervise_nemo(path):
+    from . import refinement_worker as worker
+    original=worker.subprocess.Popen
+    def popen(argv,**kwargs):
+        argv=list(argv)
+        at=argv.index('classic_precision.refinement_worker')
+        argv[at:at+2]=['classic_precision.refinement_continue','run-nemo']
+        return original(argv,**kwargs)
+    worker.subprocess.Popen=popen
+    try:return worker.supervise(path)
+    finally:worker.subprocess.Popen=original
+
+
 def main():
-    p=argparse.ArgumentParser(description=__doc__);p.add_argument('command',choices=['prepare','queue'])
+    p=argparse.ArgumentParser(description=__doc__);p.add_argument('command',choices=['prepare','queue','run-nemo','supervise-nemo'])
     p.add_argument('--root');p.add_argument('--host',choices=['fourier','radon'])
-    p.add_argument('--report');p.add_argument('--decision');p.add_argument('--queue')
+    p.add_argument('--report');p.add_argument('--decision');p.add_argument('--queue');p.add_argument('--profile')
     a=p.parse_args()
-    result=prepare(a.root,a.host,a.report,a.decision)if a.command=='prepare'else queue(a.queue)
+    result=(prepare(a.root,a.host,a.report,a.decision) if a.command=='prepare' else
+            queue(a.queue) if a.command=='queue' else run_nemo(a.profile) if a.command=='run-nemo'
+            else supervise_nemo(a.profile))
     import json
     print(json.dumps(result,sort_keys=True))
 

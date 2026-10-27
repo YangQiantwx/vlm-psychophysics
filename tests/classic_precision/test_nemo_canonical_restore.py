@@ -70,3 +70,16 @@ def test_context_preserves_original_settings_and_sampling(monkeypatch, tmp_path)
 def test_relocation_preserves_scientific_values():
     old = {'path': r.ROOTS[2]+'/source', 'values': [180, 768, 512], 'dtype': 'float32'}
     assert r.relocate(old, '/new') == {'path': '/new/source', 'values': [180, 768, 512], 'dtype': 'float32'}
+
+
+def test_audit_rejects_configuration_drift_in_completed_repair(monkeypatch, tmp_path):
+    from classic_precision import nemo_restoration_results as results
+    parent={'output':'/mnt/sda/q/cvpr2027_benchmark/runs/reproducibility/smoke/old',
+            'generation':{'temperature':0},'checkpoint_assets':{'frozen':True}}
+    new={**parent,'output':'/mnt/sda/q/cvpr2027_benchmark/runs/reproducibility/smoke/new',
+         'worker':'new','assigned_ids':['id'],'generation':{'temperature':.1},
+         'restoration':{'authorization':{},'block_index':0,'preserved_claim_sha256':{},'sealed_allocation':{}}}
+    monkeypatch.setattr(results,'load_bound',lambda root,ref:new if ref.get('profile') else {})
+    monkeypatch.setattr(results,'preserved',lambda *args:(parent,[],{}))
+    with pytest.raises(ValueError,match='Scientific|scientific'):
+        results.profile_contract(tmp_path,{'profile':True},{},{'blocks':[{}]})

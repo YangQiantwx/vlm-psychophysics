@@ -88,13 +88,13 @@ def status(root):
         for path in q['profiles']:
             p=read(path)
             if p['hostname']!=socket.gethostname():continue
-            all_sources.update(p['sources']);out=Path(p['output'])
+            all_sources.update(p.get('sources',{}));out=Path(p['output'])
             progress=read(out/'progress.json')if(out/'progress.json').exists()else{}
             terminal=read(out/'result.json')if(out/'result.json').exists()else{}
             failure=read(out/'failure.json')if(out/'failure.json').exists()else None
             timings=records(out/'request-timings.jsonl')
-            ordinary=[t for t in timings if not t['observed_or_cold']][-20:]
-            sample=stats([t['end_to_end_durable_seconds']for t in ordinary])
+            ordinary=[t for t in timings if not t.get('observed_or_cold',t.get('deep',False))][-20:]
+            sample=stats([t.get('end_to_end_durable_seconds',t.get('full_request_seconds'))for t in ordinary])
             completed=len(terminal.get('completed_ids',[]))if terminal else progress.get('completed',0)
             claimed={x.stem for x in Path(p['claim_root']).glob('*.json')} & set(p['assigned_ids'])
             inflight=sorted(claimed-{t['sample_id']for t in timings})
@@ -134,6 +134,16 @@ def reconcile(root, partial=False):
             'Nemo actual-kernel protocol drift is unresolved; only partial analysis is allowed')
     alloc=read(plan/'allocation.json');sources=read(plan/'sources.json')['items']
     replacements,retained_failures,card_completion=repaired_workers(plan,run)
+    canonical_restoration=None
+    if hold.exists() and read(hold)['status']=='RESOLVED' and (plan/'nemo-restore1-authorization.json').exists():
+        # Completed-but-different runtime answers are replaced only through the
+        # separate explicit1268 authorization and a full five-worker audit.
+        # Empty-arm repair validation above remains unchanged.
+        from .nemo_restoration_results import audit
+        canonical_restoration=audit(root)
+        require(canonical_restoration['status']=='COMPLETE_PASS', 'Canonical Nemo restoration incomplete')
+        replacements.update(canonical_restoration['logical_smoke_replacements'])
+        card_completion.update(canonical_restoration['card_completion'])
     data={};timings={};closures=[];loads=[];inputs=[];expected=set();missing=[]
     for card,segments in alloc['cards'].items():
         for segment in segments:
@@ -262,6 +272,7 @@ def reconcile(root, partial=False):
         'matrix':matrix,'paired_transitions':transitions,'timing':timing_rows,
         'closures':closures,'retained_failed_attempt_closures':retained_failures,
         'logical_arm_replacements':replacements,'card_completion':card_completion,
+        'canonical_runtime_restoration':canonical_restoration,
         'loading_separate_from_requests':loads,'observed_actual_inputs':inputs,
         'observation_cold_requests_separate':[{'model':m,'arm':a,**t}for(m,a,s),t in timings.items()if t.get('observed_or_cold')],
         'formal_auto_resume':False,
