@@ -60,7 +60,7 @@ def allocation(manifest):
     return {'schema':'classic-refinement-allocation-v1', 'manifest_sha256':digest(manifest),
         'assignments':assignments, 'maximum_model_calls':12672, 'max_attempts_per_id_per_model':1,
         'automatic_retry':False, 'Gemma_onsets_per_cell':{'fourier0':9,'fourier1':9,'radon0':6},
-        'rationale':'Score-independent SHA ordering of complete LR/sign onset units. Initial Qwen/F0, Cosmos/F1, Nemo/R0; then Gemma on the same freed cards. Gemma allocation follows measured prior ordinary request costs about22/22/29s.'}
+        'rationale':'Score-independent SHA ordering of complete LR/sign onset units. Qwen then Gemma/F0, Gemma then Cosmos/F1, Nemo then Gemma/R0. The more specialized Gemma bridge is exercised immediately. Gemma allocation follows measured prior ordinary request costs about22/22/29s.'}
 
 
 def sources(root):
@@ -119,6 +119,7 @@ def seal(root, host):
     oldmanifest=read(root/'runs/t2_t3_classic_rgb16_production_20261020/manifest.json')
     qwen=read(op/'qwen-t2-extension-single-20261024-plan.json') if host=='fourier' else None
     cosmos=read(op/('cosmos-t1t2-nvfp4-'+host+'-runtime-20261025.json'))
+    cosmos_anchor=read(op/('cosmos-t1t2-nvfp4-'+host+'-sealed-20261025.json'))
     files={p.name:file_sha(p) for p in (root/'code/vlm-psychophysics/classic_precision').glob('*.py')
            if p.name in ('refinement_worker.py','inference.py','nvfp4_cosmos_official.py','nvfp4_cosmos.py',
                'gemma_speed.py','gemma_cpu_copy.py','gemma_production.py','gemma_nvfp4_continuation.py','nvfp4_gemma.py')}
@@ -136,6 +137,13 @@ def seal(root, host):
         cleared=[]
         if model=='qwen':
             env.update(qwen['profile']['environment']);cleared=qwen['profile']['cleared_environment']
+        elif model=='nemo':
+            env.update(OMP_NUM_THREADS='1',OPENBLAS_NUM_THREADS='1',MKL_NUM_THREADS='1')
+        elif model=='cosmos':
+            for k,v in cosmos_anchor['runtime_identity']['environment'].items():
+                if v is None:
+                    env.pop(k,None);cleared.append(k)
+                else:env[k]=v
         env.update(CUDA_VISIBLE_DEVICES=gpu, PYTHONPATH=code+'/runtime_compat:'+code, PYTHONDONTWRITEBYTECODE='1')
         runtime['environment']=dict(env)
         ids=alloc['assignments'][name]
@@ -179,6 +187,8 @@ def seal(root, host):
                     if v is None:os.environ.pop(k,None)
                     else:os.environ[k]=v
             profile['engine_settings']=engine_settings(profile['runtime'])
+            require(profile['runtime_identity']==cosmos_anchor['runtime_identity']
+                and profile['engine_settings']==cosmos_anchor['engine_settings'], 'Qualified Cosmos identity/settings differ')
         else:
             for key in ('candidate','variant','checkpoint_assets','checkpoint_contract','runtime_sources',
                         'kernel','cpu_execution_overlay','cpu_copy','engine_settings','execution_signature','plan_sha256','references'):
@@ -196,7 +206,8 @@ def queue(root, card):
     """Two sealed stages, actual wait between them, never retries or reassigns."""
     root=Path(root);plan=root/'plans/classic-refinement'
     first={'fourier0':'qwen','fourier1':'cosmos','radon0':'nemo'}[card]
-    stages=[plan/(model+'-'+card+'-profile.json') for model in (first,'gemma')]
+    order=('gemma',first) if card=='fourier1' else (first,'gemma')
+    stages=[plan/(model+'-'+card+'-profile.json') for model in order]
     state=plan/(card+'-queue.json')
     require(not state.exists(),'Existing queue requires reconciliation, no automatic resume')
     write_new(state,{'status':'RUNNING','stages':list(map(str,stages)),'automatic_retry':False})
@@ -207,15 +218,23 @@ def queue(root, card):
             profile=read(path)
             require(not Path(profile['pause_file']).exists(),'Sealed next worker is paused')
             if profile['model']=='gemma':
-                prior=reports[-1]
-                require(prior['terminal_status']=='COMPLETE' and prior['real_wait_observed']
-                    and prior['owned_engines_exited'] and prior['original_physical_lease_released'],
-                    'Preceding assigned GPU has not closed cleanly')
+                if reports:
+                    prior=reports[-1]
+                    require(prior['terminal_status']=='COMPLETE' and prior['real_wait_observed']
+                        and prior['owned_engines_exited'] and prior['original_physical_lease_released'],
+                        'Preceding assigned GPU has not closed cleanly')
+                    prior_path=Path(read(stages[0])['output']).with_suffix('.wait.json')
+                else:
+                    prior_path=root/'runs/reproducibility/operator'/('gemma-nvfp4-formal-tail3-'+card+'-20261026-exit.json')
+                    prior=read(prior_path)
+                    require(prior['actual_wait_observed'] and prior['returncode']==0,'Historical worker actual wait missing')
+                    closure=read(Path(prior['output'])/'exit.json')
+                    require(closure['owned_engine_workers_exited'] and closure['lease_released_after_engine_exit'], 'Original closure missing')
                 write_new(profile['admission_file'],{
                     'plan_sha256':profile['plan_sha256'],'profile_sha256':digest(profile),
                     'qwen_t1_complete':3840,'all_owned_engines_exited':True,'physical_gpu_locks_released':True,
-                    'scope':'Preceding new worker on this exact GPU; old Qwen T1 completion retained',
-                    'preceding_wait':descriptor(Path(read(stages[0])['output']).with_suffix('.wait.json'))})
+                    'scope':'Preceding owned worker on this exact GPU; old Qwen T1 completion retained; live headroom and same-inode lease checked at new load',
+                    'preceding_wait':descriptor(prior_path)})
             child=subprocess.Popen([sys.executable,'-B','-m','classic_precision.refinement_worker',
                 'supervise','--profile',str(path)])
             code=child.wait()
