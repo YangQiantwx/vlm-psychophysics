@@ -316,7 +316,9 @@ def run_all(root,port):
         and rx['real_wait'] and rx['owned_hf_process_exited']
         and rx['original_same_inode_lease_free'], 'Rx finite work has not reached an audited terminal state')
     new(out/'server-launch.json',{'coordinator_pid':os.getpid(),'settings':settings,
-        'parent_profile':parent['worker'],'automatic_retry':False,'preceding_rx_terminal':rx})
+        'parent_profile':parent['worker'],'automatic_retry':False,'preceding_rx_terminal':rx,
+        'implementation_sha256':file_sha256(__file__),
+        'worker_implementation_sha256':file_sha256(Path(__file__).with_name('codex_local_visual_worker.py'))})
     env=os.environ.copy()
     for k in parent['cleared_environment']:env.pop(k,None)
     env.update(parent['environment']);env['CVPR_CLI_AUDIT_ROOT']=str(out)
