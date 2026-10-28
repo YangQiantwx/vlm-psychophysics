@@ -124,6 +124,13 @@ def image_paths(code, args):
             return match[0]
         return match[1]+'`'+prefix+'${String('+match[3]+').padStart('+match[4]+',"0")}'+suffix+'`'
     code=re.sub(concat,path_template,code)
+    plain_concat=r'''(["']?path["']?\s*:\s*)("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')\s*\+\s*(\w+)\s*\+\s*("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')'''
+    def plain_path_template(match):
+        prefix,suffix=literal(match[2]),literal(match[4])
+        if not isinstance(prefix,str) or not isinstance(suffix,str) or any(x in prefix+suffix for x in ('`','${')):
+            return match[0]
+        return match[1]+'`'+prefix+'${'+match[3]+'}'+suffix+'`'
+    code=re.sub(plain_concat,plain_path_template,code)
     tokens=re.findall(r'''["']?path["']?\s*:\s*("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`[^`]*`)''',code)
     loops=re.findall(r'for\s*\(\s*(?:let|const|var)\s+(\w+)\s*=\s*(\d+)\s*;\s*\1\s*(<=|<)\s*(\d+)\s*;\s*(?:\1\+\+|\+\+\1|\1\s*\+=\s*1)\s*\)',code)
     array_loops=re.findall(r'for\s*\(\s*(?:let|const|var)\s+(\w+)\s+of\s+(\[[^\[\]\n]*\])\s*\)',code)
