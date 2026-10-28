@@ -47,6 +47,15 @@ def analyze(root, partial=False):
             retired = read(plan_dir/name)
             assert not (out/Path(retired['output']).name).exists()
             assert not (out/Path(retired['claim_root']).name).exists()
+        for name in allocation.get('paused_unlaunched_profiles', []):
+            retired = read(plan_dir/name)
+            d = out/Path(retired['output']).name
+            w = read(d.with_suffix('.wait.json'))
+            assert w['terminal_status'] == 'PAUSED_BEFORE_LOAD' and w['returncode'] == 0
+            assert w['real_wait_observed'] and w['owned_engines_exited'] and w['original_physical_lease_released']
+            assert w['profile_sha256'] == digest(retired) and not w['completed_ids']
+            assert not (d/'raw.jsonl').exists()
+            assert not list((out/Path(retired['claim_root']).name).glob('*.json'))
     for pf in profile_paths:
         p = read(pf); arm = p['optimization_arm']; d = out/Path(p['output']).name
         profiles[arm] = p
@@ -58,13 +67,21 @@ def analyze(root, partial=False):
             continue
         w = read(wf)
         if w['returncode'] != 0 or w['terminal_status'] != 'COMPLETE':
+            assert w['real_wait_observed'] and w['owned_engines_exited'] and w['original_physical_lease_released']
+            assert w['profile_sha256'] == digest(p)
+            closure = read(out/(arm+'-startup-failure-closure.json'))
+            assert closure['independent_exit_verified'] and not raw
+            assert not list((out/Path(p['claim_root']).name).glob('*.json'))
+            assert closure['actual_wait']['sha256'] == file_sha256(wf)
             errors.append({'arm': arm, 'status': 'FAILED_RETAINED', 'wait': w, 'raw': len(raw)})
             continue
         assert w['real_wait_observed'] and w['owned_engines_exited'] and w['original_physical_lease_released']
         assert w['profile_sha256'] == digest(p)
-        assert [r['sample_id'] for r in raw] == p['assigned_ids'] == expected
+        assigned = p['assigned_ids']
+        assert len(assigned) == len(set(assigned)) and set(assigned).issubset(expected)
+        assert [r['sample_id'] for r in raw] == assigned
         passes = {e['sample_id']: e for e in rows(d/'events.jsonl') if e['event'] == 'TECHNICAL_PASS'}
-        timing = rows(d/'request-timings.jsonl'); assert [r['sample_id'] for r in timing] == expected
+        timing = rows(d/'request-timings.jsonl'); assert [r['sample_id'] for r in timing] == assigned
         claim_dir = out/Path(p['claim_root']).name
         for r in raw:
             sid = r['sample_id']; assert passes[sid]['raw_digest'] == digest(r)
@@ -82,6 +99,7 @@ def analyze(root, partial=False):
                 'ordinary_e2e': stats([r['end_to_end_durable_seconds'] for r in tt if not r['deep']]),
                 'cold_observation_e2e': [r['end_to_end_durable_seconds'] for r in tt if r['deep']]}
         results[arm] = {'status': 'COMPLETE_PASS', 'n': len(raw),
+            'load_seconds': read(d/'load.json')['seconds'],
             'ordinary_e2e': stats([r['end_to_end_durable_seconds'] for r in timing if not r['deep']]),
             'ordinary_engine_inclusive': stats([r['engine_request_inclusive_seconds'] for r in timing if not r['deep']]),
             'tasks': task_stats, 'wait': w, 'profile_sha256': file_sha256(pf),
@@ -89,12 +107,13 @@ def analyze(root, partial=False):
         records[arm] = {r['sample_id']: r for r in raw}
     maximum_calls = allocation['maximum_calls'] if allocation else plan['maximum_scientific_calls']
     assert physical_calls <= maximum_calls
-    baseline = records.get('baseline_eager', {})
     for arm, rr in records.items():
+        baseline_arm = profiles[arm].get('comparison_baseline_arm', 'baseline_eager')
+        baseline = records.get(baseline_arm, {})
         if not baseline:
-            break
+            continue
         changes = []; full_changes = []; prompt_changes = []
-        original = profiles['baseline_eager']
+        original = profiles[baseline_arm]
         for key in ('checkpoint','checkpoint_assets','gpu_uuid','physical_lock','source_catalog','environment'):
             assert profiles[arm][key] == original[key], (arm, key)
         for sid, r in rr.items():
@@ -104,9 +123,25 @@ def analyze(root, partial=False):
             if r['raw_answer'] != a['raw_answer']: changes.append(sid)
             if any(r[k] != a[k] for k in ('output_token_ids','finish_reason','stop_reason')): full_changes.append(sid)
             if r['actual_prompt_token_ids'] != a['actual_prompt_token_ids']: prompt_changes.append(sid)
-        results[arm]['versus_baseline'] = {'answer_changes': changes, 'full_output_changes': full_changes,
+        arm_timing = {x['sample_id']: x for x in rows((out/Path(profiles[arm]['output']).name)/'request-timings.jsonl')}
+        baseline_timing = {x['sample_id']: x for x in rows((out/Path(original['output']).name)/'request-timings.jsonl')}
+        ordinary_ids = [sid for sid in rr if not arm_timing[sid]['deep'] and not baseline_timing[sid]['deep']]
+        paired_arm = stats([arm_timing[sid]['end_to_end_durable_seconds'] for sid in ordinary_ids])
+        paired_baseline = stats([baseline_timing[sid]['end_to_end_durable_seconds'] for sid in ordinary_ids])
+        results[arm]['versus_baseline'] = {'baseline_arm': baseline_arm,
+            'answer_changes': changes, 'full_output_changes': full_changes,
             'prompt_changes': prompt_changes,
-            'ordinary_e2e_reduction_percent': 100*(1-results[arm]['ordinary_e2e']['mean_seconds']/results['baseline_eager']['ordinary_e2e']['mean_seconds'])}
+            'paired_ordinary_ids': ordinary_ids, 'paired_ordinary_arm': paired_arm, 'paired_ordinary_baseline': paired_baseline,
+            'ordinary_e2e_reduction_percent': 100*(1-paired_arm['mean_seconds']/paired_baseline['mean_seconds']) if ordinary_ids else None}
+    cross_card = {}
+    for left, right in [('baseline_eager','gpu1-baseline'), ('native-compact-v2','gpu1-native-compact-six')]:
+        if left in records and right in records:
+            shared_ids = sorted(set(records[left]) & set(records[right]))
+            cross_card[left+'__'+right] = {
+                'n': len(shared_ids), 'timing_comparison': 'NOT_USED',
+                'answer_changes': [s for s in shared_ids if records[left][s]['raw_answer'] != records[right][s]['raw_answer']],
+                'full_output_changes': [s for s in shared_ids if any(records[left][s][k] != records[right][s][k]
+                    for k in ('output_token_ids','finish_reason','stop_reason'))]}
     status = 'COMPLETE_FINITE_SPEED_STUDY' if not errors else 'PARTIAL'
     if not partial:
         assert not any(e['status'] == 'NOT_CLOSED' for e in errors), errors
@@ -116,7 +151,7 @@ def analyze(root, partial=False):
         if errors:
             status = 'COMPLETE_STUDY_WITH_FAILED_CANDIDATES'
     value = {'schema': 'gemma-x-speed-summary-v1', 'status': status, 'raw_calls': physical_calls,
-        'maximum_calls': maximum_calls, 'arms': results, 'exceptions': errors,
+        'maximum_calls': maximum_calls, 'arms': results, 'exceptions': errors, 'cross_card': cross_card,
         'limits': ['Fixed small 12-video same-card panel, not whole benchmark.',
                    'Ordinary timings exclude first observation per task; each arm has a fresh engine.',
                    'Engine time includes embedded processor/IPC; not GPU-only.',
