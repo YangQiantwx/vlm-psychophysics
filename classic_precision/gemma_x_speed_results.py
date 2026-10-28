@@ -35,6 +35,10 @@ def analyze(root, partial=False):
     plan = read(plan_dir/'plan.json'); expected = plan['assigned_ids']
     results = {}; records = {}; errors = []; physical_calls = 0; profiles = {}
     allocation_path = plan_dir/'final-arm-allocation-v2.json'
+    pointer = plan_dir/'active-allocation.json'
+    if pointer.exists():
+        ref = read(pointer); allocation_path = plan_dir/Path(ref['path']).name
+        assert file_sha256(allocation_path) == ref['sha256']
     allocation = read(allocation_path) if allocation_path.exists() else None
     profile_paths = ([plan_dir/x for x in allocation['profile_files']] if allocation
                      else sorted(plan_dir.glob('*-profile.json')))
@@ -83,7 +87,8 @@ def analyze(root, partial=False):
             'tasks': task_stats, 'wait': w, 'profile_sha256': file_sha256(pf),
             'raw_sha256': file_sha256(d/'raw.jsonl'), 'timings_sha256': file_sha256(d/'request-timings.jsonl')}
         records[arm] = {r['sample_id']: r for r in raw}
-    assert physical_calls <= plan['maximum_scientific_calls']
+    maximum_calls = allocation['maximum_calls'] if allocation else plan['maximum_scientific_calls']
+    assert physical_calls <= maximum_calls
     baseline = records.get('baseline_eager', {})
     for arm, rr in records.items():
         if not baseline:
@@ -108,8 +113,10 @@ def analyze(root, partial=False):
         allocation = allocation or read(plan_dir/'final-arm-allocation.json')
         expected_arms = {x.replace('baseline-eager','baseline_eager') for x in allocation['arms']}
         assert set(profiles) == expected_arms
+        if errors:
+            status = 'COMPLETE_STUDY_WITH_FAILED_CANDIDATES'
     value = {'schema': 'gemma-x-speed-summary-v1', 'status': status, 'raw_calls': physical_calls,
-        'maximum_calls': plan['maximum_scientific_calls'], 'arms': results, 'exceptions': errors,
+        'maximum_calls': maximum_calls, 'arms': results, 'exceptions': errors,
         'limits': ['Fixed small 12-video same-card panel, not whole benchmark.',
                    'Ordinary timings exclude first observation per task; each arm has a fresh engine.',
                    'Engine time includes embedded processor/IPC; not GPU-only.',
