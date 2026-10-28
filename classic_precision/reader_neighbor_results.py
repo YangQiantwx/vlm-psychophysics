@@ -127,7 +127,9 @@ def analyze(root):
                     require(gate['status'] == 'PASS', 'Missing predecessor acceptance')
                 rows, ts, obs, closure = audit_worker(root, profile, history, catalog, dirname == NAME)
                 paired.extend(rows); timings.extend(ts); observations.extend(obs); closures.append(closure)
-                claim_sets.setdefault(p['claim_root'],set()).update(p['assigned_ids'])
+                # Host roots merge into one local journal directory. Union the
+                # disjoint host assignments before checking for extra claims.
+                claim_sets.setdefault(str(local_path(root,p['claim_root'])),set()).update(p['assigned_ids'])
     for path, ids in claim_sets.items():
         require({p.stem for p in local_path(root,path).glob('*.json')} == ids, 'Extra/missing/unclosed claims')
     require(len(paired) == len({(r['model'],r['sample_id']) for r in paired}) == 1152

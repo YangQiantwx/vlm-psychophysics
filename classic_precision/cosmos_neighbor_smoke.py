@@ -308,6 +308,12 @@ def cost(root):
     timing_path=root/'runs/reproducibility/reader-route-smoke-20261026/partial/timing.csv'
     timing=list(csv.DictReader(timing_path.open()));counts={'T1':3840,'T2':5760,'T3':2928};models={}
     old=read(root/'runs/reproducibility/smoke-results/t1-resize-summary.json')
+    extension=root/'runs/reproducibility/reader-neighbors-extension-20261027'
+    current_B=None
+    if (extension/'summary.json').exists():
+        accepted=read(extension/'summary.json')
+        require(accepted['status']=='COMPLETE_DESCRIPTIVE_COMPARISON' and accepted['B_answers']==1152,'Invalid complete neighbor comparison')
+        current_B=list(csv.DictReader((extension/'timing.csv').open()))
     for model in ['qwen','cosmos','gemma','nemo']:
         means={task:float(next(r['mean'] for r in timing if r['model']==model and r['task']==task and
             r['arm']=='C' and r['stage']=='end_to_end_durable_seconds')) for task in ['T2','T3']}
@@ -317,6 +323,10 @@ def cost(root):
             rows=list(csv.DictReader((run/'timing.csv').open()))
             current=[float(r['end_to_end_durable_seconds']) for r in rows if r['arm']=='C' and r['observed_or_cold']=='False']
             means['T3']=statistics.mean(current);basis='new0.6/0.8 native route, two Fourier/one Radon equal ID allocation; concurrent low-priority CPU audit recorded'
+        if current_B is not None:
+            means={task:statistics.mean([float(r['end_to_end_durable_seconds']) for r in current_B
+                if r['model']==model and r['task']==task and r['observed_or_cold']=='False']) for task in ['T2','T3']}
+            basis='complete1152 B neighbors; T2 .05/.07, T3 .6/.8; assigned hosts retained, not a cross-host speedup claim'
         means['T1']=statistics.mean([means['T2'],means['T3']])
         hours={task:counts[task]*means[task]/3600 for task in counts}
         models[model]={'task_counts':counts,'seconds_per_video':means,'task_gpu_hours':hours,
@@ -329,6 +339,8 @@ def cost(root):
         'total_gpu_hours_central':total,'planning_gpu_hours_with_15_to_25pct_margin':[total*1.15,total*1.25],
         'three_card_ideal_wall_hours':total/3,'three_card_planning_wall_hours':[total*1.15/3,total*1.25/3],
         'source_timing_sha256':file_sha256(timing_path),'neighbor_summary_sha256':file_sha256(run/'summary.json') if (run/'summary.json').exists() else None,
+        'complete_B_timing_sha256':file_sha256(extension/'timing.csv') if current_B is not None else None,
+        'complete_B_summary_sha256':file_sha256(extension/'summary.json') if current_B is not None else None,
         'scope':'GPU-slot occupancy from ordinary end-to-end time; not CUDA-active kernel seconds. Margin is a planning allowance, not confidence interval.',
         'limits':['T1 is a planning proxy; historical chat-only numbers retained separately and not pooled as E2E.',
             'Timing extrapolates fixed-cell observations to all nominal cells; model loading, scheduling and imbalance require margin.',
