@@ -478,10 +478,55 @@ async def dynamic_pool(items, limit, execute, paused=lambda:False, progress=None
     return done,list(pending)
 
 
+def closed_ledger(out):
+    records={}
+    for p in sorted((out/'claims').iterdir()):
+        folder=out/'cases'/p.name
+        require((folder/'result.json').exists() and (folder/'wait.json').exists(), 'Unclosed claim: '+p.name)
+        wait=read(folder/'wait.json')
+        require(wait['real_wait'] and wait['owned_descendants_exited'], 'Owned CLI not closed')
+        records[p.name]={'claim':sha(p),'result':sha(folder/'result.json'),'wait':sha(folder/'wait.json')}
+    return records
+
+
+def prepare_resume(root):
+    plan_dir,out,plan,samples=load(root)
+    parent=out/'segments/full-access1';control=out/'segments/quota-resume1'
+    previous=read(parent/'scheduler-final.json');wait=read(parent/'supervisor.wait.json')
+    require(previous['status']=='PAUSED_DRAINED' and previous['all_children_waited'], 'Parent not drained')
+    require(wait['real_wait'] and wait['returncode']==0, 'Parent real wait missing')
+    require(read(parent/'user-pause-closure.json')['status']=='USER_PAUSED_DRAINED', 'Independent closure missing')
+    ledger=closed_ledger(out)
+    require(len(ledger)==732, 'Paused ledger changed; inspect rather than replay')
+    pending=[s for s in samples if s['case_id'] not in ledger]
+    require(len(pending)==192 and all(s['task']!='T3' for s in pending), 'Unexpected remaining set')
+    control.mkdir(exist_ok=False)
+    manifest={'schema':'astra-quota-resume-v1','status':'SEALED','maximum_new_sessions':192,
+        'preserved_prior_attempts':732,'case_ids':[s['case_id'] for s in pending],
+        'prior_ledger_sha256':digest(ledger),'plan_sha256':sha(plan_dir/'plan.json'),
+        'samples_sha256':sha(plan_dir/'samples.json'),'parent':str(parent),
+        'model':MODEL,'effort':EFFORT,'same_video_retry':False,
+        'scientific_prompt_and_selection_unchanged':True,'supplemental_angles':[1.75,2.25],
+        'supplemental_policy':'Already attempted; retain separately from current primary protocol',
+        'human_authorization':'让astra完成工作，让codexcliu配本地模型的也继续尝试一下个位数的',
+        'created_HST':hst()}
+    write(control/'continuation.json',manifest,exclusive=True)
+    return {'status':'SEALED','segment':'quota-resume1','new_sessions':len(pending),'preserved':len(ledger)}
+
+
 async def run_async(root,codex,segment=None):
     plan_dir,out,plan,samples=load(root);out.mkdir(parents=True,exist_ok=True)
     control=out if segment is None else out/'segments'/segment
-    if segment:
+    if segment=='quota-resume1':
+        continuation=read(control/'continuation.json')
+        require(continuation['status']=='SEALED' and continuation['same_video_retry'] is False, 'Continuation not sealed')
+        require(sha(plan_dir/'plan.json')==continuation['plan_sha256']
+                and sha(plan_dir/'samples.json')==continuation['samples_sha256'], 'Original inputs changed')
+        ledger=closed_ledger(out)
+        require(digest(ledger)==continuation['prior_ledger_sha256'], 'Prior answers/claims changed')
+        samples=[s for s in samples if s['case_id'] in continuation['case_ids']]
+        require(len(samples)==192 and not any(s['case_id'] in ledger for s in samples), 'Not exactly unattempted IDs')
+    elif segment:
         require(segment=='full-access1','Unknown execution segment')
         previous=read(out/'scheduler-final.json')
         require(previous['status']=='PAUSED_DRAINED' and previous['all_children_waited'],'Previous scheduler not closed')
@@ -537,7 +582,8 @@ async def run_async(root,codex,segment=None):
 
 def status(root):
     _,out,plan,samples=load(root)
-    control=out/'segments/full-access1' if (out/'segments/full-access1/scheduler-started.json').exists() else out
+    controls=[out]+[p for p in (out/'segments').glob('*') if (p/'scheduler-started.json').exists()]
+    control=max(controls,key=lambda p:(p/'scheduler-started.json').stat().st_mtime if (p/'scheduler-started.json').exists() else 0)
     results=[];running=[];uncertain=[]
     for s in samples:
         d=out/'cases'/s['case_id']
@@ -576,11 +622,12 @@ def report(root):
 
 
 def main():
-    p=argparse.ArgumentParser(description=__doc__);p.add_argument('action',choices=['prepare','capture','run','status','report'])
+    p=argparse.ArgumentParser(description=__doc__);p.add_argument('action',choices=['prepare','prepare-resume','capture','run','status','report'])
     p.add_argument('--root',required=True);p.add_argument('--codex',default='/home/yang/.local/bin/codex')
-    p.add_argument('--segment',choices=['full-access1'])
+    p.add_argument('--segment',choices=['full-access1','quota-resume1'])
     a=p.parse_args()
     if a.action=='prepare':result=prepare(a.root)
+    elif a.action=='prepare-resume':result=prepare_resume(a.root)
     elif a.action=='capture':result=capture(a.root,a.codex)
     elif a.action=='run':asyncio.run(run_async(a.root,a.codex,a.segment));result=status(a.root)
     elif a.action=='status':result=status(a.root)
