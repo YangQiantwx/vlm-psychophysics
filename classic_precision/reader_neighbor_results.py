@@ -174,9 +174,76 @@ def status(root):
     finally: reporter.NAME = previous
 
 
+def three_point(root):
+    """Add accepted center-point C answers as user B; no scientific calls."""
+    root=Path(root);out=root/'runs/reproducibility'/NAME
+    accepted=read(out/'summary.json')
+    require(accepted['status']=='COMPLETE_DESCRIPTIVE_COMPARISON' and accepted['B_answers']==1152,'Neighbors not accepted')
+    center=root/'runs/reproducibility/reader-route-smoke-20261026'
+    old=read(center/'partial/summary.json')
+    require(old['technical_pass']==1728 and old['canonical_runtime_restoration']['status']=='COMPLETE_PASS','Center technical acceptance missing')
+    cplan=root/'plans/reader-route-smoke-20261026'
+    for name,sha in old['bindings'].items():require(file_sha256(cplan/name)==sha,'Center binding changed')
+    sources=read(cplan/'sources.json')['items']
+    history={(r['model'],r['sample_id']):r for r in csv.DictReader((cplan/'historical.csv').open())}
+    center_pairs=list(csv.DictReader((center/'partial/paired.csv').open()))
+    center_by_key={(r['model'],r['sample_id']):r for r in center_pairs}
+    require(len(center_pairs)==len(center_by_key)==576,'Wrong center scope')
+    raw_by_key={};raw_files={}
+    for logical in ['qwen-fourier1-C','cosmos-fourier1-C','cosmos-radon0-C','gemma-fourier0-C','nemo-radon0-C']:
+        worker=old['logical_arm_replacements'].get(logical,logical);path=center/worker/'raw.jsonl'
+        wait=read((center/worker).with_suffix('.wait.json'))
+        require(wait['returncode']==0 and wait['real_wait_observed'] and wait['owned_engines_exited']
+            and wait['original_physical_lease_released'],'Center worker not closed')
+        for raw in records(path):
+            key=(raw['model'],raw['sample_id']);require(key not in raw_by_key and raw['arm']=='C','Duplicate/non-C center')
+            raw_by_key[key]=raw;raw_files[key]=str(path)
+    require(set(raw_by_key)==set(center_by_key),'Center raw coverage')
+    rows=[]
+    for row in csv.DictReader((out/'paired.csv').open()):
+        row=dict(row);row['point']=float(row['point']);row['onset_index']=int(row['onset_index'])
+        for key in COUNTS:row[key]=row[key]=='True'
+        row['point_role']='neighbor';rows.append(row)
+    for key,entry in center_by_key.items():
+        model,sid=key;raw=raw_by_key[key];source=sources[sid];sp=source['row']['source_parameters'];h=history[key]
+        task=entry['task'];point=.06 if task=='T2' else .7
+        require((sp['delta_Y']==.06 and sp['background_Y']==.4 and sp['offset_frame']-sp['onset_frame']==30)
+            if task=='T2' else sp['angle_deg']==.7,'Wrong midpoint')
+        require(raw['raw_answer'].strip()==entry['C_answer'] and entry['historical_answer']==h['answer']
+            and raw['truth']==entry['truth']==h['truth'],'Center answer/GT mapping')
+        require(raw['source']['video_sha256']==entry['source_video_sha256']==source['ready']['video_sha256'],'Center source mapping')
+        a=h['answer'];b=entry['C_answer'];truth=entry['truth']
+        rows.append({'model':model,'task':task,'point':point,'point_role':'center','sample_id':sid,'truth':truth,
+            'tilt_sign':entry['tilt_sign'],'onset_index':int(entry['onset_index']),'A_historical':a,'B':b,
+            'A_historical_correct':a==truth,'B_correct':b==truth,'changed':a!=b,
+            'correct_to_wrong':a==truth and b!=truth,'wrong_to_correct':a!=truth and b==truth,
+            'tokens_changed':json.loads(h['output_token_ids'])!=raw['output_token_ids'],
+            'B_raw_digest':digest(raw),'new_raw_file':raw_files[key],'new_raw_ordinal':raw['ordinal'],
+            'historical_runtime_matched_this_call':False,'Nemo_historical_runtime_gap_deferred':model=='nemo'})
+    require(len(rows)==len({(r['model'],r['sample_id'])for r in rows})==1728,'Combined paired scope')
+    cells=[]
+    for model in ['qwen','cosmos','gemma','nemo']:
+        for task,points in [('T2',[.05,.06,.07]),('T3',[.6,.7,.8])]:
+            for point in points:
+                rr=[r for r in rows if (r['model'],r['task'],r['point'])==(model,task,point)]
+                require(len(rr)==(48 if task=='T2' else 96),'Three-point denominator')
+                cells.append({'model':model,'task':task,'point':point,'point_role':rr[0]['point_role'],**summary_rows(rr)})
+    result={'status':'COMPLETE_DESCRIPTIVE_THREE_POINT_VIEW','new_model_calls':0,'paired_rows':1728,
+        'cells':cells,'totals':summary_rows(rows),'neighbor_summary_sha256':file_sha256(out/'summary.json'),
+        'center_summary_sha256':file_sha256(center/'partial/summary.json'),
+        'center_paired_sha256':file_sha256(center/'partial/paired.csv'),
+        'route_mapping':'A=historical controlled throughout; B=official native route, original center internal C. Original center reader-only B is NOT used.',
+        'Nemo_limit':'Historical replay gap remains deferred; original center controlled A27 is not substituted for historical28.',
+        'formal_auto_resume':False}
+    csv_save(out/'three-point-comparison.csv',cells);csv_save(out/'three-point-paired.csv',rows)
+    atomic_json(out/'three-point-summary.json',result)
+    return result
+
+
 def main():
-    parser = argparse.ArgumentParser(description=__doc__);parser.add_argument('--root',required=True);parser.add_argument('--status',action='store_true')
-    args = parser.parse_args();print(json.dumps(status(args.root) if args.status else analyze(args.root),sort_keys=True))
+    parser = argparse.ArgumentParser(description=__doc__);parser.add_argument('--root',required=True)
+    mode=parser.add_mutually_exclusive_group();mode.add_argument('--status',action='store_true');mode.add_argument('--with-midpoints',action='store_true')
+    args = parser.parse_args();print(json.dumps(status(args.root) if args.status else three_point(args.root) if args.with_midpoints else analyze(args.root),sort_keys=True))
 
 
 if __name__ == '__main__': main()
