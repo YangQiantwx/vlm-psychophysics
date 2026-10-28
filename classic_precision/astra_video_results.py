@@ -25,14 +25,15 @@ def image_paths(code, args):
     if 'view_image' not in code:return []
     tokens=re.findall(r'''["']?path["']?\s*:\s*("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`[^`]*`)''',code)
     loops=re.findall(r'for\s*\(\s*(?:let|const|var)\s+(\w+)\s*=\s*(\d+)\s*;\s*\1\s*(<=|<)\s*(\d+)\s*;\s*(?:\1\+\+|\+\+\1|\1\s*\+=\s*1)\s*\)',code)
-    array_loops=re.findall(r'for\s*\(\s*(?:let|const|var)\s+(\w+)\s+of\s+\[([\d,\s]+)\]\s*\)',code)
+    array_loops=re.findall(r'for\s*\(\s*(?:let|const|var)\s+(\w+)\s+of\s+(\[[^\[\]\n]*\])\s*\)',code)
     if 'Promise.all' in code or len(loops)+len(array_loops)>1:return None
     if loops or array_loops:
         if loops:
             var,start,op,end=loops[0];values=range(int(start),int(end)+(op=='<='))
         else:
-            var,raw=array_loops[0];values=json.loads('['+raw+']')
-            if any(type(i) is not int for i in values):return None
+            var,raw=array_loops[0];values=literal(raw)
+            if not isinstance(values,list) or any(not(type(i) is int or
+                    isinstance(i,str) and re.fullmatch(r'\d+',i)) for i in values):return None
         if len(tokens)!=1 or not tokens[0].startswith('`'):return None
         template=tokens[0][1:-1];result=[]
         for i in values:
