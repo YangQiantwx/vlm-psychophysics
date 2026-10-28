@@ -387,6 +387,37 @@ def validation_tables(records, historical):
     return summary, paired
 
 
+def validation_runtime_contracts(workers, archive):
+    """Keep answer agreement separate from agreement of the tested deployment."""
+    groups, seen = defaultdict(list), set()
+    for worker in workers:
+        profile = archive.ref(worker['profile'])
+        require(worker['worker'] not in seen, 'Duplicate worker identity')
+        seen.add(worker['worker'])
+        groups[worker['model']].append((worker, profile))
+    fields = ('actual_backends', 'actual_kv_capacity', 'cuda_version', 'kernel_config',
+              'method_kernel_counts', 'mm_device_do_normalize', 'model_class',
+              'runner_class', 'torch_version', 'vllm_version')
+    contracts = []
+    for model, entries in sorted(groups.items()):
+        reference, profile = entries[0]
+        runtime = [{key: part[key] for key in fields} for part in reference['runtime']]
+        for other, other_profile in entries[1:]:
+            require(other_profile['gpu_uuid'] == profile['gpu_uuid'], 'Repeat moved to another GPU: ' + model)
+            require(other['public_settings'] == reference['public_settings'], 'Repeat inference settings differ: ' + model)
+            require(other['recorded_package_versions'] == reference['recorded_package_versions'],
+                    'Repeat package versions differ: ' + model)
+            observed = [{key: part[key] for key in fields} for part in other['runtime']]
+            require(observed == runtime, 'Repeat resolved kernel/runtime differs: ' + model)
+        contracts.append({'model': model, 'status': 'MATCHED_WITHIN_VALIDATION',
+                          'gpu_uuid': profile['gpu_uuid'], 'workers': len(entries),
+                          'public_settings_sha256': digest(reference['public_settings']),
+                          'recorded_package_versions': reference['recorded_package_versions'],
+                          'resolved_runtime': runtime,
+                          'scope': 'Selected T2/T3 repeated-input workers only; panel resource/host differences stay in individual worker records.'})
+    return contracts
+
+
 def panel_tables(records):
     rows = [r for r in records if r['phase'] == 'panel']
     require(len({(r['model'], r['sample_id']) for r in rows}) == len(rows), 'Duplicate canonical panel tuple')
@@ -732,6 +763,9 @@ def analyze(root, manifest_path):
     require(len(records) == plan['expected_effective_calls'], 'Effective call budget not complete')
     history = archive.ref(plan['historical_C'])['records']
     validation, vpaired = validation_tables(records, history)
+    validation_ids = {archive.ref(spec['profile'])['worker'] for spec in plan['workers']
+                      if spec['phase'] == 'validation'}
+    contracts = validation_runtime_contracts([w for w in workers if w['worker'] in validation_ids], archive)
     require(all(row['answer_changes'] == 0 and row['complete_output_changes'] == 0
                 and row['prompt_token_changes'] == 0 for row in validation),
             'Selected final configuration has not passed finite self-repeatability')
@@ -743,7 +777,8 @@ def analyze(root, manifest_path):
     summary = {'schema': 'official-x-study-results-v1', 'status': 'COMPLETE_FINITE_STUDY',
                'manifest': descriptor(manifest_path), 'effective_calls': len(records),
                'count_scope': 'Selected configuration only; retained defaults, failed starts, and qualification variants are separate physical attempts.',
-               'validation': validation, 'T4': panels['T4'], 'T5': panels['T5'], 'T5_costs': panels['costs'],
+               'validation': validation, 'validation_runtime_contracts': contracts,
+               'T4': panels['T4'], 'T5': panels['T5'], 'T5_costs': panels['costs'],
                'workers': workers, 'timing': timing,
                'limits': ['Finite same-card repeated-input evidence, not all-hardware or future-version determinism.',
                           'Historical C is a descriptive reference, not a target score.',
