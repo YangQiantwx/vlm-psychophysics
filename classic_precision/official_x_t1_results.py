@@ -438,7 +438,7 @@ def timing_table(records, workers):
                                    'stage': stage, 'n': len(values), 'mean_seconds': statistics.mean(values),
                                    'median_seconds': statistics.median(values), 'p90_seconds': quantile(values, .9),
                                    'requests_per_hour': 3600 / statistics.mean(values) if stage == 'end_to_end_durable_seconds' else None,
-                                   'nested_not_additive': True})
+                                   'nested_not_additive': stage != 'end_to_end_durable_seconds'})
     for w in workers:
         output.append({'arm': w['arm'], 'cold': w['cold'], 'stratum': 'cold_load', 'stage': 'engine_load_seconds',
                        'n': 1, 'mean_seconds': w['load_seconds'], 'median_seconds': w['load_seconds'],
