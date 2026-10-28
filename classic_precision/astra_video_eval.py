@@ -391,12 +391,14 @@ def audit(folder,case,rc):
     return result
 
 
-async def one(root,plan,case,codex,slot,control=None):
+async def one(root,plan,case,codex,slot,control=None,run_paths=None):
     import psutil
-    plan_dir,out=paths(root);folder=out/'cases'/case['case_id'];folder.mkdir(parents=True,exist_ok=True)
+    plan_dir,out=run_paths if run_paths is not None else paths(root)
+    folder=out/'cases'/case['case_id'];folder.mkdir(parents=True,exist_ok=True)
     control=Path(control) if control else out
     claim=out/'claims'/case['case_id'];claim.parent.mkdir(exist_ok=True)
-    write(claim,{'case_id':case['case_id'],'claimed_HST':hst(),'attempt':1},exclusive=True)
+    write(claim,{'case_id':case['case_id'],'claimed_HST':hst(),'attempt':case.get('attempt',1),
+                **({'prior_case_id':case['prior_case_id']} if 'prior_case_id' in case else {})},exclusive=True)
     require(sha(case['video_path'])==case['source_sha256'],'Neutral video mutated')
     require([p.name for p in Path(case['public_directory']).iterdir()]==[Path(case['video_path']).name],
             'Public case folder is not pristine')

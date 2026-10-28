@@ -163,8 +163,10 @@ def image_paths(code, args):
     return result or None
 
 
-def audit_case(root,case):
-    _,out,_,_=load(root);folder=out/'cases'/case['case_id']
+def audit_case(root,case,run_paths=None):
+    if run_paths is None:plan_dir,out,plan,_=load(root)
+    else:plan_dir,out,plan=run_paths
+    folder=out/'cases'/case['case_id']
     result=read(folder/'result.json');wait=read(folder/'wait.json')
     rollout=folder/'rollout.jsonl'
     key={'result_sha256':sha(folder/'result.json'),'rollout_sha256':sha(rollout) if rollout.exists() else None,
@@ -259,7 +261,6 @@ def audit_case(root,case):
     prefix_order=(indices==list(range(1,images+1)) or indices==list(range(images)))
     prompt_path=folder/'prompt.txt'
     from .astra_video_eval import prompt_for
-    plan_dir,_,plan,_=load(root)
     prompt_matches=prompt_path.exists() and prompt_path.read_text()==prompt_for(plan_dir,plan,case)
     neutral=bool(re.fullmatch(r'[0-9a-f]{32}',Path(case['video_path']).stem)
                  and re.fullmatch(r'[0-9a-f]{32}',Path(case['public_directory']).name))
