@@ -80,8 +80,11 @@ def run(root):
     _,out,_,samples=base.load(root);preview_dir=out/'history-images';preview_dir.mkdir(exist_ok=True)
     proof=base.read(out/'visual-proof-summary.json');previews={x['case_id'] for x in proof['examples']};records=[]
     candidates=[(s,out) for s in samples]
-    repair_plan=Path(root)/'plans'/base.NAME/'primary-repair1/samples.json';repair_out=out/'repairs/primary-repair1'
-    if repair_plan.exists():candidates.extend((s,repair_out) for s in base.read(repair_plan))
+    repair_plans=Path(root)/'plans'/base.NAME
+    for directory in sorted(repair_plans.iterdir(),key=lambda p:(p.name!='primary-repair1',p.name)):
+        if directory.name!='primary-repair1' and not directory.name.startswith('capacity-retry'):continue
+        manifest=directory/'samples.json'
+        if manifest.is_file():candidates.extend((s,out/'repairs'/directory.name) for s in base.read(manifest))
     for case,parent in candidates:
         folder=parent/'cases'/case['case_id'];ap=parent/'trace-audits'/(case['case_id']+'.json')
         if not ap.exists():continue
@@ -91,7 +94,7 @@ def run(root):
     payload=json.dumps(records,ensure_ascii=False,separators=(',',':')).replace('<',chr(92)+'u003c')
     (out/'conversation-history.html').write_text(HTML.replace('DATA_PLACEHOLDER',payload))
     result={'status':'VISIBLE_HISTORY_RETRIEVED','records':len(records),'original_attempts':sum(x['attempt']==1 for x in records),
-        'repair_attempts':sum(x['attempt']==2 for x in records),'all_original_persistent_files_present':all(x['persistent_original_exists'] for x in records),
+        'repair_attempts':sum(x['attempt']>=2 for x in records),'all_original_persistent_files_present':all(x['persistent_original_exists'] for x in records),
         'all_archive_shas_verified':True,'hidden_reasoning_exported':False,'scientific_calls_added':0,
         'exact_png_preview_files':len(list(preview_dir.glob('*.png'))),'jsonl_sha256':base.sha(out/'conversation-history.jsonl'),
         'html_sha256':base.sha(out/'conversation-history.html')}

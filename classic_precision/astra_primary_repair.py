@@ -7,6 +7,7 @@ import copy
 import fcntl
 import os
 from pathlib import Path
+import re
 import shutil
 import signal
 import subprocess
@@ -16,11 +17,13 @@ from .astra_video_results import audit_case
 
 AUTHORIZATION='只补主协议60条（推荐）'
 VERSION='primary-repair1'
+CAPACITY_AUTHORIZATION='model at capacity，这种你开个新的cli重跑就行'
 
 
-def locations(root):
+def locations(root,version=VERSION):
     p,o=base.paths(root)
-    return p/VERSION,o/'repairs'/VERSION
+    base.require(version==VERSION or re.fullmatch(r'capacity-retry[1-9]\d*',version),'Unknown repair version')
+    return p/version,o/'repairs'/version
 
 
 def eligible(samples,audits):
@@ -72,30 +75,40 @@ def prepare(root):
     return manifest
 
 
-def load(root):
-    p,o=locations(root);m=base.read(p/'manifest.json');plan=base.read(p/'plan.json');samples=base.read(p/'samples.json')
-    base.require(m['human_authorization']==AUTHORIZATION and m['maximum_new_sessions']==60 and not m['automatic_retry'],
+def load(root,version=VERSION):
+    p,o=locations(root,version);m=base.read(p/'manifest.json');plan=base.read(p/'plan.json');samples=base.read(p/'samples.json')
+    capacity=m.get('kind')=='provider_capacity_only';budget=m['maximum_new_sessions']
+    base.require(m['human_authorization']==(CAPACITY_AUTHORIZATION if capacity else AUTHORIZATION)
+                 and (1<=budget<=60 if capacity else budget==60) and not m['automatic_retry'],
                  'Explicit finite authorization mismatch')
     base.require(base.sha(p/'plan.json')==m['plan_sha256'] and base.sha(p/'samples.json')==m['samples_sha256'],
                  'Sealed repair inputs changed')
-    base.require(len(samples)==60 and len({s['prior_case_id'] for s in samples})==60 and
-        all(s['attempt']==2 and not(s['task']=='T3' and s['cell'][1] in [1.75,2.25]) for s in samples),
+    base.require(len(samples)==budget and len({s['prior_case_id'] for s in samples})==budget and
+        all((s['attempt']>=3 if capacity else s['attempt']==2) and not(s['task']=='T3' and s['cell'][1] in [1.75,2.25]) for s in samples),
         'Attempt/primary scope mismatch')
     return p,o,m,plan,samples
 
 
-async def run(root,codex):
-    p,o,m,plan,samples=load(root);oldp,oldo,_,_=base.load(root)
+async def run(root,codex,version=VERSION):
+    p,o,m,plan,samples=load(root,version);oldp,oldo,_,_=base.load(root);budget=len(samples)
     base.require(base.sha(base.__file__)==m['worker_sha256'] and base.sha(__file__)==m['controller_sha256'],
                  'Frozen implementation changed')
     base.require(base.digest(base.closed_ledger(oldo))==m['old_ledger_sha256'],'Original attempts changed')
     base.require(base.sha(oldp/'plan.json')==m['original_plan_sha256'],'Original plan changed')
+    if m.get('kind')=='provider_capacity_only':
+        parent=Path(m['parent_output'])
+        base.require(base.digest(base.closed_ledger(parent))==m['parent_ledger_sha256'],'Capacity-failed parent changed')
+        for s in samples:
+            result=base.read(parent/'cases'/s['prior_attempt_case_id']/'result.json')
+            base.require(result['returncode']!=0 and result['answer'] is None
+                and any('Selected model is at capacity' in str(e) for e in result['errors']),
+                'Only exact provider-capacity failures can be retried')
     with (oldo/'scheduler.lock').open('r+') as lock:
         fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
         base.require(not (o/'scheduler-started.json').exists() and not (o/'PAUSE.json').exists(),'Already started/paused')
         base.require(base.read(oldo/'cpu-admission/receipt.json')['status']=='PASS','CLI CPU admission missing')
         base.write(o/'scheduler-started.json',{'pid':os.getpid(),'model':base.MODEL,'effort':base.EFFORT,
-            'maximum_concurrent':20,'scheduled':60,'sandbox':'danger-full-access','HST':base.hst(),
+            'maximum_concurrent':min(20,budget),'scheduled':budget,'sandbox':'danger-full-access','HST':base.hst(),
             'codex_version':subprocess.check_output([codex,'--version'],text=True).strip(),
             'lock_identity':[os.fstat(lock.fileno()).st_dev,os.fstat(lock.fileno()).st_ino]},exclusive=True)
         def pause():base.write(o/'PAUSE.json',{'reason':'Operator requested safe drain','HST':base.hst()})
@@ -111,31 +124,34 @@ async def run(root,codex):
             except Exception as exc:
                 base.write(o/'PAUSE.json',{'reason':'Coordinator failure','case_id':case['case_id'],'error':repr(exc)})
                 raise
-        done,pending=await base.dynamic_pool(samples,20,execute,paused,progress)
+        done,pending=await base.dynamic_pool(samples,min(20,budget),execute,paused,progress)
         progress(len(pending),0,len(done))
-        base.write(o/'scheduler-final.json',{'status':'COMPLETE' if len(done)==60 and not pending else 'PAUSED_DRAINED',
+        base.write(o/'scheduler-final.json',{'status':'COMPLETE' if len(done)==budget and not pending else 'PAUSED_DRAINED',
             'closed':len(done),'unclaimed':len(pending),'all_children_waited':True,'HST':base.hst()},exclusive=True)
 
 
-def analyze(root):
-    p,o,m,plan,samples=load(root);_,oldo,_,original=base.load(root)
+def analyze(root,version=VERSION):
+    p,o,m,plan,samples=load(root,version);_,oldo,_,original=base.load(root);budget=len(samples)
     base.require(base.digest(base.closed_ledger(oldo))==m['old_ledger_sha256'],'Original attempts changed')
+    if m.get('kind')=='provider_capacity_only':
+        base.require(base.digest(base.closed_ledger(Path(m['parent_output'])))==m['parent_ledger_sha256'],'Parent attempts changed')
     rows=[audit_case(root,s,run_paths=(p,o,plan)) for s in samples if (o/'cases'/s['case_id']/'result.json').exists()]
-    mapping={s['prior_case_id']:s for s in samples};current=[]
+    mapping={s['sample_id']:s for s in samples};current=[]
     by_new={a['case_id']:a for a in rows}
+    parent_records={a['sample_id']:a for a in base.read(Path(m['parent_output'])/'canonical-primary-records.json')} if m.get('kind')=='provider_capacity_only' else {}
     for s in original:
         if s['task']=='T3' and s['cell'][1] in [1.75,2.25]:continue
-        new=mapping.get(s['case_id']);a=by_new.get(new['case_id']) if new else None
-        if a is None:a=base.read(oldo/'trace-audits'/(s['case_id']+'.json'))
+        new=mapping.get(s['sample_id']);a=by_new.get(new['case_id']) if new else None
+        if a is None:a=parent_records.get(s['sample_id']) or base.read(oldo/'trace-audits'/(s['case_id']+'.json'))
         current.append(a)
     good=[a for a in current if a['visual_only_trace_status']=='PASS_OBSERVED' and a['strict_format']]
     terminal=False
-    if len(rows)==60 and (o/'completion-closure.json').exists():
+    if len(rows)==budget and (o/'completion-closure.json').exists():
         close=base.read(o/'completion-closure.json');wait=base.read(o/'supervisor.wait.json')
         terminal=(close['status']=='COMPLETE_DRAINED' and close['scheduler_lock_free']
             and close['scheduler_pid_exited'] and wait['real_wait'] and wait['returncode']==0
             and close['source_final_sha256']==base.sha(o/'scheduler-final.json'))
-        base.require(len(base.closed_ledger(o))==60,'New attempt ledger incomplete')
+        base.require(len(base.closed_ledger(o))==budget,'New attempt ledger incomplete')
     summary={'status':'COMPLETE_PRIMARY_VISUAL_ANSWERS' if len(good)==916 and terminal else 'PARTIAL_PRIMARY_REPAIR',
         'repair_closed':len(rows),'repair_pass':sum(a['visual_only_trace_status']=='PASS_OBSERVED' for a in rows),
         'primary_planned':916,'primary_valid':len(good),'primary_missing':916-len(good),
@@ -146,11 +162,50 @@ def analyze(root):
     return summary
 
 
+def prepare_capacity(root,version,parent_version):
+    base.require(version!=VERSION and version!=parent_version,'New capacity version required')
+    pp,po,pm,parent_plan,parent_samples=load(root,parent_version);p,o=locations(root,version)
+    base.require(base.read(po/'completion-closure.json')['status']=='COMPLETE_DRAINED','Parent not closed')
+    records=base.read(po/'canonical-primary-records.json');by_id={s['case_id']:s for s in parent_samples};selected=[]
+    for a in records:
+        if a['visual_only_trace_status']=='PASS_OBSERVED':continue
+        base.require(a['case_id'] in by_id,'Unresolved case is not in the closed parent')
+        old=by_id[a['case_id']];result=base.read(po/'cases'/old['case_id']/'result.json')
+        base.require(result['returncode']!=0 and result['answer'] is None
+            and any('Selected model is at capacity' in str(e) for e in result['errors']),
+            'Non-capacity scientific/protocol failure requires separate handling')
+        selected.append(old)
+    base.require(0<len(selected)<=60 and not p.exists() and not o.exists(),'No new finite capacity batch or already exists')
+    p.mkdir();o.mkdir(parents=True);new=[]
+    for old in selected:
+        case=copy.deepcopy(old);case.update(prior_attempt_case_id=old['case_id'],attempt=old['attempt']+1,case_id=uuid.uuid4().hex)
+        directory=Path('/tmp')/uuid.uuid4().hex;directory.mkdir();video=directory/(case['case_id']+'.mkv')
+        base.require(base.sha(old['video_path'])==old['source_sha256'],'Source changed');shutil.copyfile(old['video_path'],video)
+        base.require(base.sha(video)==old['source_sha256'],'Fresh source copy changed')
+        case.update(public_directory=str(directory),video_path=str(video));new.append(case)
+    for spec in parent_plan['prompts'].values():shutil.copyfile(pp/spec['file'],p/spec['file'])
+    base.write(p/'samples.json',new,exclusive=True);plan=copy.deepcopy(parent_plan)
+    plan.update(maximum_sessions=len(new),counts=dict(Counter(s['task'] for s in new)),samples_sha256=base.sha(p/'samples.json'),
+                version=version,authorization=CAPACITY_AUTHORIZATION)
+    base.write(p/'plan.json',plan,exclusive=True);manifest=copy.deepcopy(pm)
+    manifest.update(kind='provider_capacity_only',human_authorization=CAPACITY_AUTHORIZATION,
+        maximum_new_sessions=len(new),parent_output=str(po),parent_version=parent_version,
+        parent_ledger_sha256=base.digest(base.closed_ledger(po)),plan_sha256=base.sha(p/'plan.json'),
+        samples_sha256=base.sha(p/'samples.json'),original_case_ids=[s['prior_case_id'] for s in new],
+        new_attempt=new[0]['attempt'],maximum_concurrent=min(20,len(new)),worker_sha256=base.sha(base.__file__),
+        controller_sha256=base.sha(__file__),created_HST=base.hst())
+    base.write(p/'manifest.json',manifest,exclusive=True);shutil.copyfile(base.__file__,o/'execution-worker.py')
+    shutil.copyfile(__file__,o/'execution-controller.py');return manifest
+
+
 def main():
-    p=argparse.ArgumentParser();p.add_argument('action',choices=['prepare','run','analyze']);p.add_argument('--root',required=True)
+    p=argparse.ArgumentParser();p.add_argument('action',choices=['prepare','prepare-capacity','run','analyze']);p.add_argument('--root',required=True)
+    p.add_argument('--version',default=VERSION);p.add_argument('--parent-version',default=VERSION)
     p.add_argument('--codex',default='/home/yang/.local/bin/codex');a=p.parse_args()
-    if a.action=='run':asyncio.run(run(a.root,a.codex))
-    else:print(__import__('json').dumps(prepare(a.root) if a.action=='prepare' else analyze(a.root),ensure_ascii=False))
+    if a.action=='run':asyncio.run(run(a.root,a.codex,a.version))
+    else:
+        result=prepare(a.root) if a.action=='prepare' else prepare_capacity(a.root,a.version,a.parent_version) if a.action=='prepare-capacity' else analyze(a.root,a.version)
+        print(__import__('json').dumps(result,ensure_ascii=False))
 
 
 if __name__=='__main__':main()
