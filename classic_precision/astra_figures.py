@@ -158,24 +158,25 @@ def style(ax):
     ax.tick_params(length=3,color='#b5bfca')
 
 
-def curve(ax, cc, xkey, side=False):
+def curve(ax, cc, xkey, labels=True):
     cc = sorted(cc,key=lambda c:c[xkey]);x=np.array([c[xkey] for c in cc],dtype=float)
     y=np.array([c['accuracy'] for c in cc]);low=np.array([c['wilson_reference_low'] for c in cc]);high=np.array([c['wilson_reference_high'] for c in cc])
     ax.errorbar(x,y,yerr=[np.maximum(0,y-low),np.maximum(0,high-y)],color=BLUE,
                 ecolor='#aac1d8',capsize=3,lw=1.6,elinewidth=1,marker='o',ms=5,zorder=3)
-    for i,(a,b,c) in enumerate(zip(x,y,cc)):
-        dy = 24 if i and a-x[i-1]<.07 and b==y[i-1] else 9
-        ax.annotate(f"{c['correct']}/4",(a,b),xytext=(0,dy),textcoords='offset points',ha='center',fontsize=9,color=BLUE)
-    if side:
-        ax.plot(x,[c['left_correct']/2 for c in cc],color=TEAL,ls=':',lw=1,marker='^',ms=3,alpha=.8)
-        ax.plot(x,[c['right_correct']/2 for c in cc],color=ORANGE,ls=':',lw=1,marker='v',ms=3,alpha=.8)
+    if labels:
+        for i,(a,b,c) in enumerate(zip(x,y,cc)):
+            dy = 24 if i and a-x[i-1]<.07 and b==y[i-1] else 9
+            ax.annotate(f"{c['correct']}/4",(a,b),xytext=(0,dy),textcoords='offset points',ha='center',fontsize=9,color=BLUE)
     style(ax)
 
 
-def finish(fig, out, name, subtitle):
+def finish(fig, out, name, subtitle, notes=None):
     fig.text(.055,.90 if fig.get_figheight()<6 else .934,subtitle,fontsize=11,color='#435367')
-    fig.text(.055,.055,'Points show k/4 videos from two paired placements. Lines connect observations; dashed line = 50% chance. No fitted threshold.',fontsize=9,color='#435367')
-    fig.text(.055,.025,'Bars: 95% Wilson binomial reference assuming independent videos; pairing is not modeled. Early answers included; 1.75°/2.25° excluded.',fontsize=9,color='#435367')
+    if notes is None:
+        notes = ('Points show k/4 videos from two paired placements. Lines connect observations; dashed line = 50% chance. No fitted threshold.',
+                 'Bars: 95% Wilson binomial reference assuming independent videos; pairing is not modeled. Early answers included; 1.75°/2.25° excluded.')
+    for y, note in zip((.055, .025), notes):
+        fig.text(.055,y,note,fontsize=9,color='#435367')
     fig.savefig(out/(name+'.png'),dpi=180,facecolor='white')
     fig.savefig(out/(name+'.pdf'),facecolor='white')
     plt.close(fig)
@@ -188,13 +189,38 @@ def plot(out, cells):
     fig.subplots_adjust(top=.855,bottom=.13,left=.055,right=.985,wspace=.15,hspace=.3)
     fig.suptitle('Astra · T1 stripe-motion judgments',x=.055,y=.982,ha='left',fontsize=20,fontweight='bold')
     for ax,sf in zip(axs.flat,sorted({c['sf'] for c in t1})):
-        cc=[c for c in t1 if c['sf']==sf];curve(ax,cc,'modulation',True)
+        cc=[c for c in t1 if c['sf']==sf];curve(ax,cc,'modulation',labels=False)
+        ax.set_ylim(-.05,1.08)
         ax.set_title(f'SF {sf:g} cycles/aperture',fontsize=12,pad=7)
         ax.set_xticks([.05,.2,.4,.6,.8,1],['.05','.2','.4','.6','.8','1'])
     for ax in axs[-1]:ax.set_xlabel('Modulation depth m')
     for ax in axs[:,0]:ax.set_ylabel('Correct (%)')
-    fig.text(.055,.895,'Blue: all 4 videos     Green ▲: LEFT (n=2)     Orange ▼: RIGHT (n=2)',fontsize=10,color='#435367')
-    finish(fig,out,'astra-T1','320 videos · 80 conditions · 278/320 correct · SF64: LEFT 19/20, RIGHT 2/20')
+    fig.text(.055,.895,'One blue curve per panel · Each point: 4 videos (2 LEFT + 2 RIGHT) · One answer changes a point by 25 percentage points',fontsize=10,color='#435367')
+    finish(fig,out,'astra-T1','320 videos · 80 conditions · 278/320 correct · Direction-specific results shown separately',
+           notes=('Blue points: combined accuracy. Pale vertical bars: uncertainty reference; gray dashed line: 50% chance. Lines are not a fitted curve.',
+                  'Bars: 95% Wilson reference assuming independent videos; paired phases are not modeled. Early answers included. No estimated threshold.'))
+
+    fig,axs=plt.subplots(2,4,figsize=(15,8.4),sharex=True,sharey=True)
+    fig.subplots_adjust(top=.80,bottom=.13,left=.055,right=.985,wspace=.15,hspace=.40)
+    fig.suptitle('Astra · T1 direction diagnostic',x=.055,y=.982,ha='left',fontsize=20,fontweight='bold')
+    for ax,sf in zip(axs.flat,sorted({c['sf'] for c in t1})):
+        cc=sorted((c for c in t1 if c['sf']==sf),key=lambda c:c['modulation'])
+        x=[c['modulation'] for c in cc]
+        # Hollow circles keep coincident LEFT/RIGHT observations visible.
+        ax.plot(x,[c['left_correct']/c['left_n'] for c in cc],color=TEAL,
+                lw=1.5,marker='o',ms=7,mfc='none',mew=1.5,label='LEFT stimuli (n=2 per point)')
+        ax.plot(x,[c['right_correct']/c['right_n'] for c in cc],color=ORANGE,
+                ls='--',lw=1.3,marker='x',ms=5,mew=1.3,label='RIGHT stimuli (n=2 per point)')
+        style(ax);ax.set_ylim(-.08,1.08)
+        ax.set_title(f'SF {sf:g} cycles/aperture\nLEFT {sum(c["left_correct"] for c in cc)}/20 · RIGHT {sum(c["right_correct"] for c in cc)}/20',fontsize=11,pad=8)
+        ax.set_xticks([.05,.2,.4,.6,.8,1],['.05','.2','.4','.6','.8','1'])
+    for ax in axs[-1]:ax.set_xlabel('Modulation depth m')
+    for ax in axs[:,0]:ax.set_ylabel('Correct within direction (%)')
+    handles,labels=axs[0,0].get_legend_handles_labels()
+    fig.legend(handles,labels,loc='upper left',bbox_to_anchor=(.05,.915),ncol=2,frameon=False,fontsize=10)
+    finish(fig,out,'astra-T1-direction','The same 320 videos, separated by the true motion direction · No additional model calls',
+           notes=('Each direction-specific point has only 2 videos: possible values are 0%, 50%, or 100%. Panel counts sum across all 10 modulation levels.',
+                  'Colors indicate stimulus direction, not different models. Gray horizontal dashed line = 50% chance. Descriptive diagnostic; uncertainty bars omitted.'))
     t2=[c for c in cells if c['task']=='T2']
     fig,axs=plt.subplots(2,3,figsize=(15,7.7),sharex=True,sharey=True)
     fig.subplots_adjust(top=.86,bottom=.14,left=.055,right=.985,wspace=.12,hspace=.28)
