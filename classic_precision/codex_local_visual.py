@@ -69,9 +69,9 @@ def cli_command(root,case,port,output):
         'model_providers.cvpr_local.stream_max_retries':0,
         'model_providers.cvpr_local.stream_idle_timeout_ms':600000,
         'model_catalog_json':str(plan_dir/'path-only-model-catalog.json'),
-        'model_reasoning_effort':'none','model_supports_reasoning_summaries':False,
+        'model_reasoning_effort':'none',
         'model_context_window':98304,'project_doc_max_bytes':0,'project_root_markers':[],
-        'web_search':'disabled','features.shell_tool':True,'tools.view_image':True,
+        'web_search':'disabled','features.shell_tool':True,
         'features.multi_agent':False,'features.enable_request_compression':False,
         'features.apps':False,'features.memories':False,'features.js_repl':False,
         'approval_policy':'never','sandbox_workspace_write.network_access':False}
@@ -194,7 +194,7 @@ def server_arguments(root, port):
     parser=make_arg_parser(FlexibleArgumentParser())
     args=parser.parse_args(['--model',settings['model'],'--host','127.0.0.1','--port',str(port),
         '--served-model-name','cosmos-local','--enable-auto-tool-choice','--tool-call-parser','hermes',
-        '--generation-config','vllm'])
+        '--generation-config','vllm','--trust-request-mm-kwargs'])
     for k,v in settings.items():setattr(args,k,v)
     validate_parsed_serve_args(args)
     # This validates options/model metadata on CPU; never instantiate an engine here.
@@ -234,7 +234,10 @@ def session(root,index,proxy_port,backend_port):
     from .embodied_admission import append
     plan_dir,out=paths(root);case,prompt=case_inputs(root,index)
     folder=out/('case-'+str(index+1));folder.mkdir(exist_ok=False)
-    new(folder/'claim.json',{'case':index+1,'public_id':case['public_id'],'attempt':1,
+    prior_transport_rejection=out/'startup-mm-policy-v2'/folder.name/'result.json'
+    new(folder/'claim.json',{'case':index+1,'public_id':case['public_id'],
+        'attempt':2 if prior_transport_rejection.exists() else 1,
+        'prior_transport_rejection':str(prior_transport_rejection) if prior_transport_rejection.exists() else None,
         'plan_sha256':file_sha256(plan_dir/'path-only-plan.json'),'coordinator_predecode':False})
     events=[];requests=[];lock=threading.Lock()
     class Handler(BaseHTTPRequestHandler):

@@ -1,12 +1,12 @@
 """Audit-only vLLM worker for the separate Codex CLI visual experiment."""
 import os
 from pathlib import Path
-from vllm.v1.worker.gpu_worker import GPUWorker
+from vllm.v1.worker.gpu_worker import Worker
 from .embodied_admission import append, new
 from .nvfp4_cosmos_official import _configure_torch, _engine_receipt, validate_engine_receipt
 
 
-class LocalVisualWorker(GPUWorker):
+class LocalVisualWorker(Worker):
     def load_model(self, *, load_dummy_weights=False):
         import torch
         _configure_torch(torch)
