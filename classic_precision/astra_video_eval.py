@@ -194,12 +194,12 @@ def settings():
             'features.memories':False,'features.code_mode':True,
             'features.view_image':True,'features.shell_tool':True,'features.plugins':False,
             'features.enable_request_compression':False,
-            'sandbox_workspace_write.network_access':False}
+            'developer_instructions':'Store any temporary files, including decoded frames, only inside the current working directory or its subdirectories. Use relative output paths. Each conversation has its own working directory; do not use shared absolute temporary paths.'}
 
 
 def command(case, output, codex):
     cmd = [codex,'exec','--ignore-user-config','--ignore-rules','--strict-config',
-           '--skip-git-repo-check','--sandbox','workspace-write','--json',
+           '--skip-git-repo-check','--sandbox','danger-full-access','--json',
            '-C',case['public_directory'],'-m',MODEL,'-o',str(output)]
     for key,value in settings().items(): cmd += ['-c',key+'='+json.dumps(value)]
     return cmd + ['-']
@@ -391,9 +391,10 @@ def audit(folder,case,rc):
     return result
 
 
-async def one(root,plan,case,codex,slot):
+async def one(root,plan,case,codex,slot,control=None):
     import psutil
     plan_dir,out=paths(root);folder=out/'cases'/case['case_id'];folder.mkdir(parents=True,exist_ok=True)
+    control=Path(control) if control else out
     claim=out/'claims'/case['case_id'];claim.parent.mkdir(exist_ok=True)
     write(claim,{'case_id':case['case_id'],'claimed_HST':hst(),'attempt':1},exclusive=True)
     require(sha(case['video_path'])==case['source_sha256'],'Neutral video mutated')
@@ -405,7 +406,8 @@ async def one(root,plan,case,codex,slot):
     for k in list(env):
         if k.startswith('CVPR_') or k in ['OPENAI_API_KEY','CODEX_API_KEY','OPENAI_BASE_URL','OPENAI_API_BASE']:
             env.pop(k,None)
-    env.update(OMP_NUM_THREADS='1',OPENBLAS_NUM_THREADS='1',MKL_NUM_THREADS='1')
+    env.update(OMP_NUM_THREADS='1',OPENBLAS_NUM_THREADS='1',MKL_NUM_THREADS='1',
+               TMPDIR=case['public_directory'],TEMP=case['public_directory'],TMP=case['public_directory'])
     # Bound only this owned child's CPU affinity; do not change shared host settings.
     available=sorted(os.sched_getaffinity(0)) if hasattr(os,'sched_getaffinity') else []
     cores=available[(slot*2)%max(1,len(available)-4):(slot*2)%max(1,len(available)-4)+2]
@@ -452,7 +454,10 @@ async def one(root,plan,case,codex,slot):
     # Quota/auth failures are not invitations to retry all claimed samples.
     error_text=(folder/'stderr.log').read_text(errors='replace')+'\n'+json.dumps(result['errors'])
     if re.search(r'usage limit|rate limit|429|quota exceeded|not authorized|authentication|insufficient_quota',error_text,re.I):
-        write(out/'PAUSE.json',{'reason':'Provider quota/auth error; no automatic retries','case_id':case['case_id'],'HST':hst()})
+        write(control/'PAUSE.json',{'reason':'Provider quota/auth error; no automatic retries','case_id':case['case_id'],'HST':hst()})
+    rollout=(folder/'rollout.jsonl').read_text(errors='replace') if (folder/'rollout.jsonl').exists() else ''
+    if 'Failed RTM_NEWADDR' in rollout or 'bwrap: setting up uid map' in rollout:
+        write(control/'PAUSE.json',{'reason':'Sandbox infrastructure failure; drain and inspect','case_id':case['case_id'],'HST':hst()})
     return result
 
 
@@ -473,48 +478,66 @@ async def dynamic_pool(items, limit, execute, paused=lambda:False, progress=None
     return done,list(pending)
 
 
-async def run_async(root,codex):
+async def run_async(root,codex,segment=None):
     plan_dir,out,plan,samples=load(root);out.mkdir(parents=True,exist_ok=True)
+    control=out if segment is None else out/'segments'/segment
+    if segment:
+        require(segment=='full-access1','Unknown execution segment')
+        previous=read(out/'scheduler-final.json')
+        require(previous['status']=='PAUSED_DRAINED' and previous['all_children_waited'],'Previous scheduler not closed')
+        require(read(out/'supervisor.wait.json')['real_wait'],'Previous supervisor wait missing')
+        claims={p.name for p in (out/'claims').iterdir()}
+        require(all((out/'cases'/cid/'wait.json').exists() for cid in claims),'Unclosed original claims')
+        samples=[s for s in samples if s['case_id'] not in claims]
+        require(len(samples)==866 and len(claims)==58,'Continuation ledger changed')
+        control.mkdir(parents=True,exist_ok=True)
+        write(control/'authorization.json',{'human_message':'不用沙箱，给full access就行',
+              'maximum_new_sessions':866,'preserved_prior_sessions':58,'same_video_retry':False,
+              'scientific_prompt_unchanged':True,'execution_settings':settings(),
+              'temporary_paths':'Unique CWD and TMPDIR plus fixed developer file-placement instruction; not OS-enforced isolation',
+              'HST':hst()},exclusive=True)
     lock_path=out/'scheduler.lock';lock_path.touch(exist_ok=True)
     with lock_path.open('r+') as lock:
         fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
-        require(not (out/'scheduler-started.json').exists(), 'Already dispatched; inspect ledger, never replay')
-        require(not (out/'PAUSE.json').exists(),'PAUSE exists')
+        require(not (control/'scheduler-started.json').exists(), 'Already dispatched; inspect ledger, never replay')
+        require(not (control/'PAUSE.json').exists(),'PAUSE exists')
         require(read(out/'cpu-admission/receipt.json')['status']=='PASS','Real CLI CPU qualification missing')
         version=subprocess.check_output([codex,'--version'],text=True).strip()
-        write(out/'scheduler-started.json',{'pid':os.getpid(),'started_HST':hst(),'model':MODEL,
+        write(control/'scheduler-started.json',{'pid':os.getpid(),'started_HST':hst(),'model':MODEL,
               'effort':EFFORT,'maximum_concurrent':20,'codex_version':version,
+              'scheduled':len(samples),'segment':segment,'sandbox':'danger-full-access',
               'plan_sha256':sha(plan_dir/'plan.json'),'implementation_sha256':sha(__file__)},exclusive=True)
-        shutil.copyfile(__file__,out/'execution-source.py')
+        shutil.copyfile(__file__,control/'execution-source.py')
         stopping=False
         def stop():
             nonlocal stopping
             stopping=True
-            write(out/'PAUSE.json',{'reason':'Operator requested safe drain','HST':hst()})
+            write(control/'PAUSE.json',{'reason':'Operator requested safe drain','HST':hst()})
         loop=asyncio.get_running_loop()
         for sig in [signal.SIGINT,signal.SIGTERM]:loop.add_signal_handler(sig,stop)
         def paused():
-            if stopping or (out/'PAUSE.json').exists():return True
+            if stopping or (control/'PAUSE.json').exists():return True
             if shutil.disk_usage('/tmp').free < plan['minimum_free_disk_GiB']*2**30:
-                write(out/'PAUSE.json',{'reason':'Free disk below reserved40GiB; active sessions drain','HST':hst()});return True
+                write(control/'PAUSE.json',{'reason':'Free disk below reserved40GiB; active sessions drain','HST':hst()});return True
             return False
         def progress(remaining,active,completed):
-            write(out/'progress.json',{'remaining_unclaimed':remaining,'active_sessions':active,
+            write(control/'progress.json',{'remaining_unclaimed':remaining,'active_sessions':active,
                   'closed_sessions':completed,'maximum_concurrent':20,'paused':paused(),'HST':hst()})
         async def execute(case,slot):
-            try:return await one(root,plan,case,codex,slot)
+            try:return await one(root,plan,case,codex,slot,control)
             except Exception as exc:
                 write(out/'cases'/case['case_id']/'coordinator-error.json',{'error':repr(exc),'HST':hst()},exclusive=True)
-                write(out/'PAUSE.json',{'reason':'Coordinator error; preserve claim, drain active','case_id':case['case_id'],'error':repr(exc),'HST':hst()})
+                write(control/'PAUSE.json',{'reason':'Coordinator error; preserve claim, drain active','case_id':case['case_id'],'error':repr(exc),'HST':hst()})
                 raise
         done,pending=await dynamic_pool(samples,20,execute,paused,progress)
-        write(out/'scheduler-final.json',{'status':'COMPLETE' if not pending and len(done)==924 else 'PAUSED_DRAINED',
+        write(control/'scheduler-final.json',{'status':'COMPLETE' if not pending and len(done)==len(samples) else 'PAUSED_DRAINED',
               'closed':len(done),'unclaimed':len(pending),'all_children_waited':True,'finished_HST':hst()},exclusive=True)
         fcntl.flock(lock,fcntl.LOCK_UN)
 
 
 def status(root):
     _,out,plan,samples=load(root)
+    control=out/'segments/full-access1' if (out/'segments/full-access1/scheduler-started.json').exists() else out
     results=[];running=[];uncertain=[]
     for s in samples:
         d=out/'cases'/s['case_id']
@@ -526,8 +549,8 @@ def status(root):
     return {'status':'COMPLETE' if len(results)==924 else 'IN_PROGRESS',
             'maximum_sessions':924,'completed':len(results),'claimed_unclosed':len(running),
             'unclaimed':924-len(results)-len(running),'protocol_statuses':dict(Counter(r['protocol_status'] for r in results)),
-            'progress':read(out/'progress.json') if (out/'progress.json').exists() else None,
-            'pause':read(out/'PAUSE.json') if (out/'PAUSE.json').exists() else None,
+            'progress':read(control/'progress.json') if (control/'progress.json').exists() else None,
+            'pause':read(control/'PAUSE.json') if (control/'PAUSE.json').exists() else None,
             'active_sessions':running[:20],'uncertain':uncertain,'HST':hst()}
 
 
@@ -555,10 +578,11 @@ def report(root):
 def main():
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('action',choices=['prepare','capture','run','status','report'])
     p.add_argument('--root',required=True);p.add_argument('--codex',default='/home/yang/.local/bin/codex')
+    p.add_argument('--segment',choices=['full-access1'])
     a=p.parse_args()
     if a.action=='prepare':result=prepare(a.root)
     elif a.action=='capture':result=capture(a.root,a.codex)
-    elif a.action=='run':asyncio.run(run_async(a.root,a.codex));result=status(a.root)
+    elif a.action=='run':asyncio.run(run_async(a.root,a.codex,a.segment));result=status(a.root)
     elif a.action=='status':result=status(a.root)
     else:result=report(a.root)
     print(json.dumps(result,ensure_ascii=False,indent=2))
