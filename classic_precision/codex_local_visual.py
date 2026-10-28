@@ -26,7 +26,7 @@ def model_key():
 def paths(root):
     root=Path(root)
     attempt=os.environ.get('CVPR_CLI_ATTEMPT')
-    require(attempt in (None, 'full-access1', 'full-access2'), 'Unknown finite CLI attempt')
+    require(attempt in (None, 'full-access1', 'full-access2', 'full-access3'), 'Unknown finite CLI attempt')
     if attempt:
         suffix=model_key()+'-'+attempt
         return root/'plans'/NAME/suffix,root/'runs/reproducibility'/NAME/suffix
@@ -223,7 +223,8 @@ def server_arguments(root, port):
         worker_cls='classic_precision.codex_local_visual_worker.LocalVisualWorker')
     parser=make_arg_parser(FlexibleArgumentParser())
     args=parser.parse_args(['--model',settings['model'],'--host','127.0.0.1','--port',str(port),
-        '--served-model-name',model_key()+'-local','--enable-auto-tool-choice','--tool-call-parser','hermes',
+        '--served-model-name',model_key()+'-local','--enable-auto-tool-choice','--tool-call-parser',
+        'qwen3_xml' if model_key()=='qwen' else 'hermes',
         '--generation-config','vllm','--trust-request-mm-kwargs'])
     for k,v in settings.items():setattr(args,k,v)
     validate_parsed_serve_args(args)
@@ -265,6 +266,8 @@ def session(root,index,proxy_port,backend_port):
     plan_dir,out=paths(root);case,prompt=case_inputs(root,index)
     folder=out/('case-'+str(index+1));folder.mkdir(exist_ok=False)
     prior_transport_rejection=out/'startup-mm-policy-v2'/folder.name/'result.json'
+    if os.environ.get('CVPR_CLI_ATTEMPT')=='full-access3':
+        prior_transport_rejection=out.parent/'qwen-full-access2'/folder.name/'result.json'
     new(folder/'claim.json',{'case':index+1,'public_id':case['public_id'],
         'attempt':2 if prior_transport_rejection.exists() else 1,
         'prior_transport_rejection':str(prior_transport_rejection) if prior_transport_rejection.exists() else None,
@@ -355,6 +358,19 @@ def run_all(root,port):
                 and not prior_close['owned_survivors'] and not list(prior.glob('case-*')),
                 'QSA startup repair requires zero submitted cases and closed original lease')
         require(read(out/'qsa-cpu-admission.json')['status']=='PASS', 'QSA CPU contract not verified')
+    if os.environ.get('CVPR_CLI_ATTEMPT')=='full-access3':
+        require(model_key()=='qwen', 'Native XML transport repair is limited to Qwen')
+        prior=out.parent/'qwen-full-access2'
+        wait=read(prior/'server.wait.json');closure=read(prior/'lease-closure.json')
+        failed=read(prior/'case-1/result.json');replay=read(prior/'tool-parser-cpu-replay.json')
+        require(wait['real_wait'] and wait['returncode']==0 and not wait['owned_survivors']
+                and closure['original_same_inode_free'] and not closure['owned_survivors']
+                and failed['real_wait'] and failed['maximum_images_in_context']==0
+                and not (prior/'actual-vision-inputs.jsonl').exists()
+                and len(list(prior.glob('case-*')))==1,
+                'XML transport repair requires preserved zero-visual failure and closed lease')
+        require(replay['status']=='PASS' and replay['native_parser']=='qwen3_xml'
+                and replay['model_calls']==0, 'Actual failed XML output must parse on CPU first')
     if model_key()=='qwen':
         previous=Path(root)/'runs/reproducibility'/NAME
         prior=read(previous/'case-1/result.json')
