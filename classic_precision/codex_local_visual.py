@@ -25,6 +25,9 @@ def model_key():
 
 def paths(root):
     root=Path(root)
+    if os.environ.get('CVPR_CLI_ATTEMPT')=='full-access1':
+        suffix=model_key()+'-full-access1'
+        return root/'plans'/NAME/suffix,root/'runs/reproducibility'/NAME/suffix
     out=root/'runs/reproducibility'/NAME
     if model_key()=='qwen':out=out/'qwen-fallback'
     return root/'plans'/NAME,out
@@ -35,7 +38,9 @@ def case_inputs(root,index):
     require(p['model_input'].startswith('Only exact user prompt'),'Wrong path-only plan')
     require(file_sha256(plan_dir/'prompt.txt')==p['prompt_sha256'],'Prompt changed')
     case=p['samples'][index]
-    evidence=read(Path(root)/'runs/reproducibility'/NAME/'input-manifest.json')['records'][index]
+    evidence_path=plan_dir/'input-manifest.json'
+    if not evidence_path.exists():evidence_path=Path(root)/'runs/reproducibility'/NAME/'input-manifest.json'
+    evidence=read(evidence_path)['records'][index]
     video=Path(case['public_directory'])/case['public_filename']
     require(str(video)==evidence['neutral_video'],'Neutral path changed')
     require(file_sha256(video)==evidence['source_sha256'],'Neutral video bytes changed')
@@ -66,7 +71,7 @@ def prepare_catalog(root):
 def cli_command(root,case,port,output):
     plan_dir,_=paths(root)
     args=['/home/yang/.local/bin/codex','exec','--ignore-user-config','--ignore-rules',
-        '--skip-git-repo-check','--ephemeral','--sandbox','workspace-write','--json',
+        '--skip-git-repo-check','--sandbox','danger-full-access','--json',
         '-C',case['public_directory'],'-m',model_key()+'-local']
     settings={
         'model_provider':'cvpr_local',
@@ -84,7 +89,8 @@ def cli_command(root,case,port,output):
         'web_search':'disabled','features.shell_tool':True,
         'features.multi_agent':False,'features.enable_request_compression':False,
         'features.apps':False,'features.memories':False,'features.js_repl':False,
-        'approval_policy':'never','sandbox_workspace_write.network_access':False}
+        'approval_policy':'never',
+        'developer_instructions':'Store temporary files, including decoded frames, only inside the current working directory or its subdirectories. Use relative output paths. Do not write shared absolute temporary paths.'}
     for k,v in settings.items():args+=['-c',k+'='+json.dumps(v)]
     args+=['--output-last-message',str(output)]
     require('--image' not in args and 'model_instructions_file' not in ' '.join(args),
@@ -197,8 +203,9 @@ def server_arguments(root, port):
     from vllm.entrypoints.launchers.cli_args import make_arg_parser, validate_parsed_serve_args
     from vllm.engine.arg_utils import AsyncEngineArgs
     plan_dir,out=paths(root)
-    parent=read(Path(root)/'plans/reader-route-smoke-20261026'/
-        (model_key()+'-fourier1-C-repair1-profile.json'))
+    parent_path=plan_dir/'runtime-parent.json'
+    if not parent_path.exists():parent_path=Path(root)/'plans/reader-route-smoke-20261026'/(model_key()+'-fourier1-C-repair1-profile.json')
+    parent=read(parent_path)
     if model_key()=='cosmos':settings=copy.deepcopy(parent['engine_settings'])
     else:
         settings=dict(model=parent['checkpoint'],trust_remote_code=True,tensor_parallel_size=1,
@@ -206,6 +213,7 @@ def server_arguments(root, port):
             enforce_eager=True,enable_prefix_caching=False,enable_chunked_prefill=True,
             kv_cache_dtype='bfloat16',mm_processor_cache_gb=0,disable_custom_all_reduce=True,
             seed=0,quantization='modelopt',compilation_config={'mode':0},
+            kernel_config={'enable_flashinfer_autotune':False},
             engram_config={'cpu_offload':True},cpu_offload_gb=24,cpu_offload_params=['experts'],
             mm_processor_kwargs={'do_resize':False,'do_sample_frames':False})
     settings.update(max_model_len=98304,kv_cache_memory_bytes=(32 if model_key()=='cosmos' else 8)*2**30,
@@ -310,7 +318,8 @@ def session(root,index,proxy_port,backend_port):
             args=cli_command(root,case,proxy_port,folder/'answer.txt')
             new(folder/'launch.json',{'command':args,'prompt':prompt,'initial_images':0,
                 'session_limit_seconds':3600,'maximum_requests':200})
-            child=subprocess.Popen(args,stdin=subprocess.PIPE,stdout=log,stderr=err,text=True)
+            cli_env=os.environ.copy();cli_env.update(TMPDIR=case['public_directory'],TMP=case['public_directory'],TEMP=case['public_directory'])
+            child=subprocess.Popen(args,stdin=subprocess.PIPE,stdout=log,stderr=err,text=True,env=cli_env)
             child.stdin.write(prompt);child.stdin.close();timed_out=False
             try:rc=child.wait(timeout=3600)
             except subprocess.TimeoutExpired:
@@ -322,6 +331,11 @@ def session(root,index,proxy_port,backend_port):
             max((r['images_in_context'] for r in requests),default=0),
             'protocol_status':'PENDING_TOOL_TRACE_REVIEW','automatic_retry':False}
         new(folder/'result.json',result);print(json.dumps(result),flush=True)
+        from .astra_video_eval import json_lines,session_id,rollout_path,safe_rollout_copy
+        sid=session_id(json_lines(folder/'cli.jsonl'));rp=rollout_path(sid)
+        new(folder/'session-identity.json',{'session_id':sid,'rollout_path':str(rp) if rp else None,
+            'resume_command':f'cd {case["public_directory"]} && codex resume {sid}' if sid else None})
+        if rp:safe_rollout_copy(rp,folder/'rollout.jsonl')
         return result
     finally:server.shutdown();thread.join(timeout=10);server.server_close()
 
@@ -365,7 +379,7 @@ def run_all(root,port):
             with (out/'server.log').open('xb') as log:
                 child=subprocess.Popen([sys.executable,'-B','-m','classic_precision.codex_local_visual',
                     'serve','--root',str(root),'--port',str(port)],env=env,stdout=log,stderr=subprocess.STDOUT)
-                deadline=time.monotonic()+600;ready=False
+                deadline=time.monotonic()+1200;ready=False
                 while time.monotonic()<deadline and child.poll() is None:
                     try:
                         with urllib.request.urlopen(f'http://127.0.0.1:{port}/health',timeout=2) as r:ready=r.status==200
@@ -377,7 +391,7 @@ def run_all(root,port):
                 for proc in psutil.Process(child.pid).children(recursive=True):owned.add((proc.pid,proc.create_time()))
                 results=[]
                 for index in range(4):
-                    result=session(root,index,18573,port);results.append(result)
+                    result=session(root,index,port-1,port);results.append(result)
                     # Capability failure is retained. Do not blindly continue scoring invisible videos.
                     if result['returncode']!=0 or result['maximum_images_in_context']==0:break
                 new(out/'sessions-result.json',{'results':results,'status':'PENDING_TOOL_TRACE_REVIEW'})
@@ -388,13 +402,23 @@ def run_all(root,port):
                         owned.add((proc.pid,proc.create_time()))
                 except psutil.NoSuchProcess:pass
                 if child.poll() is None:child.send_signal(signal.SIGINT)
-                rc=child.wait(timeout=120)
-                survivors=[]
-                for pid,created in owned:
-                    try:
-                        p=psutil.Process(pid)
-                        if p.create_time()==created and p.status()!=psutil.STATUS_ZOMBIE:survivors.append(pid)
-                    except psutil.NoSuchProcess:pass
+                try:rc=child.wait(timeout=120)
+                except subprocess.TimeoutExpired:
+                    # uvloop can defer SIGINT during engine initialization.
+                    # The native API SIGTERM handler closes only this owned service.
+                    new(out/'shutdown-escalation.json',{'pid':child.pid,
+                        'signal':'SIGTERM','reason':'owned API did not finish its SIGINT shutdown'})
+                    child.send_signal(signal.SIGTERM)
+                    rc=child.wait()
+                while True:
+                    survivors=[]
+                    for pid,created in owned:
+                        try:
+                            p=psutil.Process(pid)
+                            if p.create_time()==created and p.status()!=psutil.STATUS_ZOMBIE:survivors.append(pid)
+                        except psutil.NoSuchProcess:pass
+                    if not survivors:break
+                    time.sleep(2)
                 new(out/'server.wait.json',{'returncode':rc,'real_wait':True,'owned_survivors':survivors,
                     'graceful_signal':'SIGINT after finite sessions','original_inode':[st.st_dev,st.st_ino]})
             fcntl.flock(handle,fcntl.LOCK_UN)
