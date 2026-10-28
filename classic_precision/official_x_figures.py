@@ -75,6 +75,13 @@ def render_repeatability(summary, output, *, allow_partial=False, source_summary
     models = [m for m in MODELS if any(k[0] == m for k in cells)]
     versions = sorted({k[1] for k in cells},
                       key=lambda v: ({'default': 0, 'qualified': 1}.get(v.lower(), 2), v))
+    per_model = {model: [v for v in versions if any(k[:2] == (model, v) for k in cells)]
+                 for model in models}
+    one_per_model = all(len(values) == 1 for values in per_model.values())
+    display = {'X_QSA_NO_AUTOTUNE': 'QSA + autotune off',
+               'X_NO_AUTOTUNE': 'Autotune off',
+               'X_OFFICIAL_DEFAULT_MEM78': 'Official default',
+               'X_ADAPTED_DEFAULT': 'Adapted input / default compute'}
     palette = ('#0072B2', '#009E73', '#D55E00', '#8856A7', '#555555')
     require(len(versions) <= len(palette), 'Too many repeat variants for a legible comparison')
 
@@ -102,27 +109,33 @@ def render_repeatability(summary, output, *, allow_partial=False, source_summary
         fig.suptitle(prefix + 'Repeated-input answer changes', x=.065, y=.985,
                      ha='left', fontsize=19, fontweight='bold')
         fig.text(.065, .985 - .43 / fig.get_figheight(),
-                 'Cold run 1 vs 2 | changed / paired inputs | n/a: no paired data',
+                 'Cold run 1 vs 2 | changed / paired inputs' +
+                 ('' if one_per_model else ' | n/a: no paired data'),
                  ha='left', va='top', fontsize=11, color='#444444')
-        width = .72 / len(versions)
-        for ax, model in zip(axes.flat, models):
-            ax.set_title(NAMES[model], loc='left', fontweight='bold', pad=10)
+        for model_index, (ax, model) in enumerate(zip(axes.flat, models)):
+            shown = per_model[model] if one_per_model else versions
+            width = .72 / len(shown)
+            label = NAMES[model]
+            if one_per_model:
+                label += '\n' + display.get(shown[0], shown[0])
+            ax.set_title(label, loc='left', fontweight='bold', pad=10)
             ax.set_ylim(0, upper)
             ax.set_yticks(range(0, int(min(upper, 100)) + 1, tick_step))
             ax.yaxis.set_major_formatter(PercentFormatter(100, decimals=0))
             ax.set_axisbelow(True)
             ax.grid(axis='y', color='#DDDDDD', linewidth=.7)
             ax.set_ylabel('Changed answers')
-            for j, version in enumerate(versions):
+            for j, version in enumerate(shown):
                 for x, task in enumerate(('T2', 'T3')):
                     row = cells.get((model, version, task))
-                    xpos = x + (j - (len(versions) - 1) / 2) * width
+                    xpos = x + (j - (len(shown) - 1) / 2) * width
                     if row is None:
                         ax.annotate('n/a', (xpos, 0), xytext=(0, 6), textcoords='offset points',
                                     ha='center', fontsize=10, color='#666666')
                         continue
                     value = 100 * row['answer_changes'] / row['n']
-                    ax.bar(xpos, value, width=width * .88, color=palette[j])
+                    color = palette[model_index] if one_per_model else palette[j]
+                    ax.bar(xpos, value, width=width * .88, color=color)
                     ax.annotate(f"{row['answer_changes']}/{row['n']}", (xpos, value), xytext=(0, 6),
                                 textcoords='offset points', ha='center', fontsize=11)
             ax.set_xticks((0, 1), ('T2', 'T3'))
@@ -132,8 +145,9 @@ def render_repeatability(summary, output, *, allow_partial=False, source_summary
         labels = [v.capitalize() if v in ('default', 'qualified') else v for v in versions]
         handles = [Line2D([0], [0], color=palette[j], linewidth=7, label=label)
                    for j, label in enumerate(labels)]
-        fig.legend(handles=handles, loc='upper center', bbox_to_anchor=(.55, .907),
-                   ncol=min(3, len(handles)), frameon=False)
+        if not one_per_model:
+            fig.legend(handles=handles, loc='upper center', bbox_to_anchor=(.55, .907),
+                       ncol=min(3, len(handles)), frameon=False)
         denominators = [{'model': m, 'variant': v, 'task': t, 'n': r['n'],
                          'answer_changes': r['answer_changes']} for (m, v, t), r in cells.items()]
         provenance = {'source_summary': source_summary, 'partial': partial, 'synthetic': synthetic,
