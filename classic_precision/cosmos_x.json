@@ -1,0 +1,520 @@
+{
+  "schema": "cosmos-x-public-v1",
+  "variant": "X-official-default-auto",
+  "dataset": {
+    "repo": "DrQY/vlm-psychophysics-classic-t1-t3",
+    "source_counts": {
+      "T1": 3840,
+      "T2": 5760,
+      "T3": 2928
+    },
+    "source_index_id": "a6462a880d039e0e8a15800720a87aa87b4e0de3a4f00d6fc1ba1d98c1a74e5b",
+    "source_index_sha256": "84ea39342987974a03ee16c505cd3710fd272c0c24d09e5b663bd85c5e163fac",
+    "items_sha256": "67ea070b337eed044551278077a89a882ea1ec4ba6fb109a9eb2f463aa5fa923",
+    "source_bits_per_channel": 16,
+    "source_codec": "FFV1",
+    "native_reader_dtype": "uint8"
+  },
+  "scope": {
+    "counts": {
+      "T1": 3840,
+      "T2": 2880,
+      "T3": 2736
+    },
+    "total": 9456,
+    "sorted_ids_sha256": "db9b32aa310321593355a10b5536e01643a01c99e2f62cad3b81915f9b381a1b",
+    "T2_exposure_frames": 30,
+    "T2_exposure_ms": 500,
+    "T3_auxiliary_angles_excluded": [
+      1.75,
+      2.25
+    ]
+  },
+  "assets": {
+    "checkpoint": {
+      "identity": "Official NGC mixed NVFP4; asset manifest 7bbfe34d27a6464169e14d38432761e22cfc1c7350b96ccffe0d5e7484c27302",
+      "files": {
+        ".quant_summary.txt": {
+          "bytes": 344059,
+          "sha256": "711be8d13848dbcba7cedda91bc870abfad1db56dbae24cd1e15ceba22136d77"
+        },
+        "chat_template.jinja": {
+          "bytes": 5292,
+          "sha256": "3636d0f0bd6bef02654cdffdc447b79cb2cef8ab02cc75267345946291a489e4"
+        },
+        "chat_template.json": {
+          "bytes": 5499,
+          "sha256": "5c72a170d2a4a1a3bc5adad2e689ae28138a9700e5b8c96c0266331e86c0acce"
+        },
+        "config.json": {
+          "bytes": 2782,
+          "sha256": "3e92f1ae53a49d31c98bed33da476c853e4be833236b65ef90b49f523d5106f0"
+        },
+        "generation_config.json": {
+          "bytes": 269,
+          "sha256": "1e241830b48b397cb0900101421df5450baddc7adf01e5fc86b5615865f3bae4"
+        },
+        "hf_quant_config.json": {
+          "bytes": 315,
+          "sha256": "877ede269cf91259e0f7c53c79e37397d8252a39c840a8ffe1625c570831be58"
+        },
+        "merges.txt": {
+          "bytes": 1671839,
+          "sha256": "599bab54075088774b1733fde865d5bd747cbcc7a547c5bc12610e874e26f5e3"
+        },
+        "model-00001-of-00003.safetensors": {
+          "bytes": 9996644816,
+          "sha256": "415770d1181d35b5183656b233eabccf7fb0bfdfc5b935f5f560f0503c3ff0ed"
+        },
+        "model-00002-of-00003.safetensors": {
+          "bytes": 9956475184,
+          "sha256": "845183f3af3f2d6ec715cca985d913dc93495402cf327e232cdd383779323e87"
+        },
+        "model-00003-of-00003.safetensors": {
+          "bytes": 1903877528,
+          "sha256": "7c82e786f9cafd3e2074d0ae72d793203f31eaa47b3a8b7cf65cb8a087589e80"
+        },
+        "model.safetensors.index.json": {
+          "bytes": 235770,
+          "sha256": "be1fb712133d1fae60383897b93020d65286f776e9da9e3f9092feb9a23848ac"
+        },
+        "preprocessor_config.json": {
+          "bytes": 390,
+          "sha256": "27225450ac9c6529872ee1924fcb0962ff5634834f817040f444118116f4e516"
+        },
+        "processor_config.json": {
+          "bytes": 1191,
+          "sha256": "d89ef49ce9cd37fbf510158e13c1ef063d9286411c1ec9049932dbe0487143b1"
+        },
+        "tokenizer.json": {
+          "bytes": 7032403,
+          "sha256": "a5d85b6dcc535e6b93115a9ef287e6132fdbf30270da6218194ba742261173c7"
+        },
+        "tokenizer_config.json": {
+          "bytes": 10868,
+          "sha256": "c2da771801886ad9ae98181793ffd3dfb7f1af30f6f7c6a4e15d7dbba52e2399"
+        },
+        "video_preprocessor_config.json": {
+          "bytes": 385,
+          "sha256": "7768af27c1fafa9cc9011c1dc20067e03f8915e03b63504550e11d5066986d13"
+        },
+        "vocab.json": {
+          "bytes": 2776833,
+          "sha256": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910"
+        }
+      },
+      "source_api": "https://api.ngc.nvidia.com/v2/org/nim/team/nvidia/models/cosmos3-super-reasoner/versions/modelopt-nvfp4-full-quantize-final_format_fix/files/",
+      "asset_manifest_sha256": "7bbfe34d27a6464169e14d38432761e22cfc1c7350b96ccffe0d5e7484c27302"
+    },
+    "tokenizer": {
+      "repo": "nvidia/Cosmos3-Super",
+      "revision": "f543c56225b2e04d0ad141e29655be3a45d9c455",
+      "files": {
+        "config.json": {
+          "sha256": "90510e6522fa44b79413076f0cf49b3c1b78241c53cfaf70ea0095bb7ed611a0",
+          "bytes": 8168
+        },
+        "generation_config.json": {
+          "sha256": "1e241830b48b397cb0900101421df5450baddc7adf01e5fc86b5615865f3bae4",
+          "bytes": 269
+        },
+        "preprocessor_config.json": {
+          "sha256": "27225450ac9c6529872ee1924fcb0962ff5634834f817040f444118116f4e516",
+          "bytes": 390
+        },
+        "video_preprocessor_config.json": {
+          "sha256": "7768af27c1fafa9cc9011c1dc20067e03f8915e03b63504550e11d5066986d13",
+          "bytes": 385
+        },
+        "tokenizer.json": {
+          "sha256": "a5d85b6dcc535e6b93115a9ef287e6132fdbf30270da6218194ba742261173c7",
+          "bytes": 7032403
+        },
+        "tokenizer_config.json": {
+          "sha256": "c2da771801886ad9ae98181793ffd3dfb7f1af30f6f7c6a4e15d7dbba52e2399",
+          "bytes": 10868
+        },
+        "chat_template.json": {
+          "bytes": 5499,
+          "sha256": "5c72a170d2a4a1a3bc5adad2e689ae28138a9700e5b8c96c0266331e86c0acce"
+        }
+      },
+      "absent_files": [
+        "chat_template.jinja",
+        "processor_config.json",
+        "special_tokens_map.json"
+      ]
+    }
+  },
+  "software_pins": {
+    "vllm": "0.33.0rc1.dev175+gf4fd1ab68",
+    "torch": "2.14.0",
+    "transformers": "5.17.0",
+    "flashinfer-python": "0.7.2.post1",
+    "numpy": "2.3.5",
+    "opencv-python-headless": "5.0.0.93",
+    "tokenizers": "0.23.3",
+    "xgrammar": "0.2.8",
+    "av": "17.1.0",
+    "safetensors": "0.8.0",
+    "cloudpickle": "3.1.2",
+    "torchvision": "0.29.0",
+    "torchaudio": "2.11.0"
+  },
+  "cuda_build": "13.0; observed torch.__version__=2.14.0+cu130",
+  "runtime_supply": "Install the SHA-bound official vLLM wheel and the exact numeric-path package versions with the existing intended interpreter. Official wheel URL and Torch public CUDA13 wheel metadata are verified; a fresh environment install/GPU replay is not claimed.",
+  "LLM_kwargs": {
+    "async_scheduling": false,
+    "cpu_offload_gb": 0,
+    "disable_chunked_mm_input": true,
+    "disable_custom_all_reduce": true,
+    "dtype": "bfloat16",
+    "enable_chunked_prefill": true,
+    "enable_prefix_caching": false,
+    "enforce_eager": true,
+    "kv_cache_dtype": "bfloat16",
+    "kv_cache_memory_bytes": 18253611008,
+    "limit_mm_per_prompt": {
+      "audio": 0,
+      "image": 0,
+      "video": 1
+    },
+    "max_model_len": 65536,
+    "max_num_batched_tokens": 36000,
+    "max_num_seqs": 1,
+    "mm_processor_cache_gb": 0,
+    "mm_processor_kwargs": {
+      "do_resize": false,
+      "do_sample_frames": false
+    },
+    "quantization": "modelopt_fp4",
+    "seed": 0,
+    "skip_mm_profiling": true,
+    "tensor_parallel_size": 1,
+    "trust_remote_code": false,
+    "video_pruning_rate": 0.0,
+    "media_io_kwargs": {
+      "video": {
+        "fps": -1,
+        "num_frames": 180,
+        "video_backend": "opencv"
+      }
+    }
+  },
+  "resource_variants": {
+    "Fourier": {
+      "gpu_memory_utilization": 0.9
+    },
+    "Radon": {
+      "gpu_memory_utilization": 0.78
+    }
+  },
+  "kernel_policy": {
+    "linear_backend": "auto",
+    "moe_backend": "auto",
+    "enable_flashinfer_autotune": true,
+    "explicit_kernel_override": false,
+    "explicit_compilation_override": false,
+    "resolved_compilation": {
+      "mode": 0,
+      "cudagraph_mode": "NONE",
+      "compile_mm_encoder": false,
+      "cudagraph_mm_encoder": false
+    }
+  },
+  "request_mm_processor_kwargs": {
+    "do_resize": false,
+    "do_sample_frames": false
+  },
+  "sampling": {
+    "ignore_eos": false,
+    "max_tokens": 16384,
+    "n": 1,
+    "repetition_penalty": 1.0,
+    "seed": 0,
+    "stop": [],
+    "stop_token_ids": [],
+    "temperature": 0.0,
+    "top_p": 1.0
+  },
+  "chat_template_kwargs": {
+    "enable_thinking": false
+  },
+  "environment": {
+    "FLASHINFER_CUDA_ARCH_LIST": "12.0f",
+    "HF_HUB_OFFLINE": "1",
+    "MAX_JOBS": "4",
+    "MKL_NUM_THREADS": "1",
+    "NUMPY_MADVISE_HUGEPAGE": "0",
+    "OMP_NUM_THREADS": "6",
+    "OPENBLAS_NUM_THREADS": "1",
+    "PYTHONDONTWRITEBYTECODE": "1",
+    "TRANSFORMERS_OFFLINE": "1",
+    "VLLM_ALLOW_INSECURE_SERIALIZATION": "1",
+    "VLLM_WORKER_MULTIPROC_METHOD": "spawn"
+  },
+  "cleared_environment": [
+    "CUBLAS_WORKSPACE_CONFIG",
+    "NVIDIA_TF32_OVERRIDE",
+    "TORCH_ALLOW_TF32_CUBLAS_OVERRIDE",
+    "VLLM_BATCH_INVARIANT",
+    "VLLM_ENABLE_V1_MULTIPROCESSING",
+    "VLLM_OMP_NUM_THREADS_SET_BY_VLLM",
+    "CLASSIC_PRECISION_KV_COMPAT",
+    "CLASSIC_PRECISION_NEMO_DUMMY_CONFIG_COMPAT",
+    "CLASSIC_PRECISION_DEFER_MODELS"
+  ],
+  "prompts": {
+    "T1": "Watch the video and focus on the bright and dark stripe pattern inside the central circular aperture. The background image and aperture remain stationary. Your task is to judge the horizontal direction in which the stripe pattern travels relative to that fixed background. Follow the pattern across successive moments throughout the video, rather than comparing only the first and last images. Stripe spacing and visibility may vary, but the judgment is always about the stripes, not the depicted scene, the aperture boundary, or a change in overall brightness. Decide whether the ongoing stripe motion is toward the left or toward the right. Give your final answer as exactly one uppercase word: LEFT or RIGHT.",
+    "T2": "Watch the two matching objects displayed side by side against a stationary background. Both objects remain in place, and one briefly increases in brightness before returning to its earlier appearance. Identify the side on which this brightening event occurs. Compare each object with its own appearance before and after the event, using the other object as a simultaneous reference. The relevant change is an increase in brightness over time, not the final brightness of either object. Do not choose a side because its surrounding background is lighter, because of an existing highlight, or because of the object's shape. Report the position of the object that brightened. Give your final answer as exactly one uppercase word: LEFT or RIGHT.",
+    "T3": "Watch for the two objects that appear briefly side by side. During their presentation, identify each object's main long axis, meaning the direction running along its length. Compare these axes with the vertical direction of the image, as defined by its left and right edges. Decide which object's axis is closer to vertical. Use the overall elongated structure rather than a small protrusion, a surface marking, or the orientation of the background. An axis is a line, so opposite ends of the same axis do not define different orientations. Judge the objects while they are visible; their later disappearance does not change the answer. Report the side containing the more vertical axis. Give your final answer as exactly one uppercase word: LEFT or RIGHT."
+  },
+  "qualification": {
+    "same_card_cold_repeat": "144/144 complete outputs agreed on the measured same-card panel",
+    "cross_card_overlap": "F1/R0 overlap 12/12 agreed",
+    "full_scope_status": "RUNNING as of 2026-10-28 HST; no complete accuracy claimed",
+    "no_resize_is_not_cross_hardware_determinism": true,
+    "public_runner_GPU_tested": false
+  },
+  "A_to_X_changes": {
+    "reader": "RGB16-to-FP32 -> native OpenCV uint8",
+    "processor_and_normalization": "Retained old processor/input bridge -> native file-video path including device normalization",
+    "software": "vLLM 0.31.0 -> 0.33.0rc1.dev175+gf4fd1ab68; Torch 2.13.0+cu130 -> 2.14.0+cu130; FlashInfer 0.7.0.post1 -> 0.7.2.post1; Transformers remains 5.17.0",
+    "kernels": "A explicitly selects flashinfer_cutlass; X uses official auto. Both actual receipts contain FlashInferCutlassNvFp4LinearKernel x256; a different kernel class is not established.",
+    "autotuning": "A enable_flashinfer_autotune=False -> X official default True",
+    "compilation": "A explicitly requests mode0; X uses eager without a compilation-mode override. Actual X startup resolves compile mode0, CUDA Graph NONE and both multimodal encoder compile/graph flags False; this is a configuration-expression difference, not evidence that actual compilation was enabled in X.",
+    "interpretation": "Multiple coupled execution changes; this does not isolate decode precision, vLLM, loading, or any single kernel as a causal effect.",
+    "torch_flags": "A explicitly sets highest float32 matmul precision, matmul TF32 False, cudnn TF32 True and retained Torch flags; X sets threads6 and vLLM seed0, otherwise leaves native Torch defaults. Exact X child flag values were not independently dumped, so equality of every flag is not claimed."
+  },
+  "installation": {
+    "platform": "Linux x86_64, glibc>=2.28; measured Python3.12.15; CUDA13.0.88 toolchain; native NVFP4 GPU support",
+    "vllm_official_wheel": {
+      "url": "https://wheels.vllm.ai/f4fd1ab68e2ba3a76bf6b903662eb6a8ee8202ab/vllm-0.33.0rc1.dev175%2Bgf4fd1ab68-cp38-abi3-manylinux_2_28_x86_64.whl",
+      "bytes": 336877052,
+      "sha256": "9e6deb5cf21db53325f0467eb2704c80e90d7a4f0e35532243b7a663a9dd2148",
+      "commit": "f4fd1ab68e2ba3a76bf6b903662eb6a8ee8202ab"
+    },
+    "torch_public_cp312_wheel": {
+      "url": "https://files.pythonhosted.org/packages/15/71/49399acd41f750a906c686bd23c08a2001ccb8dd25f2971003c2ed89c1dd/torch-2.14.0-cp312-cp312-manylinux_2_28_x86_64.whl",
+      "bytes": 554620488,
+      "sha256": "fecffb58f51fd643d213acd68da21cc3fc19bea05a3bc64b4ee55128f47a4963",
+      "version_py_verified_via_HTTP_range": "2.14.0+cu130, CUDA13.0"
+    },
+    "vllm_install_provenance": "Installed direct_url.json archive SHA256 matches the official pinned wheel receipt; official URL HEAD200 and exact length rechecked2026-10-28 HST.",
+    "fresh_environment_install_or_GPU_replay_tested": false,
+    "NGC_CLI_target": "nim/nvidia/cosmos3-super-reasoner:modelopt-nvfp4-full-quantize-final_format_fix",
+    "NGC_CLI_reference": "https://docs.ngc.nvidia.com/cli/cmd_registry.html#download-version",
+    "tokenizer_download_files": [
+      "config.json",
+      "generation_config.json",
+      "preprocessor_config.json",
+      "video_preprocessor_config.json",
+      "tokenizer.json",
+      "tokenizer_config.json",
+      "chat_template.json"
+    ],
+    "dependency_validation": {
+      "status": "NO_CONFLICT_AMONG_PINNED_PACKAGES",
+      "platform_marker_environment": {
+        "implementation_name": "cpython",
+        "implementation_version": "3.12.15",
+        "os_name": "posix",
+        "platform_machine": "x86_64",
+        "platform_release": "",
+        "platform_system": "Linux",
+        "platform_version": "",
+        "python_full_version": "3.12.15",
+        "platform_python_implementation": "CPython",
+        "python_version": "3.12",
+        "sys_platform": "linux",
+        "extra": ""
+      },
+      "official_wheel_metadata": {
+        "vllm": {
+          "url": "https://wheels.vllm.ai/f4fd1ab68e2ba3a76bf6b903662eb6a8ee8202ab/vllm-0.33.0rc1.dev175%2Bgf4fd1ab68-cp38-abi3-manylinux_2_28_x86_64.whl",
+          "version": "0.33.0rc1.dev175+gf4fd1ab68",
+          "METADATA_sha256": "fcecaed0eb722c4a6245a1b3fa572d50bfd516ce99657140c260ac8c0a5af755",
+          "HTTP_range_bytes": 659507
+        },
+        "torch": {
+          "url": "https://files.pythonhosted.org/packages/15/71/49399acd41f750a906c686bd23c08a2001ccb8dd25f2971003c2ed89c1dd/torch-2.14.0-cp312-cp312-manylinux_2_28_x86_64.whl",
+          "version": "2.14.0",
+          "METADATA_sha256": "1d471a6fa0395637a63ed7d324ad375e39bd6d31ce15287150b8475b20bd0168",
+          "HTTP_range_bytes": 1240015
+        },
+        "torchaudio": {
+          "url": "https://files.pythonhosted.org/packages/88/d8/d6d0f896e064aa67377484efef4911cdcc07bce2929474e1417cc0af18c2/torchaudio-2.11.0-cp312-cp312-manylinux_2_28_x86_64.whl",
+          "version": "2.11.0",
+          "METADATA_sha256": "1ac77b6a77750febc5fe4921ac29d43b3cebf5b191d03c0e1413cab7e343ac31",
+          "HTTP_range_bytes": 11219
+        },
+        "torchvision": {
+          "url": "https://files.pythonhosted.org/packages/27/d7/3cf1992414fd712af4865ae5f8f5758d9003c1ed82624908d54f7afb4342/torchvision-0.29.0-cp312-cp312-manylinux_2_28_x86_64.whl",
+          "version": "0.29.0",
+          "METADATA_sha256": "256149eea9516f6996e0a2dbbf339571ca795698078de6bc405fe1a42ad334c7",
+          "HTTP_range_bytes": 19501
+        }
+      },
+      "active_cross_pin_requirements": [
+        {
+          "from": "vllm",
+          "requires": "numpy",
+          "selected_version": "2.3.5",
+          "satisfied": true
+        },
+        {
+          "from": "vllm",
+          "requires": "transformers<5.21.0,>=5.16.1",
+          "selected_version": "5.17.0",
+          "satisfied": true
+        },
+        {
+          "from": "vllm",
+          "requires": "tokenizers>=0.23.2",
+          "selected_version": "0.23.3",
+          "satisfied": true
+        },
+        {
+          "from": "vllm",
+          "requires": "safetensors>=0.6.2",
+          "selected_version": "0.8.0",
+          "satisfied": true
+        },
+        {
+          "from": "vllm",
+          "requires": "xgrammar==0.2.8; platform_machine == \"x86_64\" or platform_machine == \"aarch64\" or platform_machine == \"arm64\" or platform_machine == \"s390x\" or platform_machine == \"ppc64le\"",
+          "selected_version": "0.2.8",
+          "satisfied": true
+        },
+        {
+          "from": "vllm",
+          "requires": "opencv-python-headless>=4.13.0",
+          "selected_version": "5.0.0.93",
+          "satisfied": true
+        },
+        {
+          "from": "vllm",
+          "requires": "cloudpickle",
+          "selected_version": "3.1.2",
+          "satisfied": true
+        },
+        {
+          "from": "vllm",
+          "requires": "torch==2.14.0",
+          "selected_version": "2.14.0",
+          "satisfied": true
+        },
+        {
+          "from": "vllm",
+          "requires": "torchaudio==2.11.0",
+          "selected_version": "2.11.0",
+          "satisfied": true
+        },
+        {
+          "from": "vllm",
+          "requires": "torchvision==0.29.0",
+          "selected_version": "0.29.0",
+          "satisfied": true
+        },
+        {
+          "from": "vllm",
+          "requires": "flashinfer-python==0.7.2.post1",
+          "selected_version": "0.7.2.post1",
+          "satisfied": true
+        },
+        {
+          "from": "torchvision",
+          "requires": "numpy",
+          "selected_version": "2.3.5",
+          "satisfied": true
+        },
+        {
+          "from": "torchvision",
+          "requires": "torch (==2.14.0)",
+          "selected_version": "2.14.0",
+          "satisfied": true
+        },
+        {
+          "from": "transformers",
+          "requires": "numpy>=1.17",
+          "selected_version": "2.3.5",
+          "satisfied": true
+        },
+        {
+          "from": "transformers",
+          "requires": "tokenizers<0.24.0,>=0.23.1",
+          "selected_version": "0.23.3",
+          "satisfied": true
+        },
+        {
+          "from": "transformers",
+          "requires": "safetensors>=0.8.0",
+          "selected_version": "0.8.0",
+          "satisfied": true
+        },
+        {
+          "from": "flashinfer-python",
+          "requires": "numpy",
+          "selected_version": "2.3.5",
+          "satisfied": true
+        },
+        {
+          "from": "flashinfer-python",
+          "requires": "torch",
+          "selected_version": "2.14.0",
+          "satisfied": true
+        },
+        {
+          "from": "opencv-python-headless",
+          "requires": "numpy>=2; python_version >= \"3.9\"",
+          "selected_version": "2.3.5",
+          "satisfied": true
+        },
+        {
+          "from": "xgrammar",
+          "requires": "torch>=1.10.0",
+          "selected_version": "2.14.0",
+          "satisfied": true
+        },
+        {
+          "from": "xgrammar",
+          "requires": "transformers>=4.38.0",
+          "selected_version": "5.17.0",
+          "satisfied": true
+        },
+        {
+          "from": "xgrammar",
+          "requires": "numpy",
+          "selected_version": "2.3.5",
+          "satisfied": true
+        }
+      ],
+      "torchaudio_requires_dist": [],
+      "torchaudio_interpretation": "The official vLLM wheel requires torchaudio==2.11.0. Both the actual installed torchaudio METADATA and the official public cp312 Linux wheel METADATA declare zero Requires-Dist entries; no torch==2.11 dependency is declared. Keep the actual required audio package, without using --no-deps.",
+      "scope": "Declared dependencies between the13 pinned packages only; this is not a fresh installation, complete transitive resolver run, audio ABI test or GPU replay.",
+      "model_calls": 0,
+      "package_installs": 0,
+      "torch_version_binding": {
+        "official_PyPI_wheel_METADATA_version": "2.14.0",
+        "software_pins_torch": "2.14.0",
+        "official_wheel_version_py_runtime": "2.14.0+cu130",
+        "CUDA_version": "13.0",
+        "metadata_gate_uses_exact_equality": true,
+        "version_equivalence_exception_added": false
+      }
+    }
+  },
+  "runtime_source_sha256": {
+    "vllm/multimodal/media/video.py": "d9dcfe30b80b9b63ce2f4c8527dc596c3340471a32aeaf07c07aec9d44b4e143",
+    "vllm/model_executor/models/qwen3_vl.py": "cac3013e717c8d6299893a4e18964ea7ec3abbbf7373eed58045fab50da9028b",
+    "vllm/model_executor/layers/quantization/modelopt.py": "e76a666bdb653f86effc1094e9427e89a9acba99f0673f1c9e2f0a8784366b4f",
+    "vllm/model_executor/kernels/linear/nvfp4/flashinfer.py": "2824a032ab096c77ce527242498280abc0c0a95771a6e4c770b2e711555fc03b",
+    "vllm/sampling_params.py": "3d07f196d0488c0fdddbff5c4e1964a87233bd17c0f2e8ea3928b85143135b56",
+    "vllm/entrypoints/llm.py": "cbc2be337cfee11c2bb426e4645cd600487d418606de74652daad81657100172",
+    "vllm/model_executor/layers/fusion/mm_input_norm.py": "83387040d26ce540ea37f65b7e231ae4bb1503957117d4ed306b73eafa39df18",
+    "transformers/models/qwen3_vl/processing_qwen3_vl.py": "8ce525e56e0ddade5a665a70f0727b5576f6f51610d068ddfaf4cc60333415f0",
+    "transformers/models/qwen3_vl/video_processing_qwen3_vl.py": "62a47c40e0d69a28915fde8fa6a492adc175051e167f3ceb30bf534766a09107",
+    "vllm/multimodal/video.py": "bef88589cec8a5b73270b54812de6db50f82b8be574f0c5d8332649fad9d0c82",
+    "vllm/multimodal/processing/context.py": "e83bc205b6608ccb42dbd18a825fe196239c3307e73f16a1b6f8b0396c051bf7"
+  }
+}

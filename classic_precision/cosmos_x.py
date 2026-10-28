@@ -1,0 +1,263 @@
+"""Portable Cosmos X file-video inference; show/check never load model weights.
+
+The adjacent recipe binds the measured X route. This entry uses public LLM.chat,
+without the production scheduler, observers, QSA, or model/processor patches.
+"""
+from __future__ import annotations
+
+import argparse
+from collections import Counter
+import hashlib
+import importlib.metadata
+import json
+import os
+from pathlib import Path
+import shlex
+import subprocess
+import sys
+import time
+
+
+def canonical(value):
+    return json.dumps(value, sort_keys=True, separators=(",", ":"),
+                      ensure_ascii=False, allow_nan=False).encode()
+
+
+def digest(value):
+    return hashlib.sha256(canonical(value)).hexdigest()
+
+
+def file_sha(path):
+    result = hashlib.sha256()
+    with Path(path).open("rb") as stream:
+        for block in iter(lambda: stream.read(2**20), b""):
+            result.update(block)
+    return result.hexdigest()
+
+
+def require(condition, message):
+    if not condition:
+        raise ValueError(message)
+
+
+def recipe():
+    value = json.loads(Path(__file__).with_suffix(".json").read_text())
+    require(value["schema"] == "cosmos-x-public-v1", "Unknown Cosmos X recipe")
+    return value
+
+
+def is_primary(entry):
+    task, parameters = entry["task"], entry["nominal_parameters"]
+    if task == "T1":
+        return True
+    if task == "T2":
+        return parameters["offset_frame"] - parameters["onset_frame"] == 30
+    return task == "T3" and parameters["angle_deg"] not in (1.75, 2.25)
+
+
+def checked_index(data_root, spec):
+    root = Path(data_root).expanduser().resolve(strict=True)
+    index = json.loads((root / "dataset-index.json").read_text())
+    require(index["schema"] == "classic-precision-rgb16-index-v1", "Unknown dataset index")
+    require(index["index_id"] == digest({k: v for k, v in index.items() if k != "index_id"}),
+            "Dataset index identity differs")
+    require(digest(index["items"]) == spec["dataset"]["items_sha256"],
+            "Need the complete 12,528-source release; the old v0.3 index is insufficient")
+    require(index["counts"] == spec["dataset"]["source_counts"], "Source denominators differ")
+    require(index["input"]["bits_per_channel"] == 16 and index["input"]["codec"] == "ffv1",
+            "Expected retained lossless 16-bit FFV1 sources")
+    selected = {sid: item for sid, item in index["items"].items() if is_primary(item)}
+    require(dict(Counter(x["task"] for x in selected.values())) == spec["scope"]["counts"],
+            "Current X scope differs")
+    require(digest(sorted(selected)) == spec["scope"]["sorted_ids_sha256"],
+            "Current X ID set differs")
+    for sid, item in selected.items():
+        require(item["sample_id"] == sid, "Sample identity differs")
+        require(item["prompt"] == spec["prompts"][item["task"]], "Task prompt differs")
+        require([item[k] for k in ("frames", "height", "width", "fps")] == [180, 512, 768, 60],
+                "Source geometry or timing differs")
+    return root, index, selected
+
+
+def checked_assets(model_dir, tokenizer_dir, spec):
+    roots = {"checkpoint": Path(model_dir).expanduser().resolve(strict=True),
+             "tokenizer": Path(tokenizer_dir).expanduser().resolve(strict=True)}
+    for kind, root in roots.items():
+        manifest = spec["assets"][kind]
+        require(manifest.get("files"), "Recipe lacks qualified " + kind + " identities")
+        for name, identity in manifest["files"].items():
+            require(Path(name).name == name, "Asset path escapes its directory")
+            path = root / name
+            require(path.is_file() and path.stat().st_size == identity["bytes"],
+                    "Asset missing or size differs: " + kind + "/" + name)
+            require(file_sha(path) == identity["sha256"],
+                    "Asset SHA256 differs: " + kind + "/" + name)
+        for name in manifest.get("absent_files", []):
+            require(not (root / name).exists(), "Unexpected asset changes template/processor selection: " + name)
+    return roots
+
+
+def selected_entries(selected, ids):
+    chosen = ids or sorted(selected)
+    require(len(chosen) == len(set(chosen)), "Duplicate requested ID")
+    require(set(chosen) <= set(selected), "Requested ID is outside the current 9,456-video scope")
+    return [(sid, selected[sid]) for sid in chosen]
+
+
+def checked_media(root, entries):
+    paths = {}
+    for sid, item in entries:
+        relative = Path(item["video_relative"])
+        require(not relative.is_absolute() and ".." not in relative.parts, "Invalid relative video path")
+        path = (root / relative).resolve(strict=True)
+        # HF snapshot files may resolve to the shared blobs directory.
+        # Relative names and exact file hashes bind these cache symlinks too.
+        require(file_sha(path) == item["video_sha256"], "Source file SHA256 differs: " + sid)
+        paths[sid] = path
+    return paths
+
+
+def runtime_versions(spec):
+    result = {name: importlib.metadata.version(name) for name in spec["software_pins"]}
+    require(result == spec["software_pins"], "Pinned runtime packages differ: " + str(result))
+    for relative, expected in spec["runtime_source_sha256"].items():
+        package = relative.split("/", 1)[0]
+        path = importlib.metadata.distribution(package).locate_file(relative)
+        require(file_sha(path) == expected, "Pinned runtime source differs: " + relative)
+    return result
+
+
+def environment(spec, device):
+    for key in spec["cleared_environment"]:
+        os.environ.pop(key, None)
+    os.environ.update(spec["environment"])
+    os.environ["CUDA_VISIBLE_DEVICES"] = device
+    cuda_home = os.environ.get("CUDA_HOME")
+    require(cuda_home and (Path(cuda_home) / "bin/nvcc").is_file(),
+            "Set CUDA_HOME to the preinstalled CUDA 13.0 toolchain")
+    os.environ["FLASHINFER_NVCC"] = str(Path(cuda_home) / "bin/nvcc")
+    compiler = subprocess.run([os.environ["FLASHINFER_NVCC"], "--version"],
+                              capture_output=True, text=True, check=True, timeout=10)
+    require("release 13.0, V13.0.88" in compiler.stdout, "Expected the qualified CUDA 13.0.88 compiler")
+
+
+def engine_kwargs(spec, roots, root, memory_fraction):
+    value = dict(spec["LLM_kwargs"])
+    value.update(model=str(roots["checkpoint"]), tokenizer=str(roots["tokenizer"]),
+                 allowed_local_media_path=str(root), gpu_memory_utilization=memory_fraction)
+    return value
+
+
+def append(stream, value):
+    stream.write(canonical(value).decode() + "\n")
+    stream.flush()
+    os.fsync(stream.fileno())
+
+
+def run(args, spec, root, roots, entries, paths, versions):
+    output = Path(args.output).expanduser().resolve()
+    output.mkdir(parents=True, exist_ok=False)
+    media_root = Path(os.path.commonpath([str(path.parent) for path in paths.values()]))
+    kwargs = engine_kwargs(spec, roots, media_root, args.gpu_memory_utilization)
+    with (output / "binding.json").open("x") as stream:
+        append(stream, {"recipe_sha256": file_sha(Path(__file__).with_suffix(".json")),
+                        "software": versions, "LLM_kwargs": kwargs,
+                        "sampling": spec["sampling"], "chat_template_kwargs": spec["chat_template_kwargs"],
+                        "request_mm_processor_kwargs": spec["request_mm_processor_kwargs"],
+                        "assigned_ids": [sid for sid, _ in entries], "automatic_retry": False,
+                        "production_GPU_observer_included": False})
+    from vllm import LLM, SamplingParams
+    from vllm.sampling_params import StructuredOutputsParams
+    import torch
+    require(torch.__version__ == "2.14.0+cu130" and torch.version.cuda == "13.0",
+            "Expected the qualified Torch CUDA 13.0 build")
+    torch.set_num_threads(6)
+    sampling = SamplingParams(**spec["sampling"],
+        structured_outputs=StructuredOutputsParams(choice=["LEFT", "RIGHT"]))
+    require(not sampling.ignore_eos and sampling.stop == [] and sampling.stop_token_ids == [],
+            "Native EOS policy changed")
+    completed, pending = [], None
+    started = time.monotonic()
+    try:
+        engine = LLM(**kwargs)
+        with (output / "intents.jsonl").open("x") as intents, (output / "raw.jsonl").open("x") as raw:
+            for sid, item in entries:
+                pending = sid
+                append(intents, {"sample_id": sid, "task": item["task"],
+                                 "source_sha256": item["video_sha256"]})
+                messages = [{"role": "user", "content": [
+                    {"type": "video_url", "video_url": {"url": paths[sid].as_uri()}},
+                    {"type": "text", "text": item["prompt"]}]}]
+                request_start = time.monotonic()
+                result = engine.chat(messages, sampling_params=sampling, use_tqdm=False,
+                    mm_processor_kwargs=spec["request_mm_processor_kwargs"],
+                    chat_template_kwargs=spec["chat_template_kwargs"])[0]
+                answer = result.outputs[0]
+                append(raw, {"sample_id": sid, "task": item["task"], "truth": item["truth"],
+                             "raw_answer": answer.text, "output_token_ids": list(answer.token_ids),
+                             "prompt_token_ids": list(result.prompt_token_ids),
+                             "finish_reason": answer.finish_reason, "stop_reason": answer.stop_reason,
+                             "source_sha256": item["video_sha256"],
+                             "request_seconds": time.monotonic() - request_start})
+                require(answer.finish_reason == "stop", "Incomplete output retained for " + sid)
+                require(answer.text.strip() in ("LEFT", "RIGHT"), "Invalid answer retained for " + sid)
+                require(len(result.prompt_token_ids) + spec["sampling"]["max_tokens"]
+                        <= spec["LLM_kwargs"]["max_model_len"], "Context budget exceeded for " + sid)
+                completed.append(sid)
+                pending = None
+    finally:
+        with (output / "result.json").open("x") as stream:
+            append(stream, {"status": "REQUESTS_COMPLETE" if len(completed) == len(entries) else "INTERRUPTED",
+                            "completed_ids": completed, "uncertain_id": pending,
+                            "assigned": len(entries), "elapsed_seconds": time.monotonic() - started,
+                            "automatic_retry": False, "GPU_input_qualification_claimed": False})
+    return {"status": "REQUESTS_COMPLETE", "completed": len(completed), "output": str(output)}
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("command", choices=["show", "install-command", "check-index", "check", "run"])
+    parser.add_argument("--data-root")
+    parser.add_argument("--model-dir")
+    parser.add_argument("--tokenizer-dir")
+    parser.add_argument("--id", action="append", dest="ids", help="Optional finite subset of primary IDs")
+    parser.add_argument("--output", help="New output directory; existing directories are refused")
+    parser.add_argument("--device", default="0", help="One CUDA device index or UUID")
+    parser.add_argument("--gpu-memory-utilization", type=float, choices=[0.9, 0.78], default=0.9)
+    args = parser.parse_args()
+    spec = recipe()
+    if args.command == "show":
+        print(json.dumps(spec, indent=2))
+        return
+    if args.command == "install-command":
+        wheel = spec["installation"]["vllm_official_wheel"]
+        torch_wheel = spec["installation"]["torch_public_cp312_wheel"]
+        packages = [name + "==" + version for name, version in spec["software_pins"].items()
+                    if name not in ("vllm", "torch")]
+        print(shlex.join([sys.executable, "-m", "pip", "install",
+                         wheel["url"] + "#sha256=" + wheel["sha256"],
+                         torch_wheel["url"] + "#sha256=" + torch_wheel["sha256"], *packages]))
+        return
+    require(args.data_root, "--data-root is required")
+    root, index, selected = checked_index(args.data_root, spec)
+    entries = selected_entries(selected, args.ids)
+    if args.command == "check-index":
+        print(json.dumps({"status": "PASS", "source_videos": len(index["items"]),
+                          "primary_counts": spec["scope"]["counts"], "selected": len(entries),
+                          "model_calls": 0, "runtime_imported": False}))
+        return
+    require(args.model_dir and args.tokenizer_dir, "--model-dir and --tokenizer-dir are required")
+    roots = checked_assets(args.model_dir, args.tokenizer_dir, spec)
+    paths = checked_media(root, entries)
+    versions = runtime_versions(spec)
+    if args.command == "check":
+        print(json.dumps({"status": "PASS", "selected": len(entries), "software": versions,
+                          "model_calls": 0, "weights_loaded": False, "runtime_imported": False}))
+        return
+    require(args.output, "--output is required for run")
+    environment(spec, args.device)
+    print(json.dumps(run(args, spec, root, roots, entries, paths, versions)))
+
+
+if __name__ == "__main__":
+    main()

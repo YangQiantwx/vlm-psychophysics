@@ -2,6 +2,64 @@
 
 Controlled visual psychophysics with lossless RGB16 source videos. Source accuracy, framework preprocessing and model outputs are separate measurements. [Protocol](EXPERIMENT_PLAN.md) defines stimuli and numerical scope; [findings](report.md) retains observations and negative results. Local operational decisions are in the benchmark registry and project `LATEST.md`.
 
+<!-- cosmos-x-public-current -->
+## Current Cosmos X reproduction
+
+The current Cosmos X scope is **T1 3,840 + T2 2,880 + T3 2,736 = 9,456 unique videos**. T2 uses only 30-frame/500 ms exposures; T3 excludes the auxiliary 1.75°/2.25° conditions. The complete source collection retains all 12,528 videos. Full-scope X inference was still running on 2026-10-28 HST; no complete X accuracy is claimed here. The completed curves and execution maps below retain their earlier protocol identities.
+
+[`classic_precision/cosmos_x.py`](classic_precision/cosmos_x.py) is a portable entry using public `LLM.chat`; [`cosmos_x.json`](classic_precision/cosmos_x.json) binds the actual X settings and exact source/prompt/asset identities. It uses the official mixed NVFP4 checkpoint and a separately pinned original tokenizer. QSA and custom model-forward/processor code are not required for this Cosmos route.
+
+The recipe lists all 17 official NGC files for `cosmos3-super-reasoner:modelopt-nvfp4-full-quantize-final_format_fix` and seven small tokenizer/config files from [the original f543 revision](https://huggingface.co/nvidia/Cosmos3-Super/tree/f543c56225b2e04d0ad141e29655be3a45d9c455). The full original BF16 weights are unnecessary. The NGC file API requires authenticated access; the entry does not download or substitute weights.
+
+With the [official NGC CLI](https://docs.ngc.nvidia.com/cli/cmd_registry.html#download-version) already authenticated, download the exact model version, then point `--model-dir` to the downloaded directory containing `config.json` and the three weight shards:
+
+```bash
+ngc registry model download-version --dest /absolute/checkpoints \
+  'nim/nvidia/cosmos3-super-reasoner:modelopt-nvfp4-full-quantize-final_format_fix'
+hf download nvidia/Cosmos3-Super \
+  --revision f543c56225b2e04d0ad141e29655be3a45d9c455 \
+  --local-dir /absolute/original-f543-tokenizer \
+  config.json generation_config.json preprocessor_config.json \
+  video_preprocessor_config.json tokenizer.json tokenizer_config.json chat_template.json
+```
+
+| Boundary | Fixed X setting |
+|---|---|
+| Source → reader | Lossless RGB16 FFV1 → official OpenCV uint8; 180 frames, `fps=-1` |
+| Processor | Effective 768×512; `do_resize=False`, `do_sample_frames=False` at engine **and request** scope; pruning 0 |
+| Runtime | vLLM `0.33.0rc1.dev175+gf4fd1ab68`, Torch `2.14.0+cu130`, Transformers `5.17.0`, FlashInfer `0.7.2.post1` |
+| Numerical policy | Official automatic kernels and autotuning; native GPU normalization; no explicit compilation override; eager execution |
+| Generation | Exact task prompt; thinking OFF; greedy temperature 0, top-p 1, seed 0; LEFT/RIGHT constraint; native EOS; output cap 16,384 |
+| Resources | Context 65,536; BF16 KV 17 GiB; batch-token cap 36,000; one sequence; prefix/MM caches 0; CPU offload 0 |
+
+From a source checkout, inspect or check the source index without importing Torch, vLLM or CUDA:
+
+```bash
+python -B -m classic_precision.cosmos_x show
+python -B -m classic_precision.cosmos_x check-index --data-root /absolute/dataset
+```
+
+For Linux x86_64 with the intended existing Python 3.12 interpreter, `python -B -m classic_precision.cosmos_x install-command` prints the exact pip command without executing it. It uses the official vLLM commit wheel and SHA256, the public Torch CUDA 13 wheel and SHA256, and fixed dependencies. The installed vLLM `direct_url.json` hash matches the official receipt, its public wheel URL currently returns HTTP 200, and the Torch wheel's `version.py` confirms `2.14.0+cu130` through a metadata-only range read. Declared dependencies between all 13 pinned packages pass consistency checks. vLLM itself requires torchaudio 2.11.0; that official audio wheel and the installed audio package declare no Torch dependency, while torchvision 0.29.0 explicitly requires Torch 2.14.0. This keeps the actual dependencies without using `--no-deps`. A fresh installation, full transitive resolver run and GPU replay of this portable entry have not been performed.
+
+In the provisioned pinned Linux/CUDA 13 runtime, provide the dataset, official checkpoint and independent tokenizer directories:
+
+```bash
+python -B -m classic_precision.cosmos_x run \
+  --data-root /absolute/dataset \
+  --model-dir /absolute/official-nvfp4-checkpoint \
+  --tokenizer-dir /absolute/original-f543-tokenizer \
+  --output /absolute/new-output-directory
+```
+
+Set `CUDA_HOME` to the existing CUDA 13.0.88 compiler directory. The default memory fraction is 0.9; `--gpu-memory-utilization 0.78` selects the other measured host resource setting. Use repeated `--id SAMPLE_ID` for an explicit finite subset; omitting IDs selects all 9,456. Source files, assets, package versions and the measured SDK source hashes are checked before loading; complete output/prompt tokens and original answers are retained, existing output directories are refused, and failed requests are never retried automatically.
+
+**Release availability:** [v0.4](https://huggingface.co/datasets/DrQY/vlm-psychophysics-classic-t1-t3/tree/83aed535b2109629bf91d5022c9b2ad359566754) now contains all 12,528 source videos, including every current X input. All previous 9,360 media are unchanged. Pin dataset revision `83aed535b2109629bf91d5022c9b2ad359566754`; the public dataset also contains the standalone `reproduction/cosmos_x.py` and JSON recipe, so access to this private GitHub repository is not required. The entry rejects the incomplete old index. Substitute “latest” packages or same-named HF quantizations do not establish this recipe.
+
+Current X evidence is bounded to 144/144 repeated complete outputs on the measured same-card panel and 12/12 F1/R0 overlap. Source QA and no-resize settings do not guarantee identical outputs for every video or across hardware. The new portable entry has CPU contract checks; its own clean-machine GPU run has not been performed.
+
+A→X changes several coupled boundaries: RGB16→FP32 versus native uint8 decoding; the old processor/input bridge versus native file video with GPU normalization; vLLM/Torch/FlashInfer versions; explicit FlashInfer CUTLASS selection versus automatic selection; and autotuning OFF versus the official default ON. Both actual receipts contain 256 FlashInfer CUTLASS NVFP4 kernel instances, so a different kernel class is not established. Transformers stays at 5.17.0. A explicitly requests compilation mode 0; X's eager setting also resolves to mode 0 with CUDA Graphs and multimodal encoder compilation disabled. A explicitly sets Torch numerical flags; X leaves native defaults after setting threads/seed, and exact child-flag equality has not been independently dumped. This comparison cannot attribute differences to loading, vLLM, precision or a single kernel alone.
+<!-- /cosmos-x-public-current -->
+
 ## Choose the protocol first
 
 | Protocol | Input contract | Evidence |
