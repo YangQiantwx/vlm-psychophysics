@@ -40,8 +40,8 @@ def approved_shell(command, case):
         for args in chunks:
             name=Path(args[0]).name;a=args[1:]
             if name=='cd' and len(a)==1:cwd=path(a[0]);continue
-            if name=='mkdir' and a and a[0]=='-p' and len(a)>1:
-                for value in a[1:]:path(value)
+            if name=='mkdir' and a and (a[0]=='-p' or not a[0].startswith('-')):
+                for value in (a[1:] if a[0]=='-p' else a):path(value)
                 continue
             if name=='ffmpeg':
                 i=0;inputs=[];outputs=[]
@@ -64,9 +64,13 @@ def approved_shell(command, case):
                 for value in a:
                     if value in allowed:continue
                     if value.startswith('-'):return False,'unreviewed listing option'
-                    path(value)
+                    if name=='ls' and re.fullmatch(r'(?:frames/)?frame_\*\.png|frames/\*\.png',value):
+                        path(value.replace('*','0'))
+                    else:path(value)
                 continue
             if name=='wc' and a==['-l']:continue
+            if name=='printf' and len(a)==2 and re.fullmatch(r'%s\\+n',a[0]) and re.fullmatch(r'(?:frames/)?frame_\*\.png|frames/\*\.png',a[1]):
+                path(a[1].replace('*','0'));continue
             if name=='sort' and not a:continue
             if name=='pwd' and not a:continue
             return False,'unreviewed command '+name
@@ -77,6 +81,17 @@ def approved_shell(command, case):
 def exec_review(code):
     # Do not execute agent JavaScript. Unknown functions/indirection require
     # inspection even when a keyword blacklist would have missed them.
+    # Tool discovery reads the harness's public names/descriptions, not any
+    # video, filesystem, or label data. Recognize this exact read-only syntax;
+    # do not generally allow arbitrary filter/map callbacks or regex methods.
+    discovery=(r'text\(\s*ALL_TOOLS'
+        r'(?:\.filter\(\s*x\s*=>\s*/[^/\n]+/[i]?\.test\('
+        r'x\.(?:name|description)(?:\s*\+\s*["\'] ["\']\s*\+\s*x\.(?:name|description))?\)\))?'
+        r'(?:\.map\(x\s*=>\s*\(\{name:x\.name,description:x\.description\.'
+        r'(?:slice|substring)\(0,\s*\d+\)\}\)\))?'
+        r'(?:\.slice\(0,\s*\d+\))?\s*\)\s*;?')
+    code=re.sub(discovery,'',code)
+    code=re.sub(r'String\((\w+)\)\.padStart\(\d+,\s*["\']0["\']\)',r'String(\1)',code)
     stripped=re.sub(r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|`[^`]*`','""',code)
     calls=re.findall(r'([\w.]+)\s*\(',stripped)
     allowed={'for','if','catch','text','image','String','JSON.stringify',
@@ -100,6 +115,15 @@ def image_paths(code, args):
     """Interpret only literal paths and simple increasing loops, never execute JS."""
     if isinstance(args,dict) and 'path' in args:return [args['path']]
     if 'view_image' not in code:return []
+    # Equivalent literal-prefix + zero-padded loop index + literal-suffix form.
+    # Convert only this finite path grammar; never evaluate arbitrary JS.
+    concat=r'''(["']?path["']?\s*:\s*)("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')\s*\+\s*String\((\w+)\)\.padStart\((\d+),\s*["']0["']\)\s*\+\s*("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')'''
+    def path_template(match):
+        prefix,suffix=literal(match[2]),literal(match[5])
+        if not isinstance(prefix,str) or not isinstance(suffix,str) or any(x in prefix+suffix for x in ('`','${')):
+            return match[0]
+        return match[1]+'`'+prefix+'${String('+match[3]+').padStart('+match[4]+',"0")}'+suffix+'`'
+    code=re.sub(concat,path_template,code)
     tokens=re.findall(r'''["']?path["']?\s*:\s*("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`[^`]*`)''',code)
     loops=re.findall(r'for\s*\(\s*(?:let|const|var)\s+(\w+)\s*=\s*(\d+)\s*;\s*\1\s*(<=|<)\s*(\d+)\s*;\s*(?:\1\+\+|\+\+\1|\1\s*\+=\s*1)\s*\)',code)
     array_loops=re.findall(r'for\s*\(\s*(?:let|const|var)\s+(\w+)\s+of\s+(\[[^\[\]\n]*\])\s*\)',code)
