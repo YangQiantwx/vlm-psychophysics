@@ -59,7 +59,7 @@ def audit_case(root,case):
     if cache.exists():
         old=read(cache)
         if old.get('identity')==key:return old
-    pending={};viewed=[];images=0;unresolved=0;image_shapes=Counter();bad_hash=[];unknown_tools=[]
+    pending={};eof_loops={};viewed=[];images=0;unresolved=0;image_shapes=Counter();bad_hash=[];unknown_tools=[];eof_probes=0
     tool_names=[];runtime_errors=[];contexts=[]
     for row in json_lines(rollout):
         p=row.get('payload',{});typ=p.get('type')
@@ -72,6 +72,7 @@ def audit_case(root,case):
                 except ValueError:pass
             name=p.get('name','');code=raw if isinstance(raw,str) else json.dumps(raw)
             pending[p['call_id']]=image_paths(code,args) if name.split('.')[-1] in ['exec','view_image'] else []
+            eof_loops[p['call_id']]='catch' in code and 'break' in code
             tool_names.extend(re.findall(r'tools\.([\w]+)\s*\(',code))
             if name.split('.')[-1] not in ['exec','view_image','exec_command','write_stdin','wait']:
                 unknown_tools.append(name)
@@ -83,6 +84,15 @@ def audit_case(root,case):
             actual=[x for x in output if x.get('type')=='input_image']
             images+=len(actual)
             pp=pending.get(p.get('call_id'))
+            if actual and pp and len(pp)>len(actual) and eof_loops.get(p.get('call_id')):
+                def exists(value):
+                    pth=Path(value)
+                    return (pth if pth.is_absolute() else Path(case['public_directory'])/pth).is_file()
+                # A recorded sequential loop can stop at the first missing EOF
+                # file. Verify the returned prefix hashes below; never infer
+                # omitted frames merely from a requested loop range.
+                if all(exists(v) for v in pp[:len(actual)]) and not any(exists(v) for v in pp[len(actual):]):
+                    eof_probes+=1;pp=pp[:len(actual)]
             if actual and (pp is None or len(pp)!=len(actual)):
                 unresolved+=len(actual);pp=[]
             for j,item in enumerate(actual):
@@ -134,6 +144,7 @@ def audit_case(root,case):
            'session_id':result['session_id'],'resume_command':result['resume_command'],
            'protocol_status':status,'returned_images':images,'resolved_frame_paths':len(viewed),
            'unresolved_image_paths':unresolved,'frame_indices_in_order':indices,'image_dimensions':dict(image_shapes),
+           'end_of_sequence_missing_file_probes':eof_probes,
            'one_successful_decode':len(decode)==1 and decode[0].get('exit_code')==0,'decoded_png_files':len(decoded_files),
            'image_identity_mismatches':bad_hash,'outside_case_paths':outside,'transform_flags':transforms,
            'unusual_tools':unusual+unknown_tools,'runtime_errors':runtime_errors,'model_effort_verified':actual_model,
