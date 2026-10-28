@@ -25,8 +25,10 @@ def model_key():
 
 def paths(root):
     root=Path(root)
-    if os.environ.get('CVPR_CLI_ATTEMPT')=='full-access1':
-        suffix=model_key()+'-full-access1'
+    attempt=os.environ.get('CVPR_CLI_ATTEMPT')
+    require(attempt in (None, 'full-access1', 'full-access2'), 'Unknown finite CLI attempt')
+    if attempt:
+        suffix=model_key()+'-'+attempt
         return root/'plans'/NAME/suffix,root/'runs/reproducibility'/NAME/suffix
     out=root/'runs/reproducibility'/NAME
     if model_key()=='qwen':out=out/'qwen-fallback'
@@ -344,6 +346,15 @@ def run_all(root,port):
     import fcntl,os,signal,time,urllib.request,psutil
     plan_dir,out=paths(root)
     require(read(out/'path-only-transport-audit.json')['status']=='PASS','CPU transport not ready')
+    if os.environ.get('CVPR_CLI_ATTEMPT')=='full-access2':
+        require(model_key()=='qwen','Startup repair is limited to Qwen')
+        prior=out.parent/'qwen-full-access1'
+        prior_wait=read(prior/'server.wait.json');prior_close=read(prior/'lease-closure.json')
+        require(prior_wait['real_wait'] and prior_wait['returncode']==1
+                and not prior_wait['owned_survivors'] and prior_close['original_same_inode_free']
+                and not prior_close['owned_survivors'] and not list(prior.glob('case-*')),
+                'QSA startup repair requires zero submitted cases and closed original lease')
+        require(read(out/'qsa-cpu-admission.json')['status']=='PASS', 'QSA CPU contract not verified')
     if model_key()=='qwen':
         previous=Path(root)/'runs/reproducibility'/NAME
         prior=read(previous/'case-1/result.json')

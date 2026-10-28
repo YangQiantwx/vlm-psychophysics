@@ -6,10 +6,32 @@ from .embodied_admission import append, new
 from .nvfp4_cosmos_official import _configure_torch, _engine_receipt, validate_engine_receipt
 
 
+def prepare_qsa():
+    """Import the reviewed lazy target before requiring an applied selector."""
+    import importlib
+    from .native_path_smoke import qsa_control
+    from .embodied_admission import require
+    from runtime_compat import classic_precision_qsa_determinism as qsa
+    before = qsa_control(None)
+    require(before and before['state'] in ('pending_target_import', 'applied'),
+            'Reviewed QSA installation missing')
+    target = importlib.import_module(qsa.TARGET_MODULE)
+    after = qsa_control(None)
+    require(after['state'] == 'applied'
+            and getattr(target._topk, '_classic_precision_qsa_determinism', None) == after,
+            'Actual QSA target does not carry the reviewed selector')
+    return {'before': before, 'after': after}
+
+
 class LocalVisualWorker(Worker):
     def load_model(self, *, load_dummy_weights=False):
         import torch
         if os.environ.get('CVPR_CLI_MODEL','cosmos')=='cosmos':_configure_torch(torch)
+        else:
+            # API startup can leave the native QSA module lazily unimported.
+            # The original helper validates its source and installs the exact
+            # same selector; no processor/model mathematics is changed here.
+            new(Path(os.environ['CVPR_CLI_AUDIT_ROOT'])/'qsa-preload.json', prepare_qsa())
         return super().load_model(load_dummy_weights=load_dummy_weights)
 
     def compile_or_warm_up_model(self):

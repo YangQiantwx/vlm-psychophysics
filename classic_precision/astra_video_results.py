@@ -177,13 +177,16 @@ def run(root):
     tasks={}
     for t in ['T1','T2','T3']:
         rr=[r for r in rows if r['task']==t];full=[r for r in rr if r['protocol_status']=='FULL180_TRACE_PASS']
+        visual=[r for r in rr if r['returned_images']>0 and r['protocol_status']!='EXECUTION_FAILED']
         tasks[t]={'planned':plan['counts'][t],'closed':len(rr),'raw_correct':sum(r['correct'] for r in rr),
+                  'observed_visual_n':len(visual),'observed_visual_correct':sum(r['correct'] for r in visual),
                   'full180_n':len(full),'full180_correct':sum(r['correct'] for r in full),
                   'status_counts':dict(Counter(r['protocol_status'] for r in rr))}
     result={'status':'COMPLETE_TRACE_AUDIT' if len(rows)==924 else 'PARTIAL_TRACE_AUDIT',
             'closed':len(rows),'planned':924,'by_task':tasks,'status_counts':dict(Counter(r['protocol_status'] for r in rows)),
             'full180_total':sum(r['protocol_status']=='FULL180_TRACE_PASS' for r in rows),
             'limits':['Raw accuracy includes environment failures and partial inspection; never present it as full180 accuracy.',
+                      'Observed-visual accuracy excludes zero-image and failed executions but includes early answers and unresolved trace reviews; it is not full180 protocol acceptance.',
                       'Full180 subset is selected by observed agent behavior, not randomized; report selection bias.',
                       'Four videos per cell is a finite pilot, not a well-estimated psychometric threshold.']}
     write(out/'trace-summary.json',result)
