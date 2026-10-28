@@ -754,6 +754,74 @@ def write_csv(path, rows):
                         for k, v in r.items()})
 
 
+def add_historical_a(root, manifest_path):
+    """Join original controlled A to already-audited C/X, without re-running workers."""
+    archive = Archive(root)
+    output = archive.root / 'runs/reproducibility/official-x-20261028/analysis'
+    accepted = read(output / 'summary.json')
+    require(accepted['status'] == 'COMPLETE_FINITE_STUDY', 'Completed X audit required')
+    require(descriptor(manifest_path) == accepted['manifest'], 'Accepted manifest changed')
+    plan = read(manifest_path)
+    records = read(output / 'canonical-records.json')
+    c_records = archive.ref(plan['historical_C'])['records']
+    validation, _ = validation_tables(records, c_records)
+    require(validation == accepted['validation'], 'Canonical records differ from accepted comparison')
+    a_path = archive.root / 'plans/reader-route-smoke-20261026/historical.csv'
+    with a_path.open() as f:
+        a_rows = list(csv.DictReader(f))
+    a_lookup = {(r['model'], r['sample_id']): r for r in a_rows}
+    c_lookup = {(r['model'], r['sample_id']): r for r in c_records}
+    x_lookup = {(r['model'], r['sample_id']): r for r in records
+                if r['phase'] == 'validation' and r['replicate'] == 1}
+    require(len(a_rows) == len(a_lookup) == len(c_records) == len(c_lookup) == len(x_lookup) == 576,
+            'Expected exactly 576 unique model/source pairs in each route')
+    require(set(a_lookup) == set(c_lookup) == set(x_lookup), 'Historical source IDs differ')
+    paired, groups = [], defaultdict(list)
+    for key, x in x_lookup.items():
+        a, c = a_lookup[key], c_lookup[key]
+        require(a['protocol'] == 'controlled-rgb16', 'A must be original controlled historical answers')
+        require(a['task'] == c['task'] == x['task'] and a['truth'] == c['truth'] == x['truth'],
+                'A/C/X task or ground truth differs')
+        require(a['source_video_sha256'] == c['source_video_sha256']
+                and a['source_video_sha256'] in [sha for kind, sha in x['source_media'] if kind == 'video'],
+                'A/C/X source video bytes differ')
+        answers = {'A': a['answer'], 'C': c['answer'], 'X': x['answer']}
+        require(all(v in ('LEFT', 'RIGHT') for v in answers.values()), 'Invalid historical label')
+        row = {'model': key[0], 'task': x['task'], 'sample_id': key[1], 'truth': x['truth'],
+               'source_video_sha256': a['source_video_sha256'], **answers,
+               **{k + '_correct': v == x['truth'] for k, v in answers.items()},
+               'A_raw_sha256': a['raw_sha256'], 'X_raw_digest': x['raw_digest'],
+               'A_reference_file': a['reference_file'], 'A_reference_row': a['reference_row']}
+        require(row['A_correct'] == (a['correct'] == '1') and row['C_correct'] == c['correct']
+                and row['X_correct'] == x['correct'], 'Saved correctness does not match labels')
+        paired.append(row); groups[(key[0], x['task'])].append(row)
+    comparison = []
+    for (model, task), rows in sorted(groups.items()):
+        require(len(rows) == {'T2': 48, 'T3': 96}[task], 'Incomplete fixed cell')
+        cell = {'model': model, 'task': task, 'n': len(rows),
+                **{route + '_correct': sum(r[route + '_correct'] for r in rows) for route in ('A', 'C', 'X')}}
+        for before, after in (('A', 'C'), ('A', 'X'), ('C', 'X')):
+            prefix = before + '_to_' + after
+            cell.update({prefix + '_changes': sum(r[before] != r[after] for r in rows),
+                         prefix + '_correct_to_wrong': sum(r[before + '_correct'] and not r[after + '_correct'] for r in rows),
+                         prefix + '_wrong_to_correct': sum(not r[before + '_correct'] and r[after + '_correct'] for r in rows)})
+        comparison.append(cell)
+    summary = {'schema': 'official-x-historical-A-C-X-v1', 'status': 'COMPLETE_DESCRIPTIVE_COMPARISON',
+               'new_model_calls': 0, 'unique_model_source_pairs': len(paired), 'comparison': comparison,
+               'sources': {name: descriptor(path) for name, path in {
+                   'historical_A': a_path, 'historical_C': archive.path(plan['historical_C']['path']),
+                   'accepted_X_audit': output / 'summary.json', 'accepted_X_records': output / 'canonical-records.json'
+               }.items()},
+               'limits': ['A is the original controlled historical answer, not smoke A replay.',
+                          'Nemo historical replay had seven cross-host differences on these 144 sources; causal attribution to decoding alone is not established.',
+                          'C and X both use uint8, but differ in runtime stack; scores are not a bit-depth-only comparison.',
+                          'X is the first accepted replicate; the second is separately verified identical.']}
+    atomic_json(output / 'A-C-X-summary.json', summary)
+    write_csv(output / 'A-C-X-comparison.csv', comparison)
+    write_csv(output / 'A-C-X-paired.csv', paired)
+    return {'status': summary['status'], 'new_model_calls': 0, 'pairs': len(paired), 'comparison': comparison}
+
+
 def analyze(root, manifest_path):
     archive = Archive(root);manifest_path = Path(manifest_path);plan = read(manifest_path)
     require(plan['schema'] == 'official-x-analysis-manifest-v1', 'Explicit accepted-worker manifest required')
@@ -797,8 +865,11 @@ def analyze(root, manifest_path):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__);p.add_argument('--root', required=True)
-    p.add_argument('--manifest', required=True);a = p.parse_args()
-    print(json.dumps(analyze(a.root, a.manifest), ensure_ascii=False))
+    p.add_argument('--manifest', required=True)
+    p.add_argument('--add-historical-a', action='store_true', help='Join original A to an existing completed X audit; no worker re-audit')
+    a = p.parse_args()
+    fn = add_historical_a if a.add_historical_a else analyze
+    print(json.dumps(fn(a.root, a.manifest), ensure_ascii=False))
 
 
 if __name__ == '__main__':
