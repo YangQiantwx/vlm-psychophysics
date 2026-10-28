@@ -8,6 +8,7 @@ import argparse
 import copy
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -16,16 +17,25 @@ from .storage import file_sha256
 NAME='codex-local-visual-20261027'
 
 
+def model_key():
+    value=os.environ.get('CVPR_CLI_MODEL','cosmos')
+    require(value in ['cosmos','qwen'],'Unknown local model')
+    return value
+
+
 def paths(root):
     root=Path(root)
-    return root/'plans'/NAME,root/'runs/reproducibility'/NAME
+    out=root/'runs/reproducibility'/NAME
+    if model_key()=='qwen':out=out/'qwen-fallback'
+    return root/'plans'/NAME,out
 
 
 def case_inputs(root,index):
     plan_dir,out=paths(root);p=read(plan_dir/'path-only-plan.json')
     require(p['model_input'].startswith('Only exact user prompt'),'Wrong path-only plan')
     require(file_sha256(plan_dir/'prompt.txt')==p['prompt_sha256'],'Prompt changed')
-    case=p['samples'][index];evidence=read(out/'input-manifest.json')['records'][index]
+    case=p['samples'][index]
+    evidence=read(Path(root)/'runs/reproducibility'/NAME/'input-manifest.json')['records'][index]
     video=Path(case['public_directory'])/case['public_filename']
     require(str(video)==evidence['neutral_video'],'Neutral path changed')
     require(file_sha256(video)==evidence['source_sha256'],'Neutral video bytes changed')
@@ -37,8 +47,8 @@ def prepare_catalog(root):
     m=dict(read(Path('/home/yang/.codex/models_cache.json'))['models'][0])
     template=m['model_messages']['instructions_template']
     m['base_instructions']=template.replace('You are Codex, an agent based on GPT-6.',
-        'You are Codex, an agent using a local Cosmos model.',1)
-    m.update(slug='cosmos-local',display_name='Local Cosmos NVFP4',
+        'You are Codex, an agent using a local '+model_key()+' model.',1)
+    m.update(slug=model_key()+'-local',display_name='Local '+model_key()+' NVFP4',
         description='Local model through the real Codex CLI agent',
         default_reasoning_level='none',supported_reasoning_levels=[],
         include_skills_usage_instructions=False,include_plugin_usage_instructions=False,
@@ -50,25 +60,25 @@ def prepare_catalog(root):
               'available_access_programs','availability_nux','comp_hash','service_tiers',
               'additional_speed_tiers','upgrade']:m.pop(k,None)
     # No replacement instructions: retain Codex's normal agent harness.
-    new(plan_dir/'path-only-model-catalog.json',{'models':[m]})
+    new(plan_dir/('path-only-'+model_key()+'-model-catalog.json'),{'models':[m]})
 
 
 def cli_command(root,case,port,output):
     plan_dir,_=paths(root)
     args=['/home/yang/.local/bin/codex','exec','--ignore-user-config','--ignore-rules',
         '--skip-git-repo-check','--ephemeral','--sandbox','workspace-write','--json',
-        '-C',case['public_directory'],'-m','cosmos-local']
+        '-C',case['public_directory'],'-m',model_key()+'-local']
     settings={
         'model_provider':'cvpr_local',
         'model_providers.cvpr_local.base_url':f'http://127.0.0.1:{port}/v1',
-        'model_providers.cvpr_local.name':'Local Cosmos',
+        'model_providers.cvpr_local.name':'Local '+model_key(),
         'model_providers.cvpr_local.wire_api':'responses',
         'model_providers.cvpr_local.requires_openai_auth':False,
         'model_providers.cvpr_local.supports_websockets':False,
         'model_providers.cvpr_local.request_max_retries':0,
         'model_providers.cvpr_local.stream_max_retries':0,
         'model_providers.cvpr_local.stream_idle_timeout_ms':600000,
-        'model_catalog_json':str(plan_dir/'path-only-model-catalog.json'),
+        'model_catalog_json':str(plan_dir/('path-only-'+model_key()+'-model-catalog.json')),
         'model_reasoning_effort':'none',
         'model_context_window':98304,'project_doc_max_bytes':0,'project_root_markers':[],
         'web_search':'disabled','features.shell_tool':True,
@@ -126,7 +136,8 @@ def validate_first_request(root,body,case):
 
 def capture(root,port):
     plan_dir,out=paths(root)
-    if not (plan_dir/'path-only-model-catalog.json').exists():prepare_catalog(root)
+    out.mkdir(parents=True,exist_ok=True)
+    if not (plan_dir/('path-only-'+model_key()+'-model-catalog.json')).exists():prepare_catalog(root)
     case,prompt=case_inputs(root,0);captured=[]
     class Handler(BaseHTTPRequestHandler):
         def log_message(self,*args):pass
@@ -176,7 +187,7 @@ def main():
         _,out=paths(a.root)
         new(out/'server-cpu-admission.json',{'status':'PASS','settings':settings,
             'model_calls':0,'tool_parser':args.tool_call_parser,
-            'same_checkpoint':settings['model']==parent['engine_settings']['model'],
+            'same_checkpoint':settings['model']==parent.get('engine_settings',{}).get('model',parent['checkpoint']),
             'engine_args_class':type(engine_args).__name__})
         print('SERVER_CPU_ARGUMENTS_PASS')
 
@@ -186,14 +197,23 @@ def server_arguments(root, port):
     from vllm.entrypoints.launchers.cli_args import make_arg_parser, validate_parsed_serve_args
     from vllm.engine.arg_utils import AsyncEngineArgs
     plan_dir,out=paths(root)
-    parent=read(Path(root)/'plans/reader-route-smoke-20261026/cosmos-fourier1-C-repair1-profile.json')
-    settings=copy.deepcopy(parent['engine_settings'])
-    settings.update(max_model_len=98304,kv_cache_memory_bytes=32*2**30,
+    parent=read(Path(root)/'plans/reader-route-smoke-20261026'/
+        (model_key()+'-fourier1-C-repair1-profile.json'))
+    if model_key()=='cosmos':settings=copy.deepcopy(parent['engine_settings'])
+    else:
+        settings=dict(model=parent['checkpoint'],trust_remote_code=True,tensor_parallel_size=1,
+            max_num_seqs=1,max_num_batched_tokens=49152,gpu_memory_utilization=.78,
+            enforce_eager=True,enable_prefix_caching=False,enable_chunked_prefill=True,
+            kv_cache_dtype='bfloat16',mm_processor_cache_gb=0,disable_custom_all_reduce=True,
+            seed=0,quantization='modelopt',compilation_config={'mode':0},
+            engram_config={'cpu_offload':True},cpu_offload_gb=24,cpu_offload_params=['experts'],
+            mm_processor_kwargs={'do_resize':False,'do_sample_frames':False})
+    settings.update(max_model_len=98304,kv_cache_memory_bytes=(32 if model_key()=='cosmos' else 8)*2**30,
         limit_mm_per_prompt={'image':180,'video':1,'audio':0},
         worker_cls='classic_precision.codex_local_visual_worker.LocalVisualWorker')
     parser=make_arg_parser(FlexibleArgumentParser())
     args=parser.parse_args(['--model',settings['model'],'--host','127.0.0.1','--port',str(port),
-        '--served-model-name','cosmos-local','--enable-auto-tool-choice','--tool-call-parser','hermes',
+        '--served-model-name',model_key()+'-local','--enable-auto-tool-choice','--tool-call-parser','hermes',
         '--generation-config','vllm','--trust-request-mm-kwargs'])
     for k,v in settings.items():setattr(args,k,v)
     validate_parsed_serve_args(args)
@@ -310,6 +330,13 @@ def run_all(root,port):
     import fcntl,os,signal,time,urllib.request,psutil
     plan_dir,out=paths(root)
     require(read(out/'path-only-transport-audit.json')['status']=='PASS','CPU transport not ready')
+    if model_key()=='qwen':
+        previous=Path(root)/'runs/reproducibility'/NAME
+        prior=read(previous/'case-1/result.json')
+        closure=read(previous/'lease-closure.json')
+        require(prior['maximum_images_in_context']==0 and prior['real_wait']
+            and closure['original_same_inode_free'] and not closure['owned_survivors'],
+            'Qwen fallback requires an audited Cosmos visual-access failure')
     args,parent,settings,_=server_arguments(root,port)
     # User requested preceding finite model work first.
     rx_root=Path(root)/'runs/reproducibility/embodied-points-20261027'
