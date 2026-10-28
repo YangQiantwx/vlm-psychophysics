@@ -33,9 +33,19 @@ def analyze(root, partial=False):
     root = Path(root); plan_dir = root/'plans/gemma-x-speed-20261028'
     out = root/'runs/reproducibility/gemma-x-speed-20261028'
     plan = read(plan_dir/'plan.json'); expected = plan['assigned_ids']
-    results = {}; records = {}; errors = []; physical_calls = 0
-    for pf in sorted(plan_dir.glob('*-profile.json')):
+    results = {}; records = {}; errors = []; physical_calls = 0; profiles = {}
+    allocation_path = plan_dir/'final-arm-allocation-v2.json'
+    allocation = read(allocation_path) if allocation_path.exists() else None
+    profile_paths = ([plan_dir/x for x in allocation['profile_files']] if allocation
+                     else sorted(plan_dir.glob('*-profile.json')))
+    if allocation:
+        for name in allocation.get('retired_unlaunched_profiles', []):
+            retired = read(plan_dir/name)
+            assert not (out/Path(retired['output']).name).exists()
+            assert not (out/Path(retired['claim_root']).name).exists()
+    for pf in profile_paths:
         p = read(pf); arm = p['optimization_arm']; d = out/Path(p['output']).name
+        profiles[arm] = p
         raw = rows(d/'raw.jsonl') if (d/'raw.jsonl').exists() else []
         physical_calls += len(raw)
         wf = d.with_suffix('.wait.json')
@@ -79,6 +89,9 @@ def analyze(root, partial=False):
         if not baseline:
             break
         changes = []; full_changes = []; prompt_changes = []
+        original = profiles['baseline_eager']
+        for key in ('checkpoint','checkpoint_assets','gpu_uuid','physical_lock','source_catalog','environment'):
+            assert profiles[arm][key] == original[key], (arm, key)
         for sid, r in rr.items():
             a = baseline[sid]
             assert r['source'] == a['source'] and r['question'] == a['question'] and r['generation'] == a['generation']
@@ -89,9 +102,12 @@ def analyze(root, partial=False):
         results[arm]['versus_baseline'] = {'answer_changes': changes, 'full_output_changes': full_changes,
             'prompt_changes': prompt_changes,
             'ordinary_e2e_reduction_percent': 100*(1-results[arm]['ordinary_e2e']['mean_seconds']/results['baseline_eager']['ordinary_e2e']['mean_seconds'])}
-    status = 'COMPLETE_FINITE_SPEED_STUDY' if not errors else 'PARTIAL_WITH_RETAINED_FAILURES'
+    status = 'COMPLETE_FINITE_SPEED_STUDY' if not errors else 'PARTIAL'
     if not partial:
         assert not any(e['status'] == 'NOT_CLOSED' for e in errors), errors
+        allocation = allocation or read(plan_dir/'final-arm-allocation.json')
+        expected_arms = {x.replace('baseline-eager','baseline_eager') for x in allocation['arms']}
+        assert set(profiles) == expected_arms
     value = {'schema': 'gemma-x-speed-summary-v1', 'status': status, 'raw_calls': physical_calls,
         'maximum_calls': plan['maximum_scientific_calls'], 'arms': results, 'exceptions': errors,
         'limits': ['Fixed small 12-video same-card panel, not whole benchmark.',
