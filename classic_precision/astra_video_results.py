@@ -25,9 +25,14 @@ def image_paths(code, args):
     if 'view_image' not in code:return []
     tokens=re.findall(r'''["']?path["']?\s*:\s*("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`[^`]*`)''',code)
     loops=re.findall(r'for\s*\(\s*(?:let|const|var)\s+(\w+)\s*=\s*(\d+)\s*;\s*\1\s*(<=|<)\s*(\d+)\s*;\s*(?:\1\+\+|\+\+\1|\1\s*\+=\s*1)\s*\)',code)
-    if 'Promise.all' in code or len(loops)>1:return None
-    if loops:
-        var,start,op,end=loops[0];values=range(int(start),int(end)+(op=='<='))
+    array_loops=re.findall(r'for\s*\(\s*(?:let|const|var)\s+(\w+)\s+of\s+\[([\d,\s]+)\]\s*\)',code)
+    if 'Promise.all' in code or len(loops)+len(array_loops)>1:return None
+    if loops or array_loops:
+        if loops:
+            var,start,op,end=loops[0];values=range(int(start),int(end)+(op=='<='))
+        else:
+            var,raw=array_loops[0];values=json.loads('['+raw+']')
+            if any(type(i) is not int for i in values):return None
         if len(tokens)!=1 or not tokens[0].startswith('`'):return None
         template=tokens[0][1:-1];result=[]
         for i in values:
@@ -59,7 +64,7 @@ def audit_case(root,case):
     if cache.exists():
         old=read(cache)
         if old.get('identity')==key:return old
-    pending={};eof_loops={};viewed=[];images=0;unresolved=0;image_shapes=Counter();bad_hash=[];unknown_tools=[];eof_probes=0
+    pending={};viewed=[];images=0;unresolved=0;image_shapes=Counter();bad_hash=[];unknown_tools=[];eof_probes=0
     tool_names=[];runtime_errors=[];contexts=[]
     for row in json_lines(rollout):
         p=row.get('payload',{});typ=p.get('type')
@@ -72,7 +77,6 @@ def audit_case(root,case):
                 except ValueError:pass
             name=p.get('name','');code=raw if isinstance(raw,str) else json.dumps(raw)
             pending[p['call_id']]=image_paths(code,args) if name.split('.')[-1] in ['exec','view_image'] else []
-            eof_loops[p['call_id']]='catch' in code and 'break' in code
             tool_names.extend(re.findall(r'tools\.([\w]+)\s*\(',code))
             if name.split('.')[-1] not in ['exec','view_image','exec_command','write_stdin','wait']:
                 unknown_tools.append(name)
@@ -84,12 +88,13 @@ def audit_case(root,case):
             actual=[x for x in output if x.get('type')=='input_image']
             images+=len(actual)
             pp=pending.get(p.get('call_id'))
-            if actual and pp and len(pp)>len(actual) and eof_loops.get(p.get('call_id')):
+            if actual and pp and len(pp)>len(actual):
                 def exists(value):
                     pth=Path(value)
                     return (pth if pth.is_absolute() else Path(case['public_directory'])/pth).is_file()
                 # A recorded sequential loop can stop at the first missing EOF
-                # file. Verify the returned prefix hashes below; never infer
+                # file, either caught by the agent or returned as a tool error.
+                # Verify every returned prefix hash below; never infer
                 # omitted frames merely from a requested loop range.
                 if all(exists(v) for v in pp[:len(actual)]) and not any(exists(v) for v in pp[len(actual):]):
                     eof_probes+=1;pp=pp[:len(actual)]
@@ -168,11 +173,15 @@ def run(root):
     cells=[]
     for k,rr in sorted(grouped.items()):
         full=[x for x in rr if x['protocol_status']=='FULL180_TRACE_PASS']
+        visual=[x for x in rr if x['returned_images']>0 and x['protocol_status']!='EXECUTION_FAILED']
         cells.append({'cell_json':k,'task':rr[0]['task'],'expected':4,'closed':len(rr),
-                      'raw_correct':sum(x['correct'] for x in rr),'full180_n':len(full),
+                      'raw_correct':sum(x['correct'] for x in rr),
+                      'observed_visual_n':len(visual),'observed_visual_correct':sum(x['correct'] for x in visual),
+                      'full180_n':len(full),
                       'full180_correct':sum(x['correct'] for x in full)})
     with (out/'trace-cells.csv').open('w',newline='') as f:
-        w=csv.DictWriter(f,fieldnames=['cell_json','task','expected','closed','raw_correct','full180_n','full180_correct'])
+        w=csv.DictWriter(f,fieldnames=['cell_json','task','expected','closed','raw_correct',
+            'observed_visual_n','observed_visual_correct','full180_n','full180_correct'])
         w.writeheader();w.writerows(cells)
     tasks={}
     for t in ['T1','T2','T3']:
