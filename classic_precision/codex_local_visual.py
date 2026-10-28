@@ -26,7 +26,7 @@ def model_key():
 def paths(root):
     root=Path(root)
     attempt=os.environ.get('CVPR_CLI_ATTEMPT')
-    require(attempt in (None, 'full-access1', 'full-access2', 'full-access3'), 'Unknown finite CLI attempt')
+    require(attempt in (None, 'full-access1', 'full-access2', 'full-access3', 'followup1'), 'Unknown finite CLI attempt')
     if attempt:
         suffix=model_key()+'-'+attempt
         return root/'plans'/NAME/suffix,root/'runs/reproducibility'/NAME/suffix
@@ -146,7 +146,8 @@ def capture(root,port):
     plan_dir,out=paths(root)
     out.mkdir(parents=True,exist_ok=True)
     if not (plan_dir/('path-only-'+model_key()+'-model-catalog.json')).exists():prepare_catalog(root)
-    case,prompt=case_inputs(root,0);captured=[]
+    indices=read(plan_dir/'path-only-plan.json').get('selection_indices',[0])
+    case,prompt=case_inputs(root,indices[0]);captured=[]
     class Handler(BaseHTTPRequestHandler):
         def log_message(self,*args):pass
         def do_POST(self):
@@ -221,6 +222,10 @@ def server_arguments(root, port):
     settings.update(max_model_len=98304,kv_cache_memory_bytes=(32 if model_key()=='cosmos' else 8)*2**30,
         limit_mm_per_prompt={'image':180,'video':1,'audio':0},
         worker_cls='classic_precision.codex_local_visual_worker.LocalVisualWorker')
+    if os.environ.get('CVPR_CLI_ATTEMPT')=='followup1':
+        # Native caching avoids reprocessing the growing identical image prefix
+        # at every agent turn. It changes no source frames or processor geometry.
+        settings.update(enable_prefix_caching=True,mm_processor_cache_gb=4)
     parser=make_arg_parser(FlexibleArgumentParser())
     args=parser.parse_args(['--model',settings['model'],'--host','127.0.0.1','--port',str(port),
         '--served-model-name',model_key()+'-local','--enable-auto-tool-choice','--tool-call-parser',
@@ -273,6 +278,7 @@ def session(root,index,proxy_port,backend_port):
         'prior_transport_rejection':str(prior_transport_rejection) if prior_transport_rejection.exists() else None,
         'plan_sha256':file_sha256(plan_dir/'path-only-plan.json'),'coordinator_predecode':False})
     events=[];requests=[];lock=threading.Lock()
+    maximum_requests=400 if os.environ.get('CVPR_CLI_ATTEMPT')=='followup1' else 200
     class Handler(BaseHTTPRequestHandler):
         def log_message(self,*args):pass
         def do_POST(self):
@@ -280,7 +286,7 @@ def session(root,index,proxy_port,backend_port):
             try:
                 with lock:
                     n=len(requests)+1
-                    require(n<=200,'Finite 200-request session limit reached')
+                    require(n<=maximum_requests,'Finite request limit reached: '+str(maximum_requests))
                     body=json.loads(self.rfile.read(int(self.headers['Content-Length'])))
                     if n==1:validate_first_request(root,body,case)
                     effective,removed=effective_request(body)
@@ -322,7 +328,7 @@ def session(root,index,proxy_port,backend_port):
         with (folder/'cli.jsonl').open('xb') as log,(folder/'cli.stderr').open('xb') as err:
             args=cli_command(root,case,proxy_port,folder/'answer.txt')
             new(folder/'launch.json',{'command':args,'prompt':prompt,'initial_images':0,
-                'session_limit_seconds':3600,'maximum_requests':200})
+                'session_limit_seconds':3600,'maximum_requests':maximum_requests})
             cli_env=os.environ.copy();cli_env.update(TMPDIR=case['public_directory'],TMP=case['public_directory'],TEMP=case['public_directory'])
             child=subprocess.Popen(args,stdin=subprocess.PIPE,stdout=log,stderr=err,text=True,env=cli_env)
             child.stdin.write(prompt);child.stdin.close();timed_out=False
@@ -349,6 +355,20 @@ def run_all(root,port):
     import fcntl,os,signal,time,urllib.request,psutil
     plan_dir,out=paths(root)
     require(read(out/'path-only-transport-audit.json')['status']=='PASS','CPU transport not ready')
+    indices=list(range(4))
+    if os.environ.get('CVPR_CLI_ATTEMPT')=='followup1':
+        continuation=read(plan_dir/'continuation.json')
+        prior=Path(continuation['parent_output'])
+        closure=read(prior/'lease-closure.json');wait=read(prior/'server.wait.json')
+        require(wait['real_wait'] and wait['returncode']==0 and not wait['owned_survivors']
+                and closure['original_same_inode_free'] and not closure['owned_survivors'],
+                'Parent server/lease has not closed')
+        require(file_sha256(prior/'case-1/result.json')==continuation['preserved_case1_sha256'],
+                'Original failed case changed')
+        indices=continuation['selection_indices']
+        require(indices==[1,2,3] and all(not (prior/('case-'+str(i+1))/'claim.json').exists() for i in indices),
+                'Follow-up must use exactly three never-claimed cases')
+        require(continuation['automatic_retry'] is False, 'Retries prohibited')
     if os.environ.get('CVPR_CLI_ATTEMPT')=='full-access2':
         require(model_key()=='qwen','Startup repair is limited to Qwen')
         prior=out.parent/'qwen-full-access1'
@@ -417,7 +437,8 @@ def run_all(root,port):
                 require((out/'engine-receipt.json').exists(),'Actual kernel receipt missing')
                 for proc in psutil.Process(child.pid).children(recursive=True):owned.add((proc.pid,proc.create_time()))
                 results=[]
-                for index in range(4):
+                for index in indices:
+                    if (out/'PAUSE.json').exists():break
                     result=session(root,index,port-1,port);results.append(result)
                     # Capability failure is retained. Do not blindly continue scoring invisible videos.
                     if result['returncode']!=0 or result['maximum_images_in_context']==0:break
