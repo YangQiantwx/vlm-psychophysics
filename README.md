@@ -1,3 +1,15 @@
+<!-- qwen-x-crosscard-public -->
+## Qwen X: finite cross-card verification
+
+The fixed X configuration uses the official mixed NVFP4 checkpoint, native OpenCV uint8 video loading, all 180 frames at 768×512, request/engine no-resize and no-secondary-sampling, the scoped QSA selector, and official FlashInfer autotune disabled. QSA is custom code; this Qwen route is not config-only. The model forward, processor and SDK files remain unchanged.
+
+The selected T2 panel (BG .4, increment .06, 500 ms; 48 videos) and T3 panel (.8°; 96 videos) were run once on each of three GPUs. All 144 full outputs matched across cards; each card scored 38/48 and 83/96. See [the measured results and scope](results/qwen-X-crosscard-20261029/summary.json), [actual settings](results/qwen-X-crosscard-20261029/settings.json), and [A/C/X comparisons](results/qwen-X-crosscard-20261029/historical-comparison.csv). Matching X runs do not require matching historical A answers. These are two finite points, not a full Qwen X curve or a guarantee for arbitrary hardware.
+
+[The finite controller](classic_precision/qwen_x_crosscard.py) reuses the frozen scientific runner and rejects repeated/claimed attempts; [the read-only analysis](classic_precision/qwen_x_crosscard_results.py) requires original raw/PASS/claims, observed process waits, owned-engine exits, and release of the original physical lease. The controller uses benchmark-root manifests and is an audited execution workflow, not a standalone download-and-run recipe. The prepared 9,456-video Qwen run has not been launched.
+
+Completed full X results remain separate: [Cosmos](results/cosmos-X-20261028/summary.json) and [Nemotron 3.5 Super VL](results/nemo-X-20261029/summary.json), each 9,456 unique videos. Older protocol descriptions below retain their historical scope.
+<!-- /qwen-x-crosscard-public -->
+
 # Classic Precision
 
 Controlled visual psychophysics with lossless RGB16 source videos. Source accuracy, framework preprocessing and model outputs are separate measurements. [Protocol](EXPERIMENT_PLAN.md) defines stimuli and numerical scope; [findings](report.md) retains observations and negative results. Local operational decisions are in the benchmark registry and project `LATEST.md`.

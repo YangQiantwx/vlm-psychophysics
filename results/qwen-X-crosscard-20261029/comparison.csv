@@ -1,0 +1,7 @@
+left_card,right_card,task,n,accuracy_n,unscored_n,answer_changes,correct_to_wrong,wrong_to_correct,before_correct,after_correct,before_accuracy,after_accuracy,accuracy_cost,full_output_differences
+fourier0,fourier1,T2,48,48,0,0,0,0,38,38,0.7916666666666666,0.7916666666666666,0.0,0
+fourier0,fourier1,T3,96,96,0,0,0,0,83,83,0.8645833333333334,0.8645833333333334,0.0,0
+fourier0,radon0,T2,48,48,0,0,0,0,38,38,0.7916666666666666,0.7916666666666666,0.0,0
+fourier0,radon0,T3,96,96,0,0,0,0,83,83,0.8645833333333334,0.8645833333333334,0.0,0
+fourier1,radon0,T2,48,48,0,0,0,0,38,38,0.7916666666666666,0.7916666666666666,0.0,0
+fourier1,radon0,T3,96,96,0,0,0,0,83,83,0.8645833333333334,0.8645833333333334,0.0,0
