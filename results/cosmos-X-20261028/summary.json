@@ -1,0 +1,159 @@
+{
+  "schema": "cosmos-X-full-results-v1",
+  "status": "COMPLETE_PASS",
+  "completed_HST": "2026-10-29T01:19:30.498385-10:00",
+  "model": "cosmos",
+  "precision": "official-mixed-NVFP4",
+  "protocol": "X",
+  "unique_videos": 9456,
+  "configs": 169,
+  "tasks": {
+    "T1": {
+      "accuracy": 0.4518229166666667,
+      "accuracy_n": 3840,
+      "answers": {
+        "LEFT": 413,
+        "RIGHT": 3427
+      },
+      "correct": 1735,
+      "invalid_n": 0,
+      "n": 3840,
+      "strict_format_n": 3840,
+      "unscored_n": 0
+    },
+    "T2": {
+      "accuracy": 0.9121527777777778,
+      "accuracy_n": 2880,
+      "answers": {
+        "LEFT": 1629,
+        "RIGHT": 1251
+      },
+      "correct": 2627,
+      "invalid_n": 0,
+      "n": 2880,
+      "strict_format_n": 2880,
+      "unscored_n": 0
+    },
+    "T3": {
+      "accuracy": 0.9594298245614035,
+      "accuracy_n": 2736,
+      "answers": {
+        "LEFT": 1479,
+        "RIGHT": 1257
+      },
+      "correct": 2625,
+      "invalid_n": 0,
+      "n": 2736,
+      "strict_format_n": 2736,
+      "unscored_n": 0
+    }
+  },
+  "A_X_paired": [
+    {
+      "A_correct": 1743,
+      "X_correct": 1735,
+      "changed": 484,
+      "correct_to_wrong": 246,
+      "full_output_token_changes": 484,
+      "n": 3840,
+      "task": "T1",
+      "wrong_to_correct": 238
+    },
+    {
+      "A_correct": 1578,
+      "X_correct": 1619,
+      "changed": 83,
+      "correct_to_wrong": 21,
+      "full_output_token_changes": 83,
+      "n": 1872,
+      "task": "T2",
+      "wrong_to_correct": 62
+    },
+    {
+      "A_correct": 1481,
+      "X_correct": 1473,
+      "changed": 32,
+      "correct_to_wrong": 20,
+      "full_output_token_changes": 32,
+      "n": 1584,
+      "task": "T3",
+      "wrong_to_correct": 12
+    }
+  ],
+  "A_unavailable_in_X_scope": 2160,
+  "input": {
+    "actual_GPU_deep_admissions": 9,
+    "effective_height": 512,
+    "effective_width": 768,
+    "frames": 180,
+    "reader": "official OpenCV uint8",
+    "resize": false,
+    "secondary_sampling": false
+  },
+  "limitations": [
+    "Historical A and X differ in runtime stack and configured backend policy as well as input route.",
+    "A/X accuracy is paired only on shared source IDs; incremental cells without A are not imputed.",
+    "Timing is per worker; native reader and processor are nested inside engine-inclusive time.",
+    "Single full run is not a repeated full-run or universal cross-hardware reproducibility test."
+  ],
+  "prior_X_overlap": {
+    "n": 144,
+    "answer_equal": 144,
+    "output_tokens_equal": 144,
+    "prompt_tokens_equal": 144,
+    "finish_stop_equal": 144,
+    "scope": "Previously selected 144 Cosmos X validation sources compared with their full-run answers; cards may differ."
+  },
+  "workers": [
+    {
+      "worker": "cosmos-fourier0-X-full",
+      "answers": 3600,
+      "real_wait_returncode": 0,
+      "real_wait_observed": true,
+      "owned_engines_exited": true,
+      "original_physical_lease_released": true,
+      "supervisor_hours": 11.527083795564701,
+      "load_seconds": 24.627788001205772,
+      "raw_sha256": "b4e8067fbd25f2cf50163872b6b9d5c8853c4ddddd723dd1f46dd4c5f544f550",
+      "profile_sha256": "ee7fe9305c8fc66be5e43917c19417ce1b6552cbd58dc4769c12d7bd693d8d98",
+      "wait_sha256": "b81bb9534d12c88026261b1d0639266d581efc8fdba4a4887893f724d1828f88"
+    },
+    {
+      "worker": "cosmos-fourier1-X-full",
+      "answers": 3600,
+      "real_wait_returncode": 0,
+      "real_wait_observed": true,
+      "owned_engines_exited": true,
+      "original_physical_lease_released": true,
+      "supervisor_hours": 11.806859871560592,
+      "load_seconds": 24.715601116186008,
+      "raw_sha256": "8df770d6009f58d66fd25d8cb5868d832aac28600275d5e8fec35c28d680c465",
+      "profile_sha256": "549a6f58a38619e458e00b4c55e89c40f95b511a1c49fa027984f5b77967a72d",
+      "wait_sha256": "1cf2675fc7050e9c068c9ef8d06ca0a7fb123b7d24c6d9e7d6851dec4f65e93f"
+    },
+    {
+      "worker": "cosmos-radon0-X-full",
+      "answers": 2256,
+      "real_wait_returncode": 0,
+      "real_wait_observed": true,
+      "owned_engines_exited": true,
+      "original_physical_lease_released": true,
+      "supervisor_hours": 12.096263730059986,
+      "load_seconds": 146.18003579904325,
+      "raw_sha256": "2b1c39e82ff2c572b32d5e1bfeb4cdf80c455a5d27de1d713294733ac0fdf020",
+      "profile_sha256": "a638af4088b6ab1ae7c0b76b523187e0e6c1b9f27e44725e31c2b430048464f8",
+      "wait_sha256": "fa2c798b4cfdc7007e5c879fc1e2a4f863278e4761456a48bc47a5e35138bffc"
+    }
+  ],
+  "gpu_slot_hours": 35.43020739718528,
+  "scientific_audit_sha256": "98e46208dcde94730709da79d500c9920ad486cfbc9060ccb0c0396941428b54",
+  "dataset": "DrQY/vlm-psychophysics-classic-t1-t3",
+  "source_revision": "83aed535b2109629bf91d5022c9b2ad359566754",
+  "recipe": "reproduction/cosmos_x.json",
+  "software": {
+    "vllm": "0.33.0rc1.dev175+gf4fd1ab68",
+    "torch": "2.14.0+cu130",
+    "transformers": "5.17.0",
+    "flashinfer-python": "0.7.2.post1"
+  }
+}

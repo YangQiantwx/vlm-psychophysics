@@ -1,0 +1,66 @@
+{
+  "schema": "cosmos-X-results-release-v1",
+  "source_scientific_audit_sha256": "98e46208dcde94730709da79d500c9920ad486cfbc9060ccb0c0396941428b54",
+  "files": {
+    "summary.json": {
+      "sha256": "25ff10e43006b16c11ca76e80b49d83aee68cb5b937a9d75fa561e063af05dd0",
+      "bytes": 4958
+    },
+    "paired-A-X.csv": {
+      "sha256": "fd01e0cce05402773a404951b7ae27385b244ee5f4f96e4f443f094e7caec4f8",
+      "bytes": 2194963
+    },
+    "predictions.jsonl": {
+      "sha256": "23554096fccbbdf13a5d307946869fa66cf37a76f74d4218e8ebc6a5d5145520",
+      "bytes": 11607550
+    },
+    "strata.csv": {
+      "sha256": "b1ace7c802be86dad0bcd6cfac463f9b061944172cbcd61a55c6b0efd249ec16",
+      "bytes": 6975
+    },
+    "prior-X-overlap.csv": {
+      "sha256": "2f7a4a10a10f29d3ff443757c500b453f32aab01cc6c81bc228a262fcb6090c2",
+      "bytes": 17105
+    },
+    "comparison-A-X.csv": {
+      "sha256": "10e5b754af0ee50b9294e2cc0889fdddb8589a6a87df51001b62cfc2e9815e07",
+      "bytes": 193
+    },
+    "cells.csv": {
+      "sha256": "70583ecc0c8841c12d31f4d41cdf4e8843ee3c4fb248b4d328b0b897b8cb583c",
+      "bytes": 13221
+    },
+    "timing.csv": {
+      "sha256": "8e51772d720dd3ed4b860242d59b9edf39701432e72ddbf88ab59f4c4a73533f",
+      "bytes": 6349
+    },
+    "cells-A-X.csv": {
+      "sha256": "7139f789750c58c2c519473080cb1f0e2cee145447f1860e556d4ec1d5203bd4",
+      "bytes": 5423
+    },
+    "figures/T3-A-X.pdf": {
+      "sha256": "595c1b82ef96859155d348a833e88c2605c1f854f160049e381d1f69088b6655",
+      "bytes": 15003
+    },
+    "figures/T3-A-X.png": {
+      "sha256": "1a5462333438763e5148582b8b0e1ca4038896990fe071097aa9962bdb3b0b9e",
+      "bytes": 71993
+    },
+    "figures/T2-A-X.png": {
+      "sha256": "1f298c07f64bc27ca8d0068a9fa8d7db4c2a2de5d2f3c2254829d41be157834b",
+      "bytes": 78526
+    },
+    "figures/T2-A-X.pdf": {
+      "sha256": "4032a0a648db9b8a58be4de6c9f65c701656a02c2595360c016462fc10bdfb28",
+      "bytes": 15988
+    },
+    "figures/T1-A-X.pdf": {
+      "sha256": "7f324d73fb3a5adb2a2fb8667bededd3bcfab820f6951edffa1e3ed9d63f29f5",
+      "bytes": 20026
+    },
+    "figures/T1-A-X.png": {
+      "sha256": "fc83c8dac165f4924f1b8da5aa928ea7e0e2a4df3f5f3a4b629daf72abccece1",
+      "bytes": 180575
+    }
+  }
+}

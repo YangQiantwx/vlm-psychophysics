@@ -1,0 +1,4 @@
+task,n,A_correct,X_correct,changed,correct_to_wrong,wrong_to_correct,full_output_token_changes
+T1,3840,1743,1735,484,246,238,484
+T2,1872,1578,1619,83,21,62,83
+T3,1584,1481,1473,32,20,12,32
