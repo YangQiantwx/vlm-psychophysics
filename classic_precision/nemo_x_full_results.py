@@ -6,7 +6,7 @@ from collections import Counter
 import socket
 import time
 from datetime import datetime, timezone
-from .official_x_results import Archive, audit_worker, descriptor, read, require, journal, write_csv
+from .official_x_results import Archive, audit_worker, descriptor, read, require, journal, write_csv, common_raw_checks
 from .storage import atomic_json, digest
 from .nemo_x_full import NAME, validate_runtime, science
 from . import cosmos_x_full_status as monitor
@@ -75,8 +75,33 @@ def status(root):
             if not (set(passed)|claims)<=allowed:issues.append('FOREIGN_ID')
             if not set(passed)<=claims:issues.append('PASS_WITHOUT_CLAIM')
             active=active or not receipts[-1]['wait']
-            workers.append({'card':card,'expected':len(allowed),'completed':len(passed),'claimed':len(claims),'claimed_without_pass':sorted(claims-set(passed)),'unattempted':len(allowed-claims),'control':read(latest['control_file']),'issues':issues,'segments':receipts,'recent_ordinary':monitor.timing_window(out/'timings.jsonl')})
+            workers.append({'card':card,'expected':len(allowed),'completed':len(passed),'claimed':len(claims),'claimed_without_pass':sorted(claims-set(passed)),'unattempted':len(allowed-claims),'control':read(latest['control_file']),'issues':issues,'segments':receipts,'recent_ordinary':monitor.timing_window(out/'request-timings.jsonl')})
     return {'status':'LIVE_SNAPSHOT_NOT_FINAL_AUDIT','host':socket.gethostname(),'observed_UTC':datetime.now(timezone.utc).isoformat(),'observed_monotonic_seconds':time.monotonic(),'boot_id':Path('/proc/sys/kernel/random/boot_id').read_text().strip(),'workers':workers,'resources':monitor.resources(root) if active else {'skipped':'all local workers closed'},'model_calls':0,'mutations':0}
+
+
+def startup(root, profile):
+    arc=Archive(root);path=Path(profile);p=read(path);science(p);out=arc.path(p['output'])
+    ident=read(out/'identity.json');require(ident['profile']==p and ident['profile_sha256']==digest(p),'Startup identity differs')
+    runtime=read(out/'runtime.json')
+    for r in runtime:validate_runtime(r);require(r['actual_kv_capacity']>=p['minimum_kv_capacity'],'Actual KV too small')
+    public=read(out/'public-settings.json')
+    require(all(public['LLM_kwargs'][k]==v for k,v in p['engine_kwargs'].items()),'Actual engine setting differs')
+    versions=read(out/'versions.json');require(all(versions[k]==v for k,v in p['expected_packages'].items() if k in versions),'Worker version differs')
+    catalog=arc.ref(p['source_catalog']);raw={r['sample_id']:r for r in monitor.journal(out/'raw.jsonl')[0]}
+    passed={r['sample_id']:r for r in monitor.journal(out/'events.jsonl')[0] if r['event']=='TECHNICAL_PASS'}
+    deeps={r['sample_id']:r for r in monitor.journal(out/'deep-observations.jsonl')[0]};ids=p['assigned_ids'][:3];proof=[]
+    for ordinal,sid in enumerate(ids):
+        x=raw[sid];common_raw_checks(p,catalog['items'][sid],x,ordinal)
+        require(passed[sid]['raw_digest']==digest(x),'No technical PASS binding')
+        claim=read(arc.path(p['claim_root'])/(sid+'.json'));require(claim['profile_sha256']==digest(p) and claim['worker_token']==p['worker_token'],'Claim differs')
+        if x['deep']:
+            d=deeps[sid];require(d['raw_digest']==digest(x),'Actual observation not bound')
+            n=sum(z['tensor']['shape'][0] for item in d['observations'] for z in item['normalized'] if z['tensor']['shape'][1:]==[3,512,768])
+            require(n==180,'Not all180 original-size GPU frames')
+        proof.append({'sample_id':sid,'task':x['task'],'deep':x['deep'],'raw_digest':digest(x),'technical_pass':True})
+    if p['control_generation']==0:require({x['task'] for x in proof}=={'T1','T2','T3'} and all(x['deep'] for x in proof),'Missing first-task captures')
+    result={'status':'PASS_STARTUP_ONLY_NOT_FULL_COMPLETION','profile':descriptor(path),'actual_runtime':runtime,'inputs':proof,'no_new_model_calls_for_audit':True}
+    atomic_json(out/'startup-acceptance.json',result);return result
 
 
 if __name__=='__main__':

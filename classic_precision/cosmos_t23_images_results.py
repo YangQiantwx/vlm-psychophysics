@@ -66,8 +66,11 @@ def audit_worker(archive, card, selected, *, startup=False, replay=False):
     versions=read(out/'versions.json')
     receipt=read(out.parent/('dependency-identity-'+('fourier' if card.startswith('fourier') else 'radon')+('-replay1' if replay else '')+'.json'))
     require(receipt['python']==p['python'] and receipt['profiles'][card]['sha256']==file_sha256(path) and receipt['model_calls']==0, 'Dependency receipt identity differs')
+    require(set(versions)=={'numpy','torch','transformers','vllm'}, 'Incomplete worker version receipt')
+    # NumPy is recorded by the worker; the independent startup receipt records
+    # the four profile-pinned packages, including FlashInfer instead of NumPy.
     require(all(receipt['versions'][k]==v for k,v in p['expected_packages'].items()) and
-            all(receipt['versions'][k]==v for k,v in versions.items()), 'SDK mismatch')
+            all(receipt['versions'][k]==versions[k] for k in ('torch','transformers','vllm')), 'SDK mismatch')
     require(all(r['actual_kv_capacity']>=98304 for r in runtime), 'Insufficient actual image KV')
     raw=unique(journal(out/'raw.jsonl'));events=journal(out/'events.jsonl');timings=unique(journal(out/'request-timings.jsonl'))
     require(all(e['event'] in ('INTENT','TECHNICAL_PASS') for e in events), 'Unexpected failed event')
