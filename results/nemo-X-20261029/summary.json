@@ -1,0 +1,227 @@
+{
+  "schema": "nemo-X-full-results-v1",
+  "status": "COMPLETE_PASS",
+  "completed_HST": "2026-10-29T11:06:14.765770-10:00",
+  "model": "nemo",
+  "precision": "official-mixed-NVFP4",
+  "protocol": "X",
+  "unique_videos": 9456,
+  "configs": 169,
+  "tasks": {
+    "T1": {
+      "accuracy": 0.5010416666666667,
+      "accuracy_n": 3840,
+      "answers": {
+        "LEFT": 132,
+        "RIGHT": 3708
+      },
+      "correct": 1924,
+      "invalid_n": 0,
+      "n": 3840,
+      "strict_format_n": 3840,
+      "unscored_n": 0
+    },
+    "T2": {
+      "accuracy": 0.875,
+      "accuracy_n": 2880,
+      "answers": {
+        "LEFT": 1736,
+        "RIGHT": 1144
+      },
+      "correct": 2520,
+      "invalid_n": 0,
+      "n": 2880,
+      "strict_format_n": 2880,
+      "unscored_n": 0
+    },
+    "T3": {
+      "accuracy": 0.7302631578947368,
+      "accuracy_n": 2736,
+      "answers": {
+        "LEFT": 2100,
+        "RIGHT": 636
+      },
+      "correct": 1998,
+      "invalid_n": 0,
+      "n": 2736,
+      "strict_format_n": 2736,
+      "unscored_n": 0
+    }
+  },
+  "A_X_paired": [
+    {
+      "A_correct": 1925,
+      "X_correct": 1924,
+      "changed": 269,
+      "correct_to_wrong": 135,
+      "full_output_token_changes": 269,
+      "n": 3840,
+      "task": "T1",
+      "wrong_to_correct": 134
+    },
+    {
+      "A_correct": 1516,
+      "X_correct": 1512,
+      "changed": 240,
+      "correct_to_wrong": 122,
+      "full_output_token_changes": 240,
+      "n": 1872,
+      "task": "T2",
+      "wrong_to_correct": 118
+    },
+    {
+      "A_correct": 1219,
+      "X_correct": 1226,
+      "changed": 9,
+      "correct_to_wrong": 1,
+      "full_output_token_changes": 9,
+      "n": 1584,
+      "task": "T3",
+      "wrong_to_correct": 8
+    }
+  ],
+  "A_unavailable_in_X_scope": 2160,
+  "Cosmos_X_paired": {
+    "T1": {
+      "Cosmos_correct": 1735,
+      "Nemo_correct": 1924,
+      "answer_disagreements": 519,
+      "n": 3840
+    },
+    "T2": {
+      "Cosmos_correct": 2627,
+      "Nemo_correct": 2520,
+      "answer_disagreements": 243,
+      "n": 2880
+    },
+    "T3": {
+      "Cosmos_correct": 2625,
+      "Nemo_correct": 1998,
+      "answer_disagreements": 627,
+      "n": 2736
+    }
+  },
+  "qualification_full_overlap": {
+    "all_fields_equal": 72,
+    "comparisons": 72,
+    "differences": [],
+    "unique_ids": 12
+  },
+  "input": {
+    "actual_GPU_deep_admissions": 12,
+    "effective_height": 512,
+    "effective_width": 768,
+    "frames": 180,
+    "reader": "official OpenCV uint8"
+  },
+  "limitations": [
+    "One full run; finite cold-start and cross-card panels do not guarantee every input/hardware.",
+    "A/X differs in reader/input, runtime stack and actual backend policy; not a bit-depth-only causal comparison.",
+    "Original clean paused prefix and all original answers/claims remain intact; qualification excluded from main scores."
+  ],
+  "checkpoint": {
+    "repo": "nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4",
+    "revision": "82d93699acd3be9e4617c53360fe5b3f5dbeb1b3"
+  },
+  "packages": {
+    "flashinfer-python": "0.7.2.post1",
+    "torch": "2.14.0",
+    "transformers": "5.17.0",
+    "vllm": "0.33.0rc1.dev175+gf4fd1ab68"
+  },
+  "inference_settings": {
+    "disable_custom_all_reduce": true,
+    "dtype": "bfloat16",
+    "enable_chunked_prefill": true,
+    "enable_prefix_caching": false,
+    "enforce_eager": true,
+    "gpu_memory_utilization": 0.78,
+    "hf_overrides": {
+      "vision_config": {
+        "args": {
+          "cls_token_per_teacher": true,
+          "cpe_max_size": 2048,
+          "max_num_patches": 13312,
+          "min_num_patches": 1024,
+          "register_multiple": 10,
+          "teachers": [
+            {
+              "name": 0,
+              "use_summary": true
+            },
+            {
+              "name": 1,
+              "use_summary": true
+            },
+            {
+              "name": 2,
+              "use_summary": false
+            }
+          ]
+        },
+        "attention_probs_dropout_prob": 0.0,
+        "drop_path_rate": 0.0,
+        "dtype": "bfloat16",
+        "hidden_act": "gelu",
+        "hidden_dropout_prob": 0.0,
+        "hidden_size": 1280,
+        "image_size": 224,
+        "initializer_range": 0.02,
+        "layer_norm_eps": 1e-06,
+        "layerscale_value": 1.0,
+        "max_img_size": 2048,
+        "max_num_patches": 13312,
+        "min_num_patches": 1024,
+        "mlp_ratio": 4.0,
+        "model_type": "radio",
+        "norm_mean": [
+          0.48145466,
+          0.4578275,
+          0.40821073
+        ],
+        "norm_std": [
+          0.26862954,
+          0.26130258,
+          0.27577711
+        ],
+        "num_attention_heads": 16,
+        "num_channels": 3,
+        "num_cls_tokens": 3,
+        "num_hidden_layers": 32,
+        "num_registers": 7,
+        "patch_size": 16,
+        "qkv_bias": true,
+        "summary_idxs": [
+          0,
+          1
+        ],
+        "use_swiglu_ffn": false,
+        "video_maintain_aspect_ratio": true,
+        "video_target_num_patches": 1536,
+        "video_temporal_patch_size": 2
+      }
+    },
+    "kernel_config": {
+      "enable_flashinfer_autotune": false
+    },
+    "kv_cache_dtype": "bfloat16",
+    "kv_cache_memory_bytes": 2147483648,
+    "limit_mm_per_prompt": {
+      "audio": 0,
+      "image": 0,
+      "video": 1
+    },
+    "max_model_len": 65536,
+    "max_num_batched_tokens": 4096,
+    "max_num_seqs": 1,
+    "mm_processor_cache_gb": 0,
+    "seed": 0,
+    "tensor_parallel_size": 1,
+    "trust_remote_code": true,
+    "video_pruning_rate": 0.0
+  },
+  "scientific_audit_sha256": "21b55fb3c9144e1c34bb12223259f725ae201cc4d00bb741e68b807a2d1a9613",
+  "scientific_runner_sha256": "67fce752e98e6783b1536ae0bf12bb47d4382ba2d2d2c89d19f1c158dc10aac8",
+  "operational_wrapper_sha256": "2eb7789753b4d3e86ea37672d71742ca735b1bc882238ecd539cbaf937f99f50",
+  "cold_start_gate_sha256": "98113594fdb1ddc4e6283439ca4b3e818cd3dd74cd12642cfd1b4891fed03624"
+}

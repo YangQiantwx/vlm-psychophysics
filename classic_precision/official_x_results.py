@@ -142,6 +142,31 @@ def common_raw_checks(profile, item, raw, ordinal):
     return eligible
 
 
+def closed_prefix_selection(archive, spec, profile, wait, terminal, wait_path):
+    """Admit a preserved clean pause only with its SHA-bound fresh successor."""
+    successor = archive.ref(spec['paused_prefix_successor'])
+    require(profile['model'] == 'nemo' and profile['phase'] == 'full', 'Unexpected paused-prefix protocol')
+    require(wait['returncode'] == 0 and wait['terminal_status'] == terminal['status'] == 'PAUSED'
+            and not terminal['UNCERTAIN_ids'], 'Paused prefix was not cleanly closed')
+    selected = terminal['completed_ids']
+    require(selected and selected == profile['assigned_ids'][:len(selected)]
+            and terminal['unattempted_ids'] == profile['assigned_ids'][len(selected):],
+            'Paused ledger is not an exact ordered prefix')
+    require(archive.ref(successor['continuation_parent']) == profile
+            and archive.ref(successor['continuation_wait']) == wait
+            and successor['continuation_wait']['sha256'] == file_sha256(wait_path),
+            'Successor does not bind original profile and actual wait')
+    require(successor['assigned_ids'] == terminal['unattempted_ids']
+            and successor['control_generation'] == profile['control_generation'] + 1
+            and successor['worker_token'] != profile['worker_token']
+            and successor['output'] != profile['output'], 'Successor scope or fresh identity differs')
+    operational = {'assigned_ids', 'media_files', 'maximum_model_calls', 'pause_file', 'worker_token',
+                   'continuation_parent', 'continuation_wait', 'control_generation', 'output', 'worker'}
+    require(all(profile.get(k) == successor.get(k) for k in profile.keys() | successor.keys()
+                if k not in operational), 'Paused successor changed scientific configuration')
+    return selected
+
+
 def audit_worker(archive, spec):
     p = archive.ref(spec['profile'])
     out = archive.path(p['output'])
@@ -188,15 +213,18 @@ def audit_worker(archive, spec):
             require(admission['raw_digest'] == digest(raws[sid]), 'Admission/raw mismatch')
         event_status = 'INDEPENDENT_INPUT_ADMISSION_ORIGINAL_FAILURE_PRESERVED'
     else:
-        require(wait['returncode'] == 0 and wait['terminal_status'] == 'COMPLETE', 'Worker not COMPLETE')
         terminal = read(out / 'result.json')
-        selected = p['assigned_ids']
-        require(terminal['status'] == 'COMPLETE' and terminal['completed_ids'] == selected
-                and not terminal['UNCERTAIN_ids'] and not terminal['unattempted_ids'], 'Terminal ID ledger incomplete')
+        if spec.get('paused_prefix_successor'):
+            selected = closed_prefix_selection(archive, spec, p, wait, terminal, wait_path)
+        else:
+            require(wait['returncode'] == 0 and wait['terminal_status'] == 'COMPLETE', 'Worker not COMPLETE')
+            selected = p['assigned_ids']
+            require(terminal['status'] == 'COMPLETE' and terminal['completed_ids'] == selected
+                    and not terminal['UNCERTAIN_ids'] and not terminal['unattempted_ids'], 'Terminal ID ledger incomplete')
         require(wait['completed_ids'] == selected, 'Wait/terminal completed IDs differ')
         timings = unique(journal(out / 'request-timings.jsonl'))
         require(set(raws) == set(intents) == set(passes) == set(timings) == set(selected), 'Per-ID ledger differs')
-        event_status = 'WORKER_TECHNICAL_PASS'
+        event_status = 'PAUSED_PREFIX_TECHNICAL_PASS' if spec.get('paused_prefix_successor') else 'WORKER_TECHNICAL_PASS'
     catalog = archive.ref(p['source_catalog'])
     identity = read(out / 'identity.json')
     require(identity['profile_sha256'] == digest(p) and identity['profile'] == p, 'Worker identity differs')
