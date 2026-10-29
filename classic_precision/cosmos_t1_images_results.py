@@ -382,7 +382,7 @@ def finalize(root):
             text=path.read_text();require(start in text and end in text,'Missing dedicated current block: '+str(path))
             before,tail=text.split(start,1);_,after=tail.split(end,1);path.write_text(before+start+'\n'+block+end+after)
         registry_path=root/'runs/t2-t3-rgb16/registry.json';registry=read(registry_path)
-        registry['execution']['cosmos_t1_images_20261029'].update(status=summary['status'],completed=320,
+        registry['execution']['cosmos_t1_images_20261029'].update(status='COMPLETE_320_IMAGE_COMPARISON_AND_36_REPLAY',completed=320,replay_completed=36,reproduction_status=summary['reproduction']['status'],
                 updated_HST=completed,summary=descriptor(run/'analysis/summary.json'))
         atomic_json(registry_path,registry)
         state.update(status='COMPLETE_320_IMAGE_COMPARISON_AND_36_REPLAY',completed_HST=completed,primary_completed=320,
