@@ -74,6 +74,38 @@ def worker(workers: int):
             future.result()
 
 
+class ControlRequests:
+    """Reuse per-thread HTTPS connections; refresh existing auth on HTTP 401."""
+
+    def __init__(self, token_loader, session_factory=requests.Session):
+        self.token_loader, self.session_factory = token_loader, session_factory
+        self.token = token_loader()
+        self.local, self.lock = threading.local(), threading.Lock()
+
+    def request(self, method, url, **kwargs):
+        if not hasattr(self.local, 'session'):
+            self.local.session = self.session_factory()
+        extra_headers = kwargs.pop('headers', {})
+        for attempt in range(5):
+            used_token = self.token
+            try:
+                response = self.local.session.request(method, url,
+                    headers={**extra_headers, 'Authorization': 'Bearer ' + used_token}, **kwargs)
+            except requests.RequestException:
+                if attempt == 4:
+                    raise RuntimeError('GCS control network request failed after five attempts') from None
+            else:
+                if response.status_code == 401:
+                    with self.lock:
+                        if self.token == used_token:
+                            self.token = self.token_loader()
+                elif response.status_code not in (429, 500, 502, 503, 504):
+                    return response
+                if attempt == 4:
+                    raise RuntimeError('GCS control authorization/server request failed after five attempts')
+            time.sleep(min(.5 * 2**attempt, 8))
+
+
 def controller(args):
     items = json.loads(args.files.read_text())['items']
     assert items and len({x['object'] for x in items}) == len(items)
@@ -82,7 +114,13 @@ def controller(args):
     args.out.mkdir(parents=True, exist_ok=True)
     env = os.environ.copy()
     env['CLOUDSDK_PYTHON'] = sys.executable
-    token = subprocess.check_output([args.gcloud, 'auth', 'print-access-token'], env=env, text=True).strip()
+    def load_token():
+        try:
+            return subprocess.check_output([args.gcloud, 'auth', 'print-access-token'],
+                env=env, text=True, stderr=subprocess.PIPE, timeout=90).strip()
+        except Exception:
+            raise RuntimeError('Existing gcloud token refresh failed; no login attempted') from None
+    control = ControlRequests(load_token)
     # No OAuth access token or auth file is sent to the remote worker.
     command = ['ssh', '-i', str(args.ssh_key), '-o', 'BatchMode=yes', args.remote,
                f'{args.remote_python} -B {args.remote_script} --worker --workers {args.workers}']
@@ -90,7 +128,6 @@ def controller(args):
     completed, errors, sessions = [], [], []
     worker_completed = [0]
     write_lock = threading.Lock()
-    auth = {'Authorization': 'Bearer ' + token}
     existing = {}
     cursor = None
     while True:
@@ -98,8 +135,8 @@ def controller(args):
                   'fields': 'nextPageToken,items(name,size,metadata,md5Hash,generation)'}
         if cursor:
             params['pageToken'] = cursor
-        response = requests.get(f'https://storage.googleapis.com/storage/v1/b/{args.bucket}/o',
-                                params=params, headers=auth, timeout=90)
+        response = control.request('GET', f'https://storage.googleapis.com/storage/v1/b/{args.bucket}/o',
+                                   params=params, timeout=90)
         response.raise_for_status()
         listing = response.json()
         existing.update({r['name']: r for r in listing.get('items', [])})
@@ -140,13 +177,13 @@ def controller(args):
                 'metadata': {'sha256': item['sha256'], 'dataset': item.get('dataset', '')}}
         if item.get('source_sha256'):
             meta['metadata']['source_sha256'] = item['source_sha256']
-        response = requests.post(f'https://storage.googleapis.com/upload/storage/v1/b/{args.bucket}/o',
-             params={'uploadType': 'resumable', 'ifGenerationMatch': 0}, headers={**auth,
+        response = control.request('POST', f'https://storage.googleapis.com/upload/storage/v1/b/{args.bucket}/o',
+             params={'uploadType': 'resumable', 'ifGenerationMatch': 0}, headers={
              'X-Upload-Content-Type': ct, 'X-Upload-Content-Length': str(item['bytes'])},
              json=meta, timeout=90)
         if response.status_code == 412:
-            v = requests.get(f'https://storage.googleapis.com/storage/v1/b/{args.bucket}/o/' +
-                 requests.utils.quote(item['object'], safe=''), headers=auth, timeout=60)
+            v = control.request('GET', f'https://storage.googleapis.com/storage/v1/b/{args.bucket}/o/' +
+                 requests.utils.quote(item['object'], safe=''), timeout=60)
             v.raise_for_status()
             x = v.json()
             assert int(x['size']) == item['bytes'] and x['metadata']['sha256'] == item['sha256']
