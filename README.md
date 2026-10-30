@@ -14,6 +14,25 @@ Completed full X results remain separate: [Cosmos](results/cosmos-X-20261028/sum
 
 Controlled visual psychophysics with lossless RGB16 source videos. Source accuracy, framework preprocessing and model outputs are separate measurements. [Protocol](EXPERIMENT_PLAN.md) defines stimuli and numerical scope; [findings](report.md) retains observations and negative results. Local operational decisions are in the benchmark registry and project `LATEST.md`.
 
+<!-- t45-current-cpu-generation -->
+## Current public T4 source generation
+
+The public T4 scope is **408 classic + 408 natural videos**, including24 bias-only controls per domain. Each video has180 frames at60fps and768×512, encoded as lossless RGB8 H.264. Classic disks use positive-coverage writes; natural objects use the strict56px support revision.
+
+Stage `plans/t45-final-20261030/current1200-manifest.json` and the300 exact NPY inputs listed in `plans/t45-final-20261030/public-t4-prepared-index.json` under a workspace root. These200 backgrounds and100 T4 objects belong in `datasets/t45-final-20261030/natural-fit56-v2/prepared/`; materialize source symlinks. Using the existing CPU Python environment with NumPy, SciPy, Pillow, PyAV and OpenCV, run each host assignment:
+
+```bash
+python -B src/stimuli/prepare_t45_final.py render \
+  --root /absolute/prepared-workspace --host fourier --domain all --task T4 --workers 8
+python -B src/stimuli/prepare_t45_final.py render \
+  --root /absolute/prepared-workspace --host radon --domain all --task T4 --workers 8
+```
+
+Fourier selects640 T4 sources and Radon selects176. Repeated `--sample-id ID` selects a finite subset. T4 generation requires no T5 reference, mask, or other T5 asset. Outputs and complete180-frame RGB8/PTS/OpenCV checks go into separate `current-reproduction` directories; historical manifests are never substituted.
+
+A clean-staging CPU replay of one classic and one natural T4 matched all360 decoded RGB8 frames and encoded video SHA256 values, with zero T5 assets present. The complete1200-source research workspace also includes T5; those assets are excluded from the public bundle while their permissions are reviewed. Source generation imports no model or GPU runtime.
+<!-- /t45-current-cpu-generation -->
+
 <!-- cosmos-x-public-current -->
 ## Current Cosmos X reproduction
 
