@@ -33,6 +33,25 @@ Fourier selects784 public sources and Radon selects224. Add `--task T4` for T4 a
 Clean-staging CPU replays matched one classic and one natural T4 with zero T5 assets, and one classic and one natural no-mask T5 with zero mask assets:360 decoded frames per check, encoded video SHA256 values and T5 reference SHA256 values all matched the formal sources. The complete1200-source research workspace also retains persistent-mask T5 separately. Source generation imports no model or GPU runtime.
 <!-- /t45-current-cpu-generation -->
 
+<!-- t45-public-cosmos-catalog -->
+### Cosmos X inference from a published T4/T5 catalog
+
+The portable `classic_precision.cosmos_x` entry also accepts a published `metadata.jsonl` and its release SHA256. It checks source/reference hashes, sends the official native video and, for T5, the reference image first. T4 uses `LEFT/RIGHT`; T5 uses `YES/NO`. All engine and request settings match the frozen Cosmos X T4/T5 profiles; only media admission adds one reference image. No QSA, model-forward, or processor patch is used.
+
+```bash
+python -B -m classic_precision.cosmos_x check-index \
+  --data-root /absolute/dataset --catalog /absolute/dataset/metadata.jsonl \
+  --catalog-sha256 SHA_FROM_THE_DATASET_CARD
+python -B -m classic_precision.cosmos_x run \
+  --data-root /absolute/dataset --catalog /absolute/dataset/metadata.jsonl \
+  --catalog-sha256 SHA_FROM_THE_DATASET_CARD \
+  --model-dir /absolute/nvfp4-checkpoint --tokenizer-dir /absolute/tokenizer \
+  --device 0 --output /absolute/new-result-directory
+```
+
+Use the existing Cosmos X pinned runtime and checkpoint recipe below. Repeated `--id ID` selects a finite subset; an existing output directory is refused. Raw answers, full tokens, intents and any uncertain request remain recorded without automatic retries. The portable entry has CPU contract checks against four actual production inputs; production GPU-input/closure evidence is separate. The original T1–T3 interface without `--catalog` is unchanged.
+<!-- /t45-public-cosmos-catalog -->
+
 <!-- cosmos-x-public-current -->
 ## Current Cosmos X reproduction
 

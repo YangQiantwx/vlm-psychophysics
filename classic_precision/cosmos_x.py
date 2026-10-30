@@ -97,10 +97,30 @@ def checked_assets(model_dir, tokenizer_dir, spec):
     return roots
 
 
+def checked_catalog(data_root, catalog_path, expected_sha):
+    """A separately identified T4/T5 release, never substituted for classic T1–T3."""
+    root = Path(data_root).expanduser().resolve(strict=True)
+    catalog = Path(catalog_path).expanduser().resolve(strict=True)
+    require(expected_sha and file_sha(catalog) == expected_sha, "Published catalog SHA256 is required and must match")
+    rows = [json.loads(line) for line in catalog.read_text().splitlines() if line.strip()]
+    require(rows and len({r['sample_id'] for r in rows}) == len(rows), "Empty or duplicate catalog IDs")
+    selected = {}
+    for row in rows:
+        task = row['task']; choices = ['LEFT', 'RIGHT'] if task == 'T4' else ['YES', 'NO']
+        require(task in ('T4', 'T5') and row['domain'] in ('classic', 'natural'), "Unsupported catalog condition")
+        require(row['choices'] == choices and row['prompt'], "Missing or invalid task response contract")
+        require([row[k] for k in ('frames', 'height', 'width', 'fps')] == [180, 512, 768, 60], "Catalog source geometry differs")
+        require(row['accuracy_eligible'] == (row['truth'] is not None), "Eligibility differs from label presence")
+        require(row['truth'] is None or row['truth'] in choices, "Invalid label")
+        require(task == 'T4' or (row.get('reference_path') and row.get('reference_sha256')), "T5 reference identity is required")
+        selected[row['sample_id']] = dict(row, video_relative=row['video_path'])
+    return root, {'items': selected, 'catalog_sha256': expected_sha}, selected
+
+
 def selected_entries(selected, ids):
     chosen = ids or sorted(selected)
     require(len(chosen) == len(set(chosen)), "Duplicate requested ID")
-    require(set(chosen) <= set(selected), "Requested ID is outside the current 9,456-video scope")
+    require(set(chosen) <= set(selected), "Requested ID is outside the selected source release")
     return [(sid, selected[sid]) for sid in chosen]
 
 
@@ -114,7 +134,22 @@ def checked_media(root, entries):
         # Relative names and exact file hashes bind these cache symlinks too.
         require(file_sha(path) == item["video_sha256"], "Source file SHA256 differs: " + sid)
         paths[sid] = path
+        if item.get('reference_path'):
+            relative = Path(item['reference_path'])
+            require(not relative.is_absolute() and '..' not in relative.parts, 'Invalid relative reference path')
+            reference = (root / relative).resolve(strict=True)
+            require(file_sha(reference) == item['reference_sha256'], 'Reference SHA256 differs: ' + sid)
     return paths
+
+
+def request_messages(root, path, item):
+    content = []
+    if item.get('reference_path'):
+        reference = (root / item['reference_path']).resolve(strict=True)
+        content.append({'type': 'image_url', 'image_url': {'url': reference.as_uri()}})
+    content.extend([{'type': 'video_url', 'video_url': {'url': path.as_uri()}},
+                    {'type': 'text', 'text': item['prompt']}])
+    return [{'role': 'user', 'content': content}]
 
 
 def runtime_versions(spec):
@@ -141,10 +176,12 @@ def environment(spec, device):
     require("release 13.0, V13.0.88" in compiler.stdout, "Expected the qualified CUDA 13.0.88 compiler")
 
 
-def engine_kwargs(spec, roots, root, memory_fraction):
+def engine_kwargs(spec, roots, root, memory_fraction, reference_admission=False):
     value = dict(spec["LLM_kwargs"])
     value.update(model=str(roots["checkpoint"]), tokenizer=str(roots["tokenizer"]),
                  allowed_local_media_path=str(root), gpu_memory_utilization=memory_fraction)
+    if reference_admission:
+        value['limit_mm_per_prompt'] = {'audio': 0, 'image': 1, 'video': 1}
     return value
 
 
@@ -157,14 +194,19 @@ def append(stream, value):
 def run(args, spec, root, roots, entries, paths, versions):
     output = Path(args.output).expanduser().resolve()
     output.mkdir(parents=True, exist_ok=False)
-    media_root = Path(os.path.commonpath([str(path.parent) for path in paths.values()]))
-    kwargs = engine_kwargs(spec, roots, media_root, args.gpu_memory_utilization)
+    media_paths = [str(path.parent) for path in paths.values()]
+    media_paths += [str((root / item['reference_path']).resolve(strict=True).parent)
+                    for _, item in entries if item.get('reference_path')]
+    media_root = Path(os.path.commonpath(media_paths))
+    kwargs = engine_kwargs(spec, roots, media_root, args.gpu_memory_utilization,
+                           reference_admission=bool(getattr(args, 'catalog', None)))
     with (output / "binding.json").open("x") as stream:
         append(stream, {"recipe_sha256": file_sha(Path(__file__).with_suffix(".json")),
                         "software": versions, "LLM_kwargs": kwargs,
                         "sampling": spec["sampling"], "chat_template_kwargs": spec["chat_template_kwargs"],
                         "request_mm_processor_kwargs": spec["request_mm_processor_kwargs"],
                         "assigned_ids": [sid for sid, _ in entries], "automatic_retry": False,
+                        "catalog_sha256": getattr(args, 'catalog_sha256', None),
                         "production_GPU_observer_included": False})
     from vllm import LLM, SamplingParams
     from vllm.sampling_params import StructuredOutputsParams
@@ -172,10 +214,11 @@ def run(args, spec, root, roots, entries, paths, versions):
     require(torch.__version__ == "2.14.0+cu130" and torch.version.cuda == "13.0",
             "Expected the qualified Torch CUDA 13.0 build")
     torch.set_num_threads(6)
-    sampling = SamplingParams(**spec["sampling"],
-        structured_outputs=StructuredOutputsParams(choice=["LEFT", "RIGHT"]))
-    require(not sampling.ignore_eos and sampling.stop == [] and sampling.stop_token_ids == [],
-            "Native EOS policy changed")
+    samplings = {}
+    for choices in {tuple(item.get('choices', ['LEFT', 'RIGHT'])) for _, item in entries}:
+        sampling = SamplingParams(**spec['sampling'], structured_outputs=StructuredOutputsParams(choice=list(choices)))
+        require(not sampling.ignore_eos and sampling.stop == [] and sampling.stop_token_ids == [], 'Native EOS policy changed')
+        samplings[choices] = sampling
     completed, pending = [], None
     started = time.monotonic()
     try:
@@ -185,9 +228,9 @@ def run(args, spec, root, roots, entries, paths, versions):
                 pending = sid
                 append(intents, {"sample_id": sid, "task": item["task"],
                                  "source_sha256": item["video_sha256"]})
-                messages = [{"role": "user", "content": [
-                    {"type": "video_url", "video_url": {"url": paths[sid].as_uri()}},
-                    {"type": "text", "text": item["prompt"]}]}]
+                choices = tuple(item.get('choices', ['LEFT', 'RIGHT']))
+                sampling = samplings[choices]
+                messages = request_messages(root, paths[sid], item)
                 request_start = time.monotonic()
                 result = engine.chat(messages, sampling_params=sampling, use_tqdm=False,
                     mm_processor_kwargs=spec["request_mm_processor_kwargs"],
@@ -198,9 +241,11 @@ def run(args, spec, root, roots, entries, paths, versions):
                              "prompt_token_ids": list(result.prompt_token_ids),
                              "finish_reason": answer.finish_reason, "stop_reason": answer.stop_reason,
                              "source_sha256": item["video_sha256"],
+                             "reference_sha256": item.get('reference_sha256'),
+                             "accuracy_eligible": item.get('accuracy_eligible', True),
                              "request_seconds": time.monotonic() - request_start})
                 require(answer.finish_reason == "stop", "Incomplete output retained for " + sid)
-                require(answer.text.strip() in ("LEFT", "RIGHT"), "Invalid answer retained for " + sid)
+                require(answer.text.strip() in choices, "Invalid answer retained for " + sid)
                 require(len(result.prompt_token_ids) + spec["sampling"]["max_tokens"]
                         <= spec["LLM_kwargs"]["max_model_len"], "Context budget exceeded for " + sid)
                 completed.append(sid)
@@ -218,6 +263,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=["show", "install-command", "check-index", "check", "run"])
     parser.add_argument("--data-root")
+    parser.add_argument('--catalog', help='Optional published T4/T5 metadata.jsonl; separate from classic T1–T3 index')
+    parser.add_argument('--catalog-sha256', help='SHA256 published with the selected catalog release')
     parser.add_argument("--model-dir")
     parser.add_argument("--tokenizer-dir")
     parser.add_argument("--id", action="append", dest="ids", help="Optional finite subset of primary IDs")
@@ -239,11 +286,12 @@ def main():
                          torch_wheel["url"] + "#sha256=" + torch_wheel["sha256"], *packages]))
         return
     require(args.data_root, "--data-root is required")
-    root, index, selected = checked_index(args.data_root, spec)
+    root, index, selected = (checked_catalog(args.data_root, args.catalog, args.catalog_sha256)
+                             if args.catalog else checked_index(args.data_root, spec))
     entries = selected_entries(selected, args.ids)
     if args.command == "check-index":
         print(json.dumps({"status": "PASS", "source_videos": len(index["items"]),
-                          "primary_counts": spec["scope"]["counts"], "selected": len(entries),
+                          "primary_counts": dict(Counter(x['task'] for x in selected.values())), "selected": len(entries),
                           "model_calls": 0, "runtime_imported": False}))
         return
     require(args.model_dir and args.tokenizer_dir, "--model-dir and --tokenizer-dir are required")

@@ -212,6 +212,43 @@ def audit_worker(archive, spec):
         for sid in selected:
             require(admission['raw_digest'] == digest(raws[sid]), 'Admission/raw mismatch')
         event_status = 'INDEPENDENT_INPUT_ADMISSION_ORIGINAL_FAILURE_PRESERVED'
+    elif spec.get('preclaim_refusal_admission'):
+        # A stat-only source refusal happened before claim/INTENT/model dispatch.
+        # Preserve its nonzero wait and missing result.json; admit only the
+        # already durable TECHNICAL_PASS prefix, never the failed pending ID.
+        admission = archive.ref(spec['preclaim_refusal_admission'])
+        require(admission['status'] == 'PASS_PRECLAIM_SOURCE_STAT_RECONCILIATION'
+                and admission['profile_digest'] == digest(p)
+                and admission['original_wait'] == wait,
+                'Preclaim reconciliation does not bind the original worker')
+        require(p['model'] == 'cosmos' and p['phase'] == 'classic'
+                and wait['returncode'] == 1 and wait['terminal_status'] == 'FAILED_OR_UNCERTAIN'
+                and wait['completed_ids'] == [] and not (out / 'result.json').exists(),
+                'Unexpected preclaim-refusal terminal state')
+        for binding in admission['bindings'].values():
+            require(file_sha256(archive.path(binding['path'])) == binding['sha256'],
+                    'Preclaim reconciliation evidence changed')
+        failure = read(out / 'failure.json')
+        selected = admission['completed_ids']
+        remaining = p['assigned_ids'][len(selected):]
+        require(selected and selected == p['assigned_ids'][:len(selected)]
+                and remaining == admission['never_dispatched_ids'] and remaining
+                and failure['completed'] == len(selected)
+                and failure['UNCERTAIN_id'] == remaining[0]
+                and failure['error_type'] == 'ValueError' and failure['error'] == 'Source changed',
+                'Refusal was not at the exact next source boundary')
+        require(admission['new_scientific_calls'] == 0
+                and admission['source_bytes_unchanged']
+                and admission['stat_guard_before_claim_and_dispatch']
+                and admission['same_physical_lock_inode']
+                and admission['physical_lock_free_at_reconciliation'],
+                'Preclaim/source/closure proof incomplete')
+        claims = {s for s in p['assigned_ids']
+                  if (archive.path(p['claim_root']) / (s + '.json')).exists()}
+        timings = unique(journal(out / 'request-timings.jsonl'))
+        require(claims == set(raws) == set(intents) == set(passes) == set(timings) == set(selected),
+                'Refusal has a claimed, dispatched or uncertain remainder')
+        event_status = 'TECHNICAL_PASS_PREFIX_PRECLAIM_REFUSAL_RC1_PRESERVED'
     else:
         terminal = read(out / 'result.json')
         if spec.get('paused_prefix_successor'):
@@ -329,6 +366,7 @@ def audit_worker(archive, spec):
                 'profile': spec['profile'], 'raw': descriptor(out / 'raw.jsonl'),
                 'wait': descriptor(wait_path), 'original_returncode': wait['returncode'],
                 'admission': event_status, 'independent_admission': special,
+                'preclaim_refusal_admission': spec.get('preclaim_refusal_admission'),
                 'recorded_package_versions': versions,
                 'extra_package_checks': {'scope': 'asserted_by_frozen_worker_before_first_request_not_separately_recorded',
                                          'expected': startup_asserted_packages},
