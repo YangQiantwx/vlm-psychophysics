@@ -15,22 +15,22 @@ Completed full X results remain separate: [Cosmos](results/cosmos-X-20261028/sum
 Controlled visual psychophysics with lossless RGB16 source videos. Source accuracy, framework preprocessing and model outputs are separate measurements. [Protocol](EXPERIMENT_PLAN.md) defines stimuli and numerical scope; [findings](report.md) retains observations and negative results. Local operational decisions are in the benchmark registry and project `LATEST.md`.
 
 <!-- t45-current-cpu-generation -->
-## Current public T4 source generation
+## Current public T4 and unmasked T5 generation
 
-The public T4 scope is **408 classic + 408 natural videos**, including24 bias-only controls per domain. Each video has180 frames at60fps and768×512, encoded as lossless RGB8 H.264. Classic disks use positive-coverage writes; natural objects use the strict56px support revision.
+The public scope is **408 classic + 408 natural T4 videos**, plus **96 classic + 96 natural no-mask T5 videos**:1008 sources. T4 includes24 bias-only controls per domain. Each video has180 frames at60fps and768×512, encoded as lossless RGB8 H.264. Classic disks use positive-coverage writes; natural T4 uses the strict56px support revision. The192 persistent-mask T5 videos remain outside this public bundle pending permission review.
 
-Stage `plans/t45-final-20261030/current1200-manifest.json` and the300 exact NPY inputs listed in `plans/t45-final-20261030/public-t4-prepared-index.json` under a workspace root. These200 backgrounds and100 T4 objects belong in `datasets/t45-final-20261030/natural-fit56-v2/prepared/`; materialize source symlinks. Using the existing CPU Python environment with NumPy, SciPy, Pillow, PyAV and OpenCV, run each host assignment:
+Stage `plans/t45-final-20261030/current1200-manifest.json` and the exact inputs listed in `public-t4-prepared-index.json` and `public-none-t5-input-index.json` in that plan directory. The300 T4 NPY files are shared; unmasked T5 adds24 NPY files and25 reference PNGs. Materialize source symlinks. Using the existing CPU Python environment with NumPy, SciPy, Pillow, PyAV and OpenCV, generate both public tasks and domains:
 
 ```bash
 python -B src/stimuli/prepare_t45_final.py render \
-  --root /absolute/prepared-workspace --host fourier --domain all --task T4 --workers 8
+  --root /absolute/prepared-workspace --host fourier --domain all --mask none --workers 8
 python -B src/stimuli/prepare_t45_final.py render \
-  --root /absolute/prepared-workspace --host radon --domain all --task T4 --workers 8
+  --root /absolute/prepared-workspace --host radon --domain all --mask none --workers 8
 ```
 
-Fourier selects640 T4 sources and Radon selects176. Repeated `--sample-id ID` selects a finite subset. T4 generation requires no T5 reference, mask, or other T5 asset. Outputs and complete180-frame RGB8/PTS/OpenCV checks go into separate `current-reproduction` directories; historical manifests are never substituted.
+Fourier selects784 public sources and Radon selects224. Add `--task T4` for T4 alone, or `--task T5 --mask none` for unmasked T5 alone. Repeated `--sample-id ID` selects a finite subset. The mask filter leaves T4 unchanged, and no-mask T5 never loads or requires the pattern-mask image. Outputs and complete180-frame RGB8/PTS/OpenCV checks go into separate `current-reproduction` directories; historical manifests are never substituted.
 
-A clean-staging CPU replay of one classic and one natural T4 matched all360 decoded RGB8 frames and encoded video SHA256 values, with zero T5 assets present. The complete1200-source research workspace also includes T5; those assets are excluded from the public bundle while their permissions are reviewed. Source generation imports no model or GPU runtime.
+Clean-staging CPU replays matched one classic and one natural T4 with zero T5 assets, and one classic and one natural no-mask T5 with zero mask assets:360 decoded frames per check, encoded video SHA256 values and T5 reference SHA256 values all matched the formal sources. The complete1200-source research workspace also retains persistent-mask T5 separately. Source generation imports no model or GPU runtime.
 <!-- /t45-current-cpu-generation -->
 
 <!-- cosmos-x-public-current -->

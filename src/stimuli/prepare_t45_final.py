@@ -233,7 +233,9 @@ def t5_frames(root, row):
         background = np.load(d/'prepared'/(row['background_id']+'.npy'))
         zero = np.load(d/'prepared'/(row['object_id']+'-T5.npy')); sprites = [np.rot90(zero,-a//90) for a in row['angles_deg']]
         refpath = d/'references'/(row['object_id']+'.png')
-    base = base_t5(background); mask = mask_pixels(root); cache={}; schedule=[]
+    base = base_t5(background)
+    mask = mask_pixels(root) if row['mask']=='persistent' else None
+    cache={}; schedule=[]
     starts = [row['onset'],row['onset']+60]; stops=[s+30 for s in starts]
     for f in range(FRAMES):
         key = tuple('target' if starts[i]<=f<stops[i] else 'mask' if row['mask']=='persistent' and f>=stops[i] else 'blank' for i in range(2))
@@ -361,13 +363,14 @@ def ready_item(q):
         source_qa_path=str(Path(q['video']).parent.parent/'qa'/(row['sample_id']+'.json')))
 
 
-def render(root,host,workers,domain,task,limit,offset,sample_ids=None):
+def render(root,host,workers,domain,task,limit,offset,sample_ids=None,mask='all'):
     root=Path(root);p,d,out=paths(root);m=read(p/'manifest.json')
     candidates=list(m['items'])
     if domain in ('natural','all') and (p/'natural-manifest.json').exists():
         candidates+=read(p/'natural-manifest.json')['items']
     assert len({x['sample_id'] for x in candidates})==len(candidates),'Duplicate source identity across manifests'
-    rows=[x for x in candidates if (domain=='all' or x['domain']==domain) and (task=='all' or x['task']==task)]
+    rows=[x for x in candidates if (domain=='all' or x['domain']==domain) and (task=='all' or x['task']==task)
+        and (x['task']!='T5' or mask=='all' or x['mask']==mask)]
     rows=[x for x in rows if x['card'].startswith(host)]
     if sample_ids:
         requested=set(sample_ids);rows=[x for x in rows if x['sample_id'] in requested]
@@ -402,7 +405,7 @@ def current_paths(root):
         r/'runs/stimulus-preparation'/NAME/'current-reproduction')
 
 
-def initialize_current(root,domain,task='all',host=None,sample_ids=None):
+def initialize_current(root,domain,task='all',host=None,sample_ids=None,mask='all'):
     """Use the published current identities; never silently fall back to v1.
 
     Frozen sources remain read-only. Reproductions have their own output tree.
@@ -415,9 +418,11 @@ def initialize_current(root,domain,task='all',host=None,sample_ids=None):
     assert len(rows)==len({x['sample_id'] for x in rows})==1200
     assert Counter((x['domain'],x['task']) for x in rows)=={('classic','T4'):408,('classic','T5'):192,('natural','T4'):408,('natural','T5'):192}
     selected=[x for x in rows if (domain=='all' or x['domain']==domain) and (task=='all' or x['task']==task)
-        and (host is None or x['card'].startswith(host)) and (not sample_ids or x['sample_id'] in set(sample_ids))]
+        and (host is None or x['card'].startswith(host)) and (not sample_ids or x['sample_id'] in set(sample_ids))
+        and (x['task']!='T5' or mask=='all' or x['mask']==mask)]
     assert selected,'No current sources selected'
     needs_t5=any(x['task']=='T5' for x in selected)
+    needs_pattern_mask=any(x['task']=='T5' and x['mask']=='persistent' for x in selected)
     needs_natural=any(x['domain']=='natural' for x in selected)
     needs_natural_t5=any(x['domain']=='natural' and x['task']=='T5' for x in selected)
     p,d,out=current_paths(root)
@@ -429,7 +434,8 @@ def initialize_current(root,domain,task='all',host=None,sample_ids=None):
         inputs=p/'inputs'
         if not inputs.exists():inputs.symlink_to(original_plan/'inputs',target_is_directory=True)
         assert sha(inputs/'T5-reference.png')=='40592f247066d5ce225e106f06c5fbef6906ea745b697ecd88b91028cf179ce3'
-        assert sha(inputs/'mask.png')=='9649d9a37d10a0086971cf42fd6873c8003cc0ecf6e190be1bd408be639fd3c6'
+        if needs_pattern_mask:
+            assert sha(inputs/'mask.png')=='9649d9a37d10a0086971cf42fd6873c8003cc0ecf6e190be1bd408be639fd3c6'
         ref=d/'references/T5-classic.png'
         if ref.exists():assert sha(ref)==sha(inputs/'T5-reference.png')
         else:ref.symlink_to(inputs/'T5-reference.png')
@@ -455,13 +461,14 @@ def main():
     parser.add_argument('--domain',choices=['classic','natural','all'],default='classic');parser.add_argument('--task',choices=['T4','T5','all'],default='all')
     parser.add_argument('--limit',type=int);parser.add_argument('--offset',type=int,default=0)
     parser.add_argument('--sample-id',action='append',help='Limit CPU reproduction to a named current source; repeat for multiple IDs')
+    parser.add_argument('--mask',choices=['none','persistent','all'],default='all',help='T5 mask condition; T4 selection is unaffected')
     args = parser.parse_args()
-    current=initialize_current(args.root,args.domain,args.task,args.host,args.sample_id)
+    current=initialize_current(args.root,args.domain,args.task,args.host,args.sample_id,args.mask)
     if args.action=='initialize':print(json.dumps({'current_sources':len(current['items']),'manifest':'current1200-manifest.json'}))
     else:
         global paths
         paths=current_paths
-        render(args.root,args.host,args.workers,args.domain,args.task,args.limit,args.offset,args.sample_id)
+        render(args.root,args.host,args.workers,args.domain,args.task,args.limit,args.offset,args.sample_id,args.mask)
 
 
 if __name__=='__main__':main()
