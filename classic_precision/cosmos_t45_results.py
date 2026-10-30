@@ -4,6 +4,7 @@ import argparse
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
 import json
+import math
 from pathlib import Path
 import socket
 import time
@@ -59,6 +60,46 @@ def counts(rows):
             'YES':sum(r['answer']=='YES' for r in rows),'NO':sum(r['answer']=='NO' for r in rows)}
 
 
+def source_cue_diagnostic(root):
+    """Evaluate a fixed geometric cue, independently of every model answer."""
+    root=Path(root)
+    manifest=root/'plans/t45-final-20261030/current1200-manifest.json'
+    sources=audit.read(manifest)['items']
+    rows=[]
+    for r in sources:
+        if r['domain']!='classic' or r['task']!='T4' or r['coherence']==0:continue
+        positions,velocities=r['positions_xy_px'],r['velocity_xy_px_s']
+        audit.require(len(positions)==len(velocities)==r['source_parameters']['N']==16,
+                      'Unexpected current T4 geometry')
+        first=math.fsum(p[0] for p in positions)/16
+        last=math.fsum(p[0]+v[0]*(179/60) for p,v in zip(positions,velocities))/16
+        initial_answer='RIGHT' if first>384 else 'LEFT'
+        final_answer='RIGHT' if last>384 else 'LEFT'
+        rows.append({'sample_id':r['sample_id'],'coherence':r['coherence'],
+            'initial_centroid_x':first,'final_centroid_x':last,'truth':r['direction'],
+            'initial_rule_correct':initial_answer==r['direction'],
+            'final_rule_answer':final_answer,'final_rule_correct':final_answer==r['direction']})
+    audit.require(len(rows)==384,'Expected all 384 nonzero-coherence classic inputs')
+    cells=[]
+    for coherence in sorted({r['coherence'] for r in rows}):
+        group=[r for r in rows if r['coherence']==coherence]
+        audit.require(len(group)==48,'Incomplete source-cue condition')
+        cells.append({'coherence':coherence,'n':len(group),
+            'initial_rule_correct':sum(r['initial_rule_correct'] for r in group),
+            'final_rule_correct':sum(r['final_rule_correct'] for r in group)})
+    result={'status':'COMPLETE_FIXED_GEOMETRIC_CUE_DIAGNOSTIC','source_manifest':audit.descriptor(manifest),
+        'n':len(rows),'correct':sum(r['final_rule_correct'] for r in rows),
+        'initial_rule_correct':sum(r['initial_rule_correct'] for r in rows),'model_calls':0,
+        'rule':'RIGHT iff the mean of the 16 final planned x centers is >384; LEFT otherwise.',
+        'fixed_protocol':{'width':768,'height':512,'fps':60,'last_frame_index':179},
+        'scope':'Uses source geometry, not decoded-image measurements or a VLM. No fitting, training, result selection, or source changes. Natural pairs share these trajectories.',
+        'interpretation':'Final spatial position carries answer information. T4 measures direction discrimination under these stimuli; accuracy alone does not establish temporal motion integration.',
+        'cells':cells,'records':rows}
+    out=root/'runs/reproducibility'/NAME/'source-cue-diagnostic.json'
+    atomic_json(out,result)
+    return {k:result[k] for k in ('status','n','correct','initial_rule_correct','model_calls','cells')}
+
+
 def audited_revision_prefix(archive, spec, profile, wait, terminal, wait_path):
     """Audit the entire preserved prefix before selecting source-valid records."""
     plan=archive.ref(spec['retained_source_revision'])
@@ -88,6 +129,12 @@ def analyze(root):
     current_sources=current_manifest['items'] if isinstance(current_manifest,dict) else current_manifest
     source_by_id={r['sample_id']:r for r in current_sources}
     audit.require(len(current_sources)==len(source_by_id)==1200,'Current source manifest is incomplete or duplicated')
+    cue_path=root/'runs/reproducibility'/NAME/'source-cue-diagnostic.json'
+    if not cue_path.exists():source_cue_diagnostic(root)
+    cue=audit.read(cue_path)
+    audit.require(cue['source_manifest']['sha256']==plan['source_id_plan']['sha256']
+                  and cue['status']=='COMPLETE_FIXED_GEOMETRIC_CUE_DIAGNOSTIC'
+                  and cue['model_calls']==0,'Source cue diagnostic is not bound to this manifest')
     if selected:
         source_audit=arc.ref(selected['final_source_audit'])
         audit.require(source_audit['status']=='PASS_FINAL1200_SOURCE_AND_INDEPENDENT_PIXELS'
@@ -217,6 +264,8 @@ def analyze(root):
         'actual_deep_reader_source_byte_checks':reader_bindings,
         'actual_deep_reader_scope':'First real request of each task per worker; all remaining requests retain reader count/order/shape and frozen source identity, not full GPU byte observations.',
         'statistical_scope':'24 layout seeds for T4; 24 onset-position blocks for T5. Paired raw curves, no threshold fit forced.',
+        'T4_construct_scope':'Final position is an available direction cue; these scores alone do not establish temporal integration. See source-cue-diagnostic.json for a fixed geometry-only rule.',
+        'source_cue_diagnostic':audit.descriptor(root/'runs/reproducibility'/NAME/'source-cue-diagnostic.json'),
         'inference_scope':'Official Cosmos X native video+T5 reference; no model numeric patch. Limited prior reproducibility evidence, not arbitrary-hardware determinism.'}
     out=root/'runs/reproducibility'/NAME/'analysis';out.mkdir(exist_ok=True)
     atomic_json(out/'records.json',records)
@@ -255,8 +304,9 @@ def render(out,cells):
 
 
 def main():
-    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--root',required=True);p.add_argument('--status',action='store_true');a=p.parse_args()
-    print(json.dumps(status(a.root) if a.status else analyze(a.root)),flush=True)
+    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--root',required=True)
+    mode=p.add_mutually_exclusive_group();mode.add_argument('--status',action='store_true');mode.add_argument('--source-cues',action='store_true');a=p.parse_args()
+    print(json.dumps(status(a.root) if a.status else source_cue_diagnostic(a.root) if a.source_cues else analyze(a.root)),flush=True)
 
 
 if __name__=='__main__':main()
