@@ -283,6 +283,9 @@ def stage(root: Path, manifest: dict, task: str) -> tuple[Path, dict]:
                     'These commands require no T5 mask or reference inputs:\n\n'
                     '```bash\npython reproduction/src/stimuli/prepare_t45_final.py render --root reproduction --task T4 --domain all --host fourier --workers 4\n'
                     'python reproduction/src/stimuli/prepare_t45_final.py render --root reproduction --task T4 --domain all --host radon --workers 4\n```\n')
+            f.write('\nT4 is a direction-discrimination assay. A CPU-only metadata diagnostic predicts RIGHT when the final '
+                    'centroid x exceeds 384 and obtains 360/384 correct labels on the classic nonzero-coherence sources. '
+                    'This geometric rule is not a VLM score; accuracy alone does not establish cross-frame integration.\n')
             if any(r['task'] == 'T5' for r in published):
                 f.write('\nUnmasked T5 replay (the additional-input index pins 24 T5 arrays and 25 reference PNGs):\n\n'
                         '```bash\npython reproduction/src/stimuli/prepare_t45_final.py render --root reproduction --task T5 --domain all --mask none --host fourier --workers 4\n'
