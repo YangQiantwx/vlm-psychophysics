@@ -160,3 +160,5 @@
 .classic-dashboard .research-links{display:flex;gap:16px 24px;flex-wrap:wrap;margin:20px 0;font-size:16px}.classic-dashboard .research-basis h3{font-size:17px;margin-top:24px}.classic-dashboard .research-links a{line-height:1.6}
 
 .t45-overview-score{display:block;min-width:128px;font-size:15px;line-height:1.8}.t45-overview-score>span{display:flex;justify-content:space-between;gap:12px}.t45-overview-score strong{font-size:17px!important}
+
+.astra-overview{border-top:1px solid var(--line);margin-top:36px;padding-top:28px}.astra-heading{display:flex;align-items:baseline;gap:20px;flex-wrap:wrap}.astra-heading h2{font-size:25px;margin:0}.astra-heading>span{font-size:17px;color:var(--muted)}.astra-scope{display:flex;gap:12px 28px;flex-wrap:wrap;font-size:16px;margin:22px 0;color:var(--muted)}.astra-limitation{font-size:16px;margin:20px 0;color:var(--muted)}.system-controls{margin-bottom:24px!important;padding-bottom:20px;border-bottom:1px solid var(--line)}.astra-methods p{font-size:16px;max-width:900px;line-height:1.6}.astra-overview .controls{margin-top:22px}.astra-overview .score-count{font-size:14px}

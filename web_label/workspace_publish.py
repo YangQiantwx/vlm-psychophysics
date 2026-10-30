@@ -1075,6 +1075,14 @@ def main():
             for name,raw in t45_release.items():write('/'+name,raw)
         else:config(review/'t45-final.json','/experiments/t45-final.json')
         config(review/'task-cards.json','/experiments/task-cards.json')
+        if (review/'astra.json').is_file():
+            astra=read(review/'astra.json')
+            config(review/'astra.json','/experiments/astra.json')
+            for name,identity in astra['figure_assets'].items():
+                if not re.fullmatch(r'astra-T[123](?:-direction)?\.(?:png|pdf)',name):raise ValueError('Unexpected Astra public figure')
+                raw=(root/'runs/reproducibility/astra-path-only-20261027/figures'/name).read_bytes()
+                if len(raw)!=identity['bytes'] or hashlib.sha256(raw).hexdigest()!=identity['sha256']:raise ValueError('Astra figure identity changed')
+                write('/experiments/astra/'+name,raw)
         if (review/'t45-source-cue.json').is_file():config(review/'t45-source-cue.json','/experiments/t45-source-cue.json')
         config(review/'plan.json','/experiments/plan.json')
         config(review/'library.json','/experiments/library.json')
