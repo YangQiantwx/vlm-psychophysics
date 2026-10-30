@@ -52,8 +52,10 @@ def load_index(bucket, uri):
     raw = blob.download_as_bytes()
     index = json.loads(raw)
     need(index.get('schema') == 'validated-browser-library-v1', 'Unexpected browser index schema')
-    need(str(index.get('status', '')).startswith('COMPLETE'), 'Browser index has not completed')
     items = index['items']
+    status = str(index.get('status', ''))
+    need(status.startswith('COMPLETE') or status == f'ALL_{len(items)}_BROWSER_AND_GCS_IDENTITIES_VERIFIED', 'Browser index has not completed')
+    need(not index.get('missing'), 'Browser index still has unresolved missing items')
     counts = collections.Counter(row['task'] for row in items)
     if 'count' in index:
         need(int(index['count']) == len(items), 'Browser index top-level count disagrees with its items')

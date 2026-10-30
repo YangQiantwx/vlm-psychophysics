@@ -162,6 +162,37 @@ class LabelWorkflow(unittest.TestCase):
         self.assertFalse(record['playback_complete'])
         self.assertIsNone(record['answer'])
 
+    def test_large_media_is_bounded_stream_without_content_length(self):
+        bid = self.post('/api/claim', {'task': 'T1'}).json['batch']['id']
+        old_bucket = m.bucket
+        self.addCleanup(setattr, m, 'bucket', old_bucket)
+        reads, closed, chunk_sizes = [], [], []
+        class Reader:
+            remaining = 40 * 1024 * 1024
+            def __enter__(self):return self
+            def __exit__(self, *args):closed.append(True)
+            def read(self, size):
+                reads.append(size)
+                if not self.remaining:return b''
+                self.remaining -= size
+                return b'x' * size
+        class Blob:
+            def open(self, mode, chunk_size):
+                self.mode = mode
+                chunk_sizes.append(chunk_size)
+                return Reader()
+        class Bucket:
+            def blob(self, name):return Blob()
+        m.bucket = lambda: Bucket()
+        result = self.client.get('/api/media/' + bid + '/0', headers=self.auth, buffered=False)
+        self.assertTrue(result.is_streamed)
+        self.assertNotIn('Content-Length', result.headers)
+        self.assertLessEqual(len(reads), 1)
+        self.assertEqual(sum(len(chunk) for chunk in result.response), 40 * 1024 * 1024)
+        self.assertTrue(all(size == 1024 * 1024 for size in reads))
+        self.assertEqual(chunk_sizes, [4 * 1024 * 1024])
+        self.assertEqual(closed, [True])
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -32,11 +32,11 @@ def main():
     args = p.parse_args()
     env = dict(os.environ, CLOUDSDK_PYTHON=sys.executable)
 
-    def run(command, check=True):
+    def run(command, check=True, cwd=HERE):
         print(shlex.join(map(str, command)), flush=True)
         if args.dry_run:
             return 0
-        return subprocess.run(list(map(str, command)), env=env, check=check, cwd=HERE).returncode
+        return subprocess.run(list(map(str, command)), env=env, check=check, cwd=cwd).returncode
 
     if args.action == 'frontend':
         if not (args.stage / 'label/index.html').is_file():
@@ -47,17 +47,11 @@ def main():
         config['name'] = args.pages_project
         config['pages_build_output_dir'] = str(args.stage.resolve())
         config['r2_buckets'][0]['bucket_name'] = args.media_bucket
-        if args.dry_run:
-            config_file = args.stage.parent / 'wrangler-dry-run.json'
-        else:
-            with tempfile.NamedTemporaryFile(mode='w', prefix='cvpr-pages-', suffix='.json', dir=args.stage.parent, delete=False) as stream:
-                json.dump(config, stream, indent=2)
-                config_file = Path(stream.name)
-        try:
-            run(['node', args.wrangler_cli, 'pages', 'deploy', args.stage, '--config', config_file, '--project-name', args.pages_project, '--branch', 'main'])
-        finally:
-            if not args.dry_run:
-                config_file.unlink(missing_ok=True)
+        # Pages rejects --config paths. Use an isolated cwd with the standard
+        # filename so the checked-in configuration never needs to be rewritten.
+        with tempfile.TemporaryDirectory(prefix='cvpr-pages-') as folder:
+            (Path(folder) / 'wrangler.json').write_text(json.dumps(config, indent=2) + '\n')
+            run(['node', args.wrangler_cli.resolve(), 'pages', 'deploy', args.stage.resolve(), '--project-name', args.pages_project, '--branch', 'main'], cwd=folder)
         return
     if not args.project or not args.bucket:
         p.error('--project and --bucket are required for cloud resources')
@@ -81,7 +75,7 @@ def main():
     variables = '^|^LABEL_BUCKET=' + args.bucket + '|LABEL_ORIGINS=' + args.origins + '|HUMAN_ENABLED=0'
     run(['gcloud', 'run', 'deploy', args.service, '--image', image, '--region', args.region, '--service-account', sa,
          '--allow-unauthenticated', '--min-instances=0', '--max-instances=2', '--cpu=1', '--memory=512Mi',
-         '--concurrency=20', '--timeout=60', '--no-cpu-boost', '--set-env-vars', variables, *project])
+         '--concurrency=8', '--timeout=300', '--no-cpu-boost', '--set-env-vars', variables, *project])
 
 
 if __name__ == '__main__':

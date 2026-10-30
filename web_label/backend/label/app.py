@@ -395,6 +395,21 @@ def complete():
     return fail('Completion is busy; retry', 409)
 
 
+def streamed_media(object_name, kind, filename):
+    # A generator keeps large T1 files out of process memory and enables HTTP
+    # chunked transfer beyond Cloud Run's non-streamed 32 MiB response limit.
+    # The client still awaits the complete blob and verifies its SHA before Play.
+    blob = bucket().blob(object_name)
+    def chunks():
+        with blob.open('rb', chunk_size=4 * 1024 * 1024) as source:
+            while True:
+                chunk = source.read(1024 * 1024)
+                if not chunk:
+                    break
+                yield chunk
+    return Response(chunks(), mimetype=kind, headers={'Content-Disposition': 'inline; filename="' + filename + '"'})
+
+
 @app.get('/api/media/<bid>/<int:index>')
 def media(bid, index):
     session = identity()
@@ -408,8 +423,7 @@ def media(bid, index):
         return fail('Media is closed after playback starts', 410)
     task = manifest_for(state)['tasks'][batch['task']]
     item = next(x for x in task['items'] if x['id'] == batch['items'][index])
-    raw = bucket().blob(item['object']).download_as_bytes()
-    return Response(raw, mimetype='video/webm', headers={'Content-Length': str(len(raw)), 'Content-Disposition': 'inline; filename="clip.webm"'})
+    return streamed_media(item['object'], 'video/webm', 'clip.webm')
 
 
 @app.get('/api/reference/<bid>')
@@ -456,9 +470,8 @@ def example_media(alias):
         return fail('This source is not current', 404)
     if not item['object'].startswith(('browser/', 'references/')):
         return fail('Not found', 404)
-    raw = bucket().blob(item['object']).download_as_bytes()
     kind = 'image/png' if item['object'].endswith('.png') else 'video/webm'
-    return Response(raw, mimetype=kind, headers={'Content-Length': str(len(raw)), 'Content-Disposition': 'inline; filename="sample.' + ('png' if kind == 'image/png' else 'webm') + '"'})
+    return streamed_media(item['object'], kind, 'sample.' + ('png' if kind == 'image/png' else 'webm'))
 
 
 if __name__ == '__main__':

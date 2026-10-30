@@ -45,6 +45,19 @@ class InventoryGates(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'required task'):
             self.build(self.rows[:-1])
 
+    def test_accepts_sealed_all_identity_status_and_rejects_missing_inventory(self):
+        index = {'schema': 'validated-browser-library-v1', 'version': 'fixture', 'status': 'ALL_5_BROWSER_AND_GCS_IDENTITIES_VERIFIED', 'items': self.rows, 'expected_counts': {tid: 1 for tid in m.TASKS}, 'count': 5, 'missing': []}
+        class Blob:
+            name = 'manifests/fixture.json'
+            generation = 1
+            def download_as_bytes(self):return json.dumps(index).encode()
+        bucket = SimpleNamespace(name='fixture', blob=lambda key: Blob())
+        loaded, identity = m.load_index(bucket, 'gs://fixture/manifests/fixture.json')
+        self.assertEqual(len(loaded['items']), 5)
+        index['missing'] = ['unresolved']
+        with self.assertRaisesRegex(ValueError, 'missing items'):
+            m.load_index(bucket, 'gs://fixture/manifests/fixture.json')
+
     def test_rejects_unqualified_or_changed_rgb(self):
         rows = copy.deepcopy(self.rows)
         rows[0]['validation']['derivative_RGB8_sha256'] = '0'*64
