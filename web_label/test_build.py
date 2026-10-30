@@ -49,6 +49,7 @@ class PublicBuildGates(unittest.TestCase):
             (analysis / 'summary.json').write_text('{"status":"COMPLETE","fixture":true}')
             with self.assertRaisesRegex(ValueError, 'missing a final figure'):
                 workspace_publish.refresh_t45(root, review, stage)
+            (analysis / 'summary.json').write_text('{"status":"COMPLETE_COSMOS_X_T45_1200","fixture":true}')
             (analysis / 'cells.csv').write_text('task,fixture\nT4,true\n')
             for tid in ('T4', 'T5'):
                 Image.new('RGB', (2, 2)).save(analysis / (tid + '-classic-natural.png'))

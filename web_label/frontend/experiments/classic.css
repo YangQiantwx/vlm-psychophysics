@@ -158,3 +158,5 @@
 @media(max-width:650px){.current-results .task-links a[href="?task=overview"],.current-results .task-links a[href="?task=precision"]{display:none}.current-results .task-navigation{gap:8px}.current-results .task-links{gap:1px}.current-results .task-links a{padding:9px 5px}.current-results .task-links .library-link{font-size:12px}}
 
 .classic-dashboard .research-links{display:flex;gap:16px 24px;flex-wrap:wrap;margin:20px 0;font-size:16px}.classic-dashboard .research-basis h3{font-size:17px;margin-top:24px}.classic-dashboard .research-links a{line-height:1.6}
+
+.t45-overview-score{display:block;min-width:128px;font-size:15px;line-height:1.8}.t45-overview-score>span{display:flex;justify-content:space-between;gap:12px}.t45-overview-score strong{font-size:17px!important}

@@ -1,6 +1,6 @@
 {
   "schema": "public-site-inputs-v1",
-  "base_url": "https://4ab9ff47.vision-tasks.pages.dev",
+  "base_url": "https://080008e0.vision-tasks.pages.dev",
   "scope": "Published machine-result aggregates, stimulus metadata, attribution and review assets. No participant records. Lossless label videos remain private GCS API inputs.",
   "files": [
     {
@@ -165,13 +165,38 @@
     },
     {
       "path": "experiments/t45-final.json",
-      "bytes": 1062116,
-      "sha256": "652f3c554b9c50d3ec3815376f5966da53ad38825a3761c6ea84413c90ef74be"
+      "bytes": 505879,
+      "sha256": "6bde629648b253679d0fb60904bf94373679d4a1c453f9ab789575d4b94b3bbb"
+    },
+    {
+      "path": "experiments/t45-results/T4-classic-natural.png",
+      "bytes": 57910,
+      "sha256": "c3af69cf3c7586143f667704743dc4620a0719e70027a8f4c6680ca8babf50ab"
+    },
+    {
+      "path": "experiments/t45-results/T5-classic-natural.png",
+      "bytes": 80153,
+      "sha256": "ed7ed9ba971bb61ab891fd2ddcde418b77bee2692620314182818f2782b7581a"
+    },
+    {
+      "path": "experiments/t45-results/cells.csv",
+      "bytes": 1672,
+      "sha256": "596e5ae43f9e855d63745368395490adef7ee435c94476ce8a4424dc7cc18eb7"
+    },
+    {
+      "path": "experiments/t45-results/summary.json",
+      "bytes": 50930,
+      "sha256": "025573a2da401f486b88e19542f98df77c54f98ea5ca8e7cdea2e838b41ceec4"
+    },
+    {
+      "path": "experiments/t45-source-cue.json",
+      "bytes": 1559,
+      "sha256": "36d4e820acd2b0c9c3f0df954b20b2d55a0b9540853ce218949a3837cc96c4c0"
     },
     {
       "path": "experiments/task-cards.json",
-      "bytes": 13905,
-      "sha256": "ad069af313f4730c532e4b607ef429f626133cdd2a2825d1df2a367e5a878c0b"
+      "bytes": 9489,
+      "sha256": "499209c76694f5600d24654162ef7f10a0d3dcfa78f27b3fc112de6d8c17ec8a"
     },
     {
       "path": "label/config.json",

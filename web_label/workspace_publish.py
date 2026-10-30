@@ -834,7 +834,7 @@ def t45_payloads(root, review, require_complete=False):
     """Read only the coordinator's sealed four-file release, never trial output."""
     analysis=root/'runs/reproducibility/cosmos-x-t45-20261030/analysis'
     summary=analysis/'summary.json'
-    complete=summary.is_file() and json.loads(summary.read_text()).get('status')=='COMPLETE'
+    complete=summary.is_file() and json.loads(summary.read_text()).get('status') in ('COMPLETE','COMPLETE_COSMOS_X_T45_1200')
     if not complete:
         if require_complete:raise ValueError('Final T45 analysis is not COMPLETE')
         return None
@@ -854,12 +854,27 @@ def t45_payloads(root, review, require_complete=False):
             raw=(json.dumps(sanitize(json.loads(raw)),ensure_ascii=False,separators=(',',':'))+'\n').encode()
         payloads['experiments/t45-results/'+name]=raw
     config=json.loads((review/'t45-final.json').read_text())
+    final=json.loads(summary.read_text())
     for tid in ('T4','T5'):
         config['tasks'][tid]['result']['status']='complete'
         config['tasks'][tid]['inference_status']='Inference complete'
         config['tasks'][tid]['source_status']='Source QA passed'
+        rows=[]
+        for row in final.get('by_task_domain',[]):
+            if row['task']!=tid:continue
+            entry={key:row[key] for key in ('domain','correct','scored_n','n','accuracy','RIGHT','NO')}
+            if tid=='T5':
+                cells=[cell for cell in final['cells'] if cell['task']=='T5' and cell['domain']==row['domain']]
+                present=[cell for cell in cells if cell['subgroup'] in ('target_first','target_second')]
+                absent=[cell for cell in cells if cell['subgroup']=='target_absent']
+                entry.update(hit=sum(cell['YES'] for cell in present),present_n=sum(cell['n'] for cell in present),false_alarm=sum(cell['YES'] for cell in absent),absent_n=sum(cell['n'] for cell in absent))
+            rows.append(entry)
+        config['tasks'][tid]['result']['summary_rows']=rows
+        config['tasks'][tid]['result']['summary_source_sha256']=hashlib.sha256(summary.read_bytes()).hexdigest()
     config['source_release']='current'
     payloads['experiments/t45-final.json']=(json.dumps(sanitize(config),ensure_ascii=False,separators=(',',':'))+'\n').encode()
+    cue=review/'t45-source-cue.json'
+    if cue.is_file():payloads['experiments/t45-source-cue.json']=(json.dumps(sanitize(json.loads(cue.read_text())),ensure_ascii=False,separators=(',',':'))+'\n').encode()
     return payloads
 
 
@@ -881,6 +896,7 @@ def main():
     p.add_argument('--output', type=Path, default=Path('/tmp/cvpr-web-publish'))
     p.add_argument('--site-root', type=Path, default=SITE_ROOT, help='Site source/configuration inputs')
     p.add_argument('--refresh-t45', action='store_true', help='Stage only the sealed COMPLETE T45 figures, table and configuration')
+    p.add_argument('--stage', type=Path, help='Direct existing stage directory for --refresh-t45')
     p.add_argument('--refresh-classic',action='store_true',help='Only refresh the completed T1/T2 interactive public snapshot')
     p.add_argument('--refresh-t3',action='store_true',help='Refresh observed T3 scalar trials; mark partial panels explicitly')
     p.add_argument('--refresh-current',action='store_true',help='Refresh the current RGB16 scalar snapshot without publishing')
@@ -888,7 +904,7 @@ def main():
     p.add_argument('--keep-results',action='store_true',help='Reuse the existing scalar snapshot for a presentation-only deployment')
     args=p.parse_args(); root=args.root.resolve(); SITE_ROOT=args.site_root.resolve()
     if args.refresh_t45:
-        refresh_t45(root,SITE_ROOT/'review',args.output.resolve()/'stage');return
+        refresh_t45(root,SITE_ROOT/'review',args.stage.resolve() if args.stage else args.output.resolve()/'stage');return
     if args.refresh_previews:
         refresh_previews(root);return
     if args.refresh_current:
@@ -1059,6 +1075,7 @@ def main():
             for name,raw in t45_release.items():write('/'+name,raw)
         else:config(review/'t45-final.json','/experiments/t45-final.json')
         config(review/'task-cards.json','/experiments/task-cards.json')
+        if (review/'t45-source-cue.json').is_file():config(review/'t45-source-cue.json','/experiments/t45-source-cue.json')
         config(review/'plan.json','/experiments/plan.json')
         config(review/'library.json','/experiments/library.json')
         write('/experiments/library-render.js',(review/'library-render.js').read_bytes())
