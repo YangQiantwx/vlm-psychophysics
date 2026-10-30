@@ -216,6 +216,15 @@ def audit_worker(archive, spec):
         terminal = read(out / 'result.json')
         if spec.get('paused_prefix_successor'):
             selected = closed_prefix_selection(archive, spec, p, wait, terminal, wait_path)
+        elif spec.get('closed_prefix_only'):
+            require(p['model']=='qwen_x_qsa' and p['phase']=='classic_T2', 'Unexpected standalone paused-prefix protocol')
+            selected=terminal['completed_ids']
+            require(wait['returncode']==0 and wait['terminal_status']==terminal['status']=='PAUSED'
+                    and not terminal['UNCERTAIN_ids'] and selected
+                    and selected==p['assigned_ids'][:len(selected)]
+                    and terminal['unattempted_ids']==p['assigned_ids'][len(selected):], 'Unclean paused prefix')
+            require({s for s in p['assigned_ids'] if (archive.path(p['claim_root'])/(s+'.json')).exists()}==set(selected),
+                    'Paused prefix has an unresolved claim')
         else:
             require(wait['returncode'] == 0 and wait['terminal_status'] == 'COMPLETE', 'Worker not COMPLETE')
             selected = p['assigned_ids']
@@ -224,7 +233,7 @@ def audit_worker(archive, spec):
         require(wait['completed_ids'] == selected, 'Wait/terminal completed IDs differ')
         timings = unique(journal(out / 'request-timings.jsonl'))
         require(set(raws) == set(intents) == set(passes) == set(timings) == set(selected), 'Per-ID ledger differs')
-        event_status = 'PAUSED_PREFIX_TECHNICAL_PASS' if spec.get('paused_prefix_successor') else 'WORKER_TECHNICAL_PASS'
+        event_status = 'PAUSED_PREFIX_TECHNICAL_PASS' if spec.get('paused_prefix_successor') or spec.get('closed_prefix_only') else 'WORKER_TECHNICAL_PASS'
     catalog = archive.ref(p['source_catalog'])
     identity = read(out / 'identity.json')
     require(identity['profile_sha256'] == digest(p) and identity['profile'] == p, 'Worker identity differs')
