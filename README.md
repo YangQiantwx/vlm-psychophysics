@@ -36,7 +36,7 @@ Clean-staging CPU replays matched one classic and one natural T4 with zero T5 as
 <!-- cosmos-x-public-current -->
 ## Current Cosmos X reproduction
 
-The current Cosmos X scope is **T1 3,840 + T2 2,880 + T3 2,736 = 9,456 unique videos**. T2 uses only 30-frame/500 ms exposures; T3 excludes the auxiliary 1.75°/2.25° conditions. The complete source collection retains all 12,528 videos. Full-scope X inference was still running on 2026-10-28 HST; no complete X accuracy is claimed here. The completed curves and execution maps below retain their earlier protocol identities.
+The current Cosmos X scope is **T1 3,840 + T2 2,880 + T3 2,736 = 9,456 unique videos**. T2 uses only 30-frame/500 ms exposures; T3 excludes the auxiliary 1.75°/2.25° conditions. The complete source collection retains all 12,528 videos. The full 9,456-video Cosmos X run is complete. Current T4/T5 model evaluations are tracked separately. The completed curves and execution maps below retain their earlier protocol identities.
 
 [`classic_precision/cosmos_x.py`](classic_precision/cosmos_x.py) is a portable entry using public `LLM.chat`; [`cosmos_x.json`](classic_precision/cosmos_x.json) binds the actual X settings and exact source/prompt/asset identities. It uses the official mixed NVFP4 checkpoint and a separately pinned original tokenizer. QSA and custom model-forward/processor code are not required for this Cosmos route.
 
@@ -56,11 +56,11 @@ hf download nvidia/Cosmos3-Super \
 
 | Boundary | Fixed X setting |
 |---|---|
-| Source → reader | Lossless RGB16 FFV1 → official OpenCV uint8; 180 frames, `fps=-1` |
+| Source → reader | T1–3: lossless RGB16 FFV1; T4/T5: lossless RGB8 H264 → official OpenCV uint8; 180 frames, `fps=-1` |
 | Processor | Effective 768×512; `do_resize=False`, `do_sample_frames=False` at engine **and request** scope; pruning 0 |
 | Runtime | vLLM `0.33.0rc1.dev175+gf4fd1ab68`, Torch `2.14.0+cu130`, Transformers `5.17.0`, FlashInfer `0.7.2.post1` |
 | Numerical policy | Official automatic kernels and autotuning; native GPU normalization; no explicit compilation override; eager execution |
-| Generation | Exact task prompt; thinking OFF; greedy temperature 0, top-p 1, seed 0; LEFT/RIGHT constraint; native EOS; output cap 16,384 |
+| Generation | Exact task prompt; thinking OFF; greedy temperature 0, top-p 1, seed 0; task-specific LEFT/RIGHT or T5 YES/NO constraint; native EOS; output cap 16,384 |
 | Resources | Context 65,536; BF16 KV 17 GiB; batch-token cap 36,000; one sequence; prefix/MM caches 0; CPU offload 0 |
 
 From a source checkout, inspect or check the source index without importing Torch, vLLM or CUDA:
@@ -89,6 +89,18 @@ Set `CUDA_HOME` to the existing CUDA 13.0.88 compiler directory. The default mem
 Current X evidence is bounded to 144/144 repeated complete outputs on the measured same-card panel and 12/12 F1/R0 overlap. Source QA and no-resize settings do not guarantee identical outputs for every video or across hardware. The new portable entry has CPU contract checks; its own clean-machine GPU run has not been performed.
 
 A→X changes several coupled boundaries: RGB16→FP32 versus native uint8 decoding; the old processor/input bridge versus native file video with GPU normalization; vLLM/Torch/FlashInfer versions; explicit FlashInfer CUTLASS selection versus automatic selection; and autotuning OFF versus the official default ON. Both actual receipts contain 256 FlashInfer CUTLASS NVFP4 kernel instances, so a different kernel class is not established. Transformers stays at 5.17.0. A explicitly requests compilation mode 0; X's eager setting also resolves to mode 0 with CUDA Graphs and multimodal encoder compilation disabled. A explicitly sets Torch numerical flags; X leaves native defaults after setting threads/seed, and exact child-flag equality has not been independently dumped. This comparison cannot attribute differences to loading, vLLM, precision or a single kernel alone.
+
+The [current T4/T5 source release](https://huggingface.co/datasets/DrQY/vlm-psychophysics-t4-t5/tree/34cdf5516724b907d69c4d91368614430d6ce71a) publicly provides all 816 T4 sources and 192 unmasked T5 sources, including all 25 reference images. The other 192 T5 videos contain the original line-mask bitmap and await clarification of redistribution permission. This does not alter the complete frozen 1,200-source research protocol. Natural T4 fixes a 56 px enclosing support, without equalizing visible object area or contrast. T5 first/second contrasts include both spatial axis and recency.
+
+The same portable Cosmos entry accepts the published catalog. T5 supplies the reference image before the video and allows one image; other engine/request settings retain the measured X recipe. The packaged 1,008-source catalog passed CPU admission and the four-family native message/parameter contract was checked without model calls; this is not a new portable GPU replay. Pin the source revision above and admit the exact catalog before any finite run:
+
+```bash
+python -B -m classic_precision.cosmos_x check-index \
+  --data-root /absolute/t45-source-download \
+  --catalog /absolute/t45-source-download/metadata.jsonl \
+  --catalog-sha256 471e7d987c12d98936db5ebddc9893ae2ba3f658cf7cd5c1a576fabfd7f02f04
+```
+
 <!-- /cosmos-x-public-current -->
 
 ## Choose the protocol first

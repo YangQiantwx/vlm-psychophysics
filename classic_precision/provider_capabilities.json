@@ -1,0 +1,118 @@
+{
+  "checked_date": "2026-10-30",
+  "status": "DOCUMENTED_CAPABILITY_NO_PROVIDER_CALLS",
+  "nvidia_internal": {
+    "base_url": "https://inference-api.nvidia.com/v1",
+    "model_id_format": "provider/company/model_name",
+    "source": "User-provided endpoint format; authenticated account inventory and native video admission remain unverified.",
+    "account_model_inventory": "NOT_VERIFIED_REQUIRES_AUTHENTICATED_MODELS_LIST",
+    "video_support": "Per-model capability must be confirmed on the actual internal route; public NIM support does not certify this gateway."
+  },
+  "routes": [
+    {
+      "provider": "Moonshot official",
+      "base_url": "https://api.moonshot.ai/v1",
+      "models": [
+        "kimi-k3.1-pro",
+        "kimi-k3.1-pro-highspeed",
+        "kimi-k3",
+        "kimi-k2.6",
+        "kimi-k2.7-code",
+        "kimi-k2.7-code-highspeed"
+      ],
+      "media": "files.create(purpose=video), then video_url.url=ms://<file-id>",
+      "sources": [
+        "https://platform.kimi.ai/docs/guide/use-kimi-vision-model",
+        "https://platform.kimi.ai/docs/models"
+      ],
+      "notes": "Official guide supports video inputs. Provider uses key frames; full 180-frame/no-resize equivalence is unverified. Kimi K2.5 officially discontinued 2026-08-31 on this provider."
+    },
+    {
+      "provider": "Zhipu BigModel official",
+      "base_url": "https://open.bigmodel.cn/api/paas/v4",
+      "models": [
+        "glm-4.6v",
+        "glm-4.6v-flashx",
+        "glm-4.6v-flash",
+        "glm-5v-turbo"
+      ],
+      "media": "video_url.url=<https video URL>; no image/video mixing",
+      "sources": [
+        "https://docs.bigmodel.cn/cn/guide/models/vlm/glm-4.6v",
+        "https://github.com/zai-org/GLM-V/blob/main/skills/glmv-prompt-gen/scripts/prompt_gen.py",
+        "https://docs.bigmodel.cn/cn/guide/models/vlm/glm-5v-turbo"
+      ],
+      "notes": "Official model guide includes a video_url example. Official repository records URL-only mp4/mkv/mov up to 200MB. No assumption that GLM text models accept video. GLM-5V-Turbo official guide also gives a native video_url chat/completions example; thinking can be enabled or disabled."
+    },
+    {
+      "provider": "NVIDIA public NIM",
+      "base_url": "https://integrate.api.nvidia.com/v1",
+      "models": [
+        "moonshotai/kimi-k2.5"
+      ],
+      "media": "video_url content part",
+      "sources": [
+        "https://docs.api.nvidia.com/nim/reference/moonshotai-kimi-k2-5-infer"
+      ],
+      "notes": "Public NIM documents video_url. Independent route from Moonshot official and internal NVIDIA gateway; account access and scientific input path are not yet tested."
+    },
+    {
+      "provider": "Z.AI official documented candidate",
+      "models": [
+        "glm-5.3-flash",
+        "glm-5.3-flashx"
+      ],
+      "media": "Official guide lists Video/Image/Text/File; this guide does not provide a video request example. Exact video admission and account availability remain untested.",
+      "thinking": "enabled required; cannot disable. Runner handles this model-specific constraint.",
+      "sources": [
+        "https://docs.z.ai/guides/vlm/glm-5.3-flash"
+      ],
+      "status": "DOCUMENTED_MODALITY_NOT_AN_AUTHENTICATED_WORKING_ROUTE"
+    }
+  ],
+  "admission": {
+    "model_calls_this_preparation": 0,
+    "tools": [],
+    "agent_executor": false,
+    "must_record": [
+      "requested_and_returned_model",
+      "endpoint",
+      "exact_prompt",
+      "source_sha256",
+      "media_mode",
+      "request_parameters",
+      "raw_response",
+      "usage",
+      "finish_reason",
+      "tool_calls_if_any",
+      "provider_errors"
+    ],
+    "full_frame_parity": "NOT_ESTABLISHED_FOR_CLOSED_APIS",
+    "scientific_claim": "API deployment results remain separate from verified local full-frame X results.",
+    "remote_video_URL_rule": "Before a BigModel inference call, download the supplied HTTPS object and require exact source SHA256 and byte count; no implicit paid retries.",
+    "upload_filename": "Moonshot filenames use source SHA256, without condition or truth labels.",
+    "T5": "Reference-image plus video requests are not yet qualified on these provider routes and are not admitted by this runner."
+  },
+  "runner": {
+    "module": "classic_precision.provider_api",
+    "inventory_command": "python -m classic_precision.provider_api --provider nvidia-internal --inventory --out runs/provider-api/inventory",
+    "offline_command": "python -m classic_precision.provider_api --provider nvidia-internal --model EXACT_ACCOUNT_MODEL_ID --inputs classic_precision/provider_capabilities.json --root /absolute/natural-t2-download --out /absolute/new-dryrun",
+    "execute_command": "Use the same prepared input after actual route/model admission; --execute permits a real call. This configuration does not invoke inference.",
+    "required_secret": "Set NVIDIA_API_KEY in the execution shell; never write it into code, configuration or published artifacts.",
+    "paid_call_status": "NO_CALLS_EXECUTED",
+    "actual_media_support": "Internal video_url must be confirmed; offline readiness is not a claim the gateway accepts video."
+  },
+  "example_inputs": [
+    {
+      "sample_id": "nt2_0cedf79b9c9da6f6838ba744",
+      "video_sha256": "12dd2f6b72f5b6373c8f231cc8060c9f2875dee8d9874c2bf4a2b1ed4edb764e",
+      "prompt": "Watch the two matching objects displayed side by side against a stationary background. Both objects remain in place, and one briefly increases in brightness before returning to its earlier appearance. Identify the side on which this brightening event occurs. Compare each object with its own appearance before and after the event, using the other object as a simultaneous reference. The relevant change is an increase in brightness over time, not the final brightness of either object. Do not choose a side because its surrounding background is lighter, because of an existing highlight, or because of the object's shape. Report the position of the object that brightened. Give your final answer as exactly one uppercase word: LEFT or RIGHT.",
+      "choices": [
+        "LEFT",
+        "RIGHT"
+      ],
+      "video_path": "videos/nt2_0cedf79b9c9da6f6838ba744.mp4"
+    }
+  ],
+  "pilot_public_source_url": "https://huggingface.co/datasets/DrQY/vlm-psychophysics-natural-t2/resolve/caec09e21590ea2e8d4f88a630f9847909f3676d/videos/nt2_0cedf79b9c9da6f6838ba744.mp4"
+}
