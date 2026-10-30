@@ -1,0 +1,11 @@
+{
+  "name": "vision-tasks",
+  "pages_build_output_dir": "dist",
+  "compatibility_date": "2026-10-13",
+  "r2_buckets": [
+    {
+      "binding": "MEDIA",
+      "bucket_name": "vision-tasks-media"
+    }
+  ]
+}
