@@ -245,15 +245,163 @@ def sensitivity(root):
     return {'status':result['status'],'groups':group_rows,'max_cell_shape_standardization':result['max_cell_shape_standardization']}
 
 
-def compare_classic_x(root):
+def _checked_t2_cells(summary,records,n,fields):
+    """Recompute every denominator and score before accepting an audited export."""
+    require(len(records)==len({r['sample_id'] for r in records})==n,'Complete T2 record universe required')
+    require(all(r['task']=='T2' and r['eligible'] is True and r['answer'] in ('LEFT','RIGHT')
+                and r['correct']==(r['answer']==r['truth']) for r in records),'T2 score/eligibility differs')
+    require(summary['overall']==basic(records),'Summary overall differs from canonical records')
+    groups=defaultdict(list)
+    for r in records:groups[tuple(r['parameters'][k] for k in fields)].append(r)
+    expected_cells=80 if n==3840 else 60
+    require(len(groups)==expected_cells and {len(v) for v in groups.values()}=={48},'Complete 48-trial T2 cells required')
+    saved={tuple(cell[k] for k in fields):cell for cell in summary['cells']}
+    require(len(saved)==len(summary['cells'])==expected_cells and set(saved)==set(groups),'Summary cell universe differs')
+    for key,values in groups.items():
+        scores=basic(values);cell=saved[key]
+        require(all(cell[k]==v for k,v in scores.items()),'Summary cell score/denominator differs')
+    return groups
+
+
+def _spoon_revision_data(root):
+    """Reconcile only the already completed40; no calls, claims, or source changes."""
+    revision='natural-t2-spoon-20261030';root=Path(root).resolve();out=root/'runs/reproducibility'/revision;arc=Archive(root)
+    summary=read(out/'summary.json')
+    require(summary['status']=='COMPLETE_NATURAL_T2_SPOON_X_OVERLAY' and summary['new_scientific_calls']==40
+            and summary['all40_replaced_regardless_of_answers'] is True and summary['selection_uses_model_answers'] is False
+            and summary['overlay_denominator']==3840 and summary['preserved_historical_record_count']==3840,
+            'Complete all40 spoon-revision audit required')
+    require(summary['overall']['n']==summary['overall']['accuracy_n']==3840 and len(summary['cells'])==80
+            and all(c['n']==c['accuracy_n']==48 for c in summary['cells']), 'Complete 3840/80x48 overlay required')
+    plan=arc.ref(summary['plan']);acceptance=arc.ref(summary['source_acceptance'])
+    require(file_sha256(root/'plans'/revision/'plan.json')==summary['plan']['sha256']
+            and file_sha256(root/'plans'/revision/'source-acceptance.json')==summary['source_acceptance']['sha256']
+            and plan['schema']=='natural-T2-spoon-Qwen-X-execution-v1' and plan['maximum_new_model_calls']==40
+            and plan['all40_replaced_regardless_of_answers'] is True and plan['selection_uses_model_answers'] is False,
+            'Revision plan binding/scope differs')
+    require(arc.ref(plan['source_acceptance'])==acceptance and acceptance['status']=='COMPLETE_REPLACEMENT_SOURCE_QA_PASS'
+            and acceptance['videos']==40 and acceptance['decoded_frames']==7200,'Source acceptance differs')
+    parent_summary=arc.ref(summary['parent_summary']);parents=arc.ref(summary['parent_records'])
+    require(file_sha256(root/'runs/reproducibility'/NAME/'summary.json')==summary['parent_summary']['sha256']
+            and file_sha256(root/'runs/reproducibility'/NAME/'canonical-records.json')==summary['parent_records']['sha256']
+            and plan['parent_summary']['sha256']==summary['parent_summary']['sha256']
+            and plan['parent_records']['sha256']==summary['parent_records']['sha256']
+            and parent_summary['status']=='COMPLETE_NATURAL_T2_X','Sealed historical result binding differs')
+    _checked_t2_cells(parent_summary,parents,3840,('group','delta_Y'))
+    require(summary['parent_overall']==parent_summary['overall'],'Historical overall changed')
+    old_by={r['sample_id']:r for r in parents}
+    expected_parents={sid for sid,r in old_by.items() if r['natural_qa']['object_id']=='photo_obj_021'}
+    require(len(expected_parents)==40 and set(plan['parent_ids'])==set(summary['replaced_parent_ids'])==expected_parents
+            and len(plan['parent_ids'])==len(summary['replaced_parent_ids'])==40,'Exact affected parent40 required')
+    source=arc.ref(acceptance['source_records'])['T2'];source_revision=arc.ref(acceptance['source_revision'])
+    require(source_revision['status']=='COMPLETE_SPOON_SOURCE_REVISION' and source_revision['counts']['T2']==40
+            and len(source)==40 and digest(source)==acceptance['source_records_sha256'],'Revised source record binding differs')
+    for key in ('source_asset','stimulus_recipe'):
+        ref=acceptance[key];require(file_sha256(arc.path(ref['path']))==ref['sha256'],'Source asset/recipe changed')
+    accepted_generator=arc.ref(acceptance['quality_policy'])['accepted_generator_sha256']
+    allocation=arc.ref(acceptance['allocation']);old_allocation=arc.ref(acceptance['parent_allocation'])
+    arc.ref(acceptance['parent_asset_preparation'])
+    original={c['sample_id']:(c,b['card']) for b in old_allocation['blocks'] for c in b['cases']}
+    allocated=[c for b in allocation['blocks'] for c in b['cases']]
+    require(len(allocated)==40 and {c['sample_id'] for c in allocated}==set(source)
+            and {c['parent_sample_id'] for c in allocated}==expected_parents,'Source allocation40 differs')
+    require(set(plan['cards'])=={'fourier0','fourier1','radon0'}
+            and {card:len(v['assigned_ids']) for card,v in plan['cards'].items()}=={'fourier0':12,'fourier1':8,'radon0':20},
+            'Original card allocation differs')
+    assigned=[s for card in plan['cards'].values() for s in card['assigned_ids']]
+    require(len(assigned)==len(set(assigned))==40 and set(assigned)==set(source),'New assigned40 universe differs')
+    keys=('block','group','background_id','object_id','delta_Y','onset_frame','offset_frame','truth')
+    for sid,q in source.items():
+        parent=q['parent_sample_id'];previous,card=original[parent]
+        require(sid==q['sample_id'] and sid not in old_by and parent in expected_parents and q['card']==card
+                and sid in plan['cards'][card]['assigned_ids'] and all(q[k]==previous[k] for k in keys),
+                'Source parent/condition/card differs')
+        require(q['source_asset_sha256']==acceptance['source_asset']['sha256']
+                and q['stimulus_recipe_sha256']==acceptance['stimulus_recipe']['sha256']
+                and q['render_implementation_sha256'] in accepted_generator
+                and q['decoded_frames_exact']==180 and q['outside_target_identical'] is True
+                and q['offset_frame']-q['onset_frame']==30
+                and abs(q['float64_delta_Y']-q['delta_Y'])<1e-10
+                and abs(q['decoded_delta_Y']-q['delta_Y'])<min(.002,.02*q['delta_Y']), 'Revised source QA differs')
+    replacements=[];evidence_by_card=defaultdict(list)
+    require(summary['worker_evidence'],'New worker evidence required')
+    for evidence in summary['worker_evidence']:
+        p=arc.ref(evidence['profile']);out_worker=arc.path(p['output']);wait=arc.ref(evidence['wait'])
+        require(p['operational_wrapper']['sha256']==file_sha256(Path(__file__).with_name('natural_spoon_qwen.py')), 'Frozen replacement wrapper differs')
+        require(p['phase']=='natural_T2' and p['experiment_plan']['sha256']==summary['plan']['sha256']
+                and p['source_acceptance']['sha256']==summary['source_acceptance']['sha256']
+                and p['card'] in plan['cards'] and p['source_catalog']==plan['cards'][p['card']]['source_catalog'],
+                'New worker not bound to revision plan/source')
+        require(arc.path(evidence['raw']['path'])==out_worker/'raw.jsonl'
+                and file_sha256(out_worker/'raw.jsonl')==evidence['raw']['sha256']
+                and arc.path(evidence['wait']['path'])==out_worker.with_suffix('.wait.json')
+                and wait['profile_sha256']==digest(p),'New worker raw/wait binding differs')
+        spec={'profile':evidence['profile'],'phase':'natural_T2','variant':'X_QSA_NO_FLASHINFER_AUTOTUNE'}
+        if evidence['admission']=='PAUSED_PREFIX_TECHNICAL_PASS':
+            from .natural_spoon_qwen import paused_segment
+            rows,_=paused_segment(arc,spec,evidence['successor'])
+        else:
+            require(evidence['admission']=='WORKER_TECHNICAL_PASS','Unexpected worker admission')
+            rows,_=audit_worker(arc,spec)
+        require(len(rows)==evidence['accepted'],'New worker accepted count differs')
+        for r in rows:
+            require(r['sample_id'] in source,'Foreign worker output');r['natural_qa']=source[r['sample_id']]
+        replacements+=rows;evidence_by_card[p['card']].append((p['control_generation'],p,rows))
+    require(len(replacements)==len({r['sample_id'] for r in replacements})==40
+            and {r['sample_id'] for r in replacements}==set(source),'Complete new worker40 required')
+    for card,entries in evidence_by_card.items():
+        entries.sort(key=lambda entry:entry[0]);require([x[0] for x in entries]==list(range(len(entries))),'Worker segment gap')
+        require([r['sample_id'] for _,_,rows in entries for r in rows]==plan['cards'][card]['assigned_ids'],'Worker card union/order differs')
+        claim_root=arc.path(entries[-1][1]['claim_root'])
+        require({p.stem for p in claim_root.glob('*.json')}==set(plan['cards'][card]['assigned_ids']),'Final40 claim union differs')
+    require(set(evidence_by_card)==set(plan['cards']),'Worker card evidence incomplete')
+    saved_replacements=read(out/'replacement-records.json')
+    require({r['sample_id']:digest(r) for r in replacements}=={r['sample_id']:digest(r) for r in saved_replacements}
+            and len(saved_replacements)==40,'Saved replacement records differ from audited outputs')
+    new_by={r['natural_qa']['parent_sample_id']:r for r in replacements}
+    require(set(new_by)==expected_parents and len(new_by)==40,'All40 source substitution required')
+    expected=[new_by.get(r['sample_id'],r) for r in parents];overlay=read(out/'canonical-records.json')
+    require(digest(overlay)==digest(expected),'Overlay must replace every affected parent and preserve all other records')
+    _checked_t2_cells(summary,overlay,3840,('group','delta_Y'))
+    require(summary['replacement_only']==basic(replacements),'Replacement-only denominator differs')
+    pairs=[]
+    for parent,new in sorted(new_by.items()):
+        old=old_by[parent];q=new['natural_qa']
+        require(old['truth']==new['truth'] and old['eligible']==new['eligible']
+                and all(old['parameters'][k]==new['parameters'][k] for k in keys),'Paired scientific condition differs')
+        pairs.append({'parent_sample_id':parent,'sample_id':new['sample_id'],'group':q['group'],'delta_Y':q['delta_Y'],
+            'onset_frame':q['onset_frame'],'offset_frame':q['offset_frame'],'card':q['card'],'truth':new['truth'],
+            'old_answer':old['answer'],'new_answer':new['answer'],'old_correct':old['correct'],'new_correct':new['correct'],
+            'answer_changed':old['answer']!=new['answer'],'correct_to_wrong':old['correct'] and not new['correct'],
+            'wrong_to_correct':not old['correct'] and new['correct'],'old_video_sha256':old['natural_qa']['video_sha256'],
+            'new_video_sha256':q['video_sha256'],'old_raw_digest':old['raw_digest'],'new_raw_digest':new['raw_digest']})
+    from .official_x_results import pair_stats
+    transition=pair_stats([(old_by[parent],new) for parent,new in sorted(new_by.items())])
+    transition.update(status='COMPLETE_SOURCE_REVISION_PAIRED40',new_model_calls=0,
+        accuracy_change_percentage_points=100*(transition['after_accuracy']-transition['before_accuracy']),
+        trigger='Source-quality revision after visible red-background remnants on the prior photographic wood-spoon cutout.',
+        intervention='Whole photographic source replacement and rerendering of all40 affected trials, selected without model answers.',
+        interpretation='Descriptive paired change after an asset replacement; it does not isolate the causal effect of the red remnants.',
+        bindings={'parent_summary':summary['parent_summary'],'parent_records':summary['parent_records'],
+            'revision_summary':descriptor(out/'summary.json'),'plan':summary['plan'],'source_acceptance':summary['source_acceptance']})
+    return summary,overlay,pairs,transition
+
+
+def compare_classic_x(root,spoon_revision=False):
     """Require both complete X experiments before drawing the requested comparison."""
     from .qwen_classic_t2 import NAME as CLASSIC
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
-    root=Path(root);out=root/'runs/reproducibility'/NAME;cr=root/'runs/reproducibility'/CLASSIC
-    natural=read(out/'summary.json');classic=read(cr/'summary.json')
-    require(natural['status']=='COMPLETE_NATURAL_T2_X' and classic['status']=='COMPLETE_CLASSIC_QWEN_T2_X','Both full X audits required')
+    root=Path(root);out=root/'runs/reproducibility'/('natural-t2-spoon-20261030' if spoon_revision else NAME);cr=root/'runs/reproducibility'/CLASSIC
+    classic=read(cr/'summary.json')
+    if spoon_revision:
+        natural,natural_records,spoon_pairs,spoon_transition=_spoon_revision_data(root)
+        require(classic['status']=='COMPLETE_CLASSIC_QWEN_T2_X','Complete classic X audit required')
+        _checked_t2_cells(classic,read(cr/'canonical-records.json'),2880,('background_Y','delta_Y'))
+    else:
+        natural=read(out/'summary.json')
+        require(natural['status']=='COMPLETE_NATURAL_T2_X' and classic['status']=='COMPLETE_CLASSIC_QWEN_T2_X','Both full X audits required')
     rows=[{'condition':'classic_X','background_Y':r['background_Y'],'group':'classic','delta_Y':r['delta_Y'],'n':r['n'],'correct':r['correct'],'accuracy':r['accuracy']} for r in classic['cells']]
     rows += [{'condition':'natural_X','background_Y':None,'group':r['group'],'delta_Y':r['delta_Y'],'n':r['n'],'correct':r['correct'],'accuracy':r['accuracy']} for r in natural['cells']]
     write_csv(out/'classic-X-vs-natural-X.csv',rows)
@@ -271,7 +419,8 @@ def compare_classic_x(root):
             'X_correct':sum(x['X_correct'] for x in rr),'answer_changes':sum(x['answer_changed'] for x in rr),
             'correct_to_wrong':sum(x['A_correct'] and not x['X_correct'] for x in rr),
             'wrong_to_correct':sum(not x['A_correct'] and x['X_correct'] for x in rr)})
-    write_csv(cr/'A-X-paired.csv',paired);write_csv(cr/'A-X-cells.csv',transitions)
+    paired_out=out if spoon_revision else cr
+    write_csv(paired_out/'A-X-paired.csv',paired);write_csv(paired_out/'A-X-cells.csv',transitions)
     labels={'photo_bg__photo_obj':'Photo / photo','photo_bg__gpt_obj':'Photo / generated',
             'gpt_bg__photo_obj':'Generated / photo','gpt_bg__gpt_obj':'Generated / generated'}
     colors=['#217a63','#396bb0','#9467ad','#9c4d2a'];fig,axes=plt.subplots(1,3,figsize=(14,4.7),sharex=True,sharey=True)
@@ -284,22 +433,32 @@ def compare_classic_x(root):
         ax.axhline(.5,color='.6',ls=':',lw=1);ax.set(title=f'Classic background {bg:g}',ylim=(0,1.03),xlabel='Absolute luminance increase')
         ax.grid(alpha=.15);ax.spines[['top','right']].set_visible(False)
     axes[0].set_ylabel('Accuracy');axes[0].legend(title='Background / object',frameon=False,fontsize=8)
-    fig.suptitle('Qwen X — classic and natural T2 | 48 videos per point and condition');fig.tight_layout()
+    title='Qwen X — classic and natural T2' + (' | spoon source revision' if spoon_revision else ' | 48 videos per point and condition')
+    fig.suptitle(title);fig.tight_layout()
     for ext in ('png','pdf'):fig.savefig(out/('classic-X-vs-natural-X.'+ext),dpi=180)
     plt.close(fig)
     result={'status':'COMPLETE_SAME_X_CLASSIC_NATURAL_COMPARISON','new_model_calls':0,'classic_n':2880,'natural_n':3840,
         'paired_A_X_n':len(paired),'A_X_answer_changes':sum(x['answer_changed'] for x in paired),
         'bindings':{'classic':descriptor(cr/'summary.json'),'natural':descriptor(out/'summary.json')},
         'limits':'Same model/runtime and exposure; natural objects and backgrounds both differ. A only on common IDs; qualification excluded from formal X.'}
+    if spoon_revision:
+        write_csv(out/'spoon-old-new-paired.csv',spoon_pairs)
+        atomic_json(out/'spoon-old-new-transition-summary.json',spoon_transition)
+        result.update(natural_revision='spoon_source_quality_revision',all40_replaced_regardless_of_answers=True,
+            spoon_paired_transition=spoon_transition,source_revision_new_scientific_calls=40,
+            bindings={**result['bindings'],'revision_plan':natural['plan'],'source_acceptance':natural['source_acceptance'],
+                'parent_summary':natural['parent_summary'],'parent_records':natural['parent_records'],
+                'worker_profiles':[e['profile'] for e in natural['worker_evidence']]})
     atomic_json(out/'classic-X-comparison-summary.json',result);return result
 
 
 def main():
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--root',required=True)
-    p.add_argument('--status',action='store_true');p.add_argument('--source-audit',action='store_true');p.add_argument('--verify-media',action='store_true');p.add_argument('--sensitivity',action='store_true');p.add_argument('--compare-classic-x',action='store_true')
+    p.add_argument('--status',action='store_true');p.add_argument('--source-audit',action='store_true');p.add_argument('--verify-media',action='store_true');p.add_argument('--sensitivity',action='store_true');p.add_argument('--compare-classic-x',action='store_true');p.add_argument('--spoon-revision',action='store_true')
     a=p.parse_args()
+    require(not a.spoon_revision or (a.compare_classic_x and not any((a.status,a.sensitivity,a.source_audit))), '--spoon-revision requires only --compare-classic-x')
     if a.status:r=status(a.root)
-    elif a.compare_classic_x:r=compare_classic_x(a.root)
+    elif a.compare_classic_x:r=compare_classic_x(a.root,a.spoon_revision)
     elif a.sensitivity:r=sensitivity(a.root)
     elif a.source_audit:
         r,_=source_audit(a.root,a.verify_media)
