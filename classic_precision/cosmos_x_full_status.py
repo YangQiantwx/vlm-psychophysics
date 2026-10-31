@@ -221,14 +221,52 @@ def status(root, plan_dir, include_resources=True):
             'model_calls': 0, 'mutations': 0}
 
 
+def queue_status(root, queue_paths, include_resources=True):
+    """Inspect exact sealed queues; never discover or resume other experiments."""
+    root = Path(root)
+    queues, workers, seen = [], [], set()
+    for path in queue_paths:
+        queue = read(path)
+        if queue.get('status') != 'SEALED' or queue.get('automatic_retry') is not False:
+            raise ValueError('Expected an explicitly sealed finite queue')
+        state_path = Path(queue['state_path'])
+        state = read(state_path) if state_path.exists() else {'status': 'NOT_LAUNCHED'}
+        queues.append({'path': str(path), 'sha256': sha(path),
+                       'state_path': str(state_path), 'state': state})
+        for ref in queue['profiles']:
+            if ref['path'] in seen:
+                raise ValueError('Repeated profile across requested queues')
+            seen.add(ref['path'])
+            if sha(ref['path']) != ref['sha256']:
+                raise ValueError('Sealed profile identity mismatch')
+            profile = read(ref['path'])
+            if profile['hostname'] != socket.gethostname() or Path(profile['workspace_root']) != root:
+                raise ValueError('Queue belongs to another host or workspace')
+            worker = inspect_profile(ref['path'])
+            worker.update({key: profile.get(key) for key in ('card', 'phase', 'resource_group')})
+            workers.append(worker)
+    if not workers:
+        raise ValueError('No explicit sealed profiles')
+    return {'schema': 'official-X-queue-live-status-v1', 'host': socket.gethostname(),
+            'observed_UTC': datetime.now(timezone.utc).isoformat(),
+            'observed_monotonic_seconds': time.monotonic(),
+            'boot_id': Path('/proc/sys/kernel/random/boot_id').read_text().strip(),
+            'queues': queues, 'workers': workers,
+            'resources': resources(root) if include_resources and any(not w['wait'] for w in workers)
+                else {'skipped': 'disabled or all requested profiles terminal'},
+            'model_calls': 0, 'mutations': 0}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--root', required=True)
     parser.add_argument('--plan-dir')
+    parser.add_argument('--queue', action='append', default=[])
     parser.add_argument('--no-resources', action='store_true')
     args = parser.parse_args()
     plan_dir = args.plan_dir or str(Path(args.root) / 'plans/cosmos-x-full-20261028')
-    print(json.dumps(status(args.root, plan_dir, not args.no_resources), ensure_ascii=False, indent=2))
+    result = queue_status(args.root, args.queue, not args.no_resources) if args.queue else status(args.root, plan_dir, not args.no_resources)
+    print(json.dumps(result, ensure_ascii=False, indent=2))
 
 
 if __name__ == '__main__':
