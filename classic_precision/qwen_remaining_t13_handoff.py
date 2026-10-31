@@ -25,7 +25,7 @@ from .refinement_worker import read, require, verified, write_new
 from .storage import atomic_json, digest, file_sha256
 
 NAME = q.NAME
-BATCH = 'handoff1'
+BATCH = 'handoff1-reboot1'
 MODULE = 'classic_precision.qwen_remaining_t13_handoff'
 CARDS = ('fourier0', 'fourier1', 'radon0')
 GROUPS = ('T3', 'T1')
@@ -58,31 +58,57 @@ def authorization(value, manifest_sha):
     require(value['schema'] == NAME + '/handoff1-authorization-v1' and value['status'] == 'AUTHORIZED'
             and value['batch'] == BATCH and value['source_card'] == 'radon0'
             and value['cards'] == list(CARDS) and value['source_manifest_sha256'] == manifest_sha
-            and value['maximum_new_model_calls'] == 1776 and value['automatic_retry'] is False
+            and value['maximum_new_model_calls'] == 1547 and value['automatic_retry'] is False
             and value['retain_completed'] is True and isinstance(value.get('user_message'), str)
             and value['user_message'].strip(), 'Finite handoff authorization differs')
 
 
 def lineage_key(p):
-    return (BATCH if 'handoff_entry' in p else 'baseline', p['card'], p['resource_group'])
+    kind = BATCH if 'handoff_entry' in p else ('reboot1' if 'reboot_entry' in p else 'baseline')
+    return (kind, p['card'], p['resource_group'])
 
 
-def validate_partition(receipt, plan):
+def validate_partition(receipt, plan, resolve=verified):
     require(receipt['plan_sha256'] and receipt['implementation_sha256'] == file_sha256(__file__), 'Receipt source identity changed')
+    from . import qwen_remaining_t13_reboot as reboot
+    admitted = resolve(receipt['original_reboot_admission'])
+    require(admitted['schema'] == reboot.SCHEMA and admitted['status'] == 'ACCEPTED_REBOOT_INTERRUPTED_PREFIX'
+            and admitted['UNCERTAIN_ids'] == [reboot.UNCERTAIN]
+            and admitted['automatic_uncertain_retry'] is False
+            and admitted['real_original_wait_observed'] is False and admitted['original_returncode'] is None
+            and admitted['maximum_new_never_claimed_calls'] == 1547,
+            'Handoff requires the explicit interrupted-prefix admission')
+    original = plan['cards']['radon0']['groups']
+    old = admitted['accepted_prefix_ids']; excluded = admitted['UNCERTAIN_ids']
+    require(len(old) == 228 and old == original['T3'][:228]
+            and excluded == original['T3'][228:229]
+            and admitted['never_claimed'] == {'T3': original['T3'][229:], 'T1': original['T1']},
+            'Interrupted-prefix/uncertain/never-claimed source partition differs')
+    require(receipt['batch'] == BATCH and receipt['UNCERTAIN_ids_not_reissued'] == excluded
+            and receipt['expected_unique_total'] == q.TOTAL
+            and receipt['maximum_accepted_without_uncertain_retry'] == q.TOTAL - len(excluded),
+            'Handoff lost the original total or unresolved request boundary')
     for group in GROUPS:
-        expected = plan['cards']['radon0']['groups'][group]
-        retained = receipt['retained_radon_ids'][group]; remaining = receipt['remaining_ids'][group]
+        expected = admitted['never_claimed'][group]
+        retained = receipt['retained_reboot_ids'][group]; remaining = receipt['remaining_ids'][group]
         require(retained == expected[:len(retained)] and remaining == expected[len(retained):]
                 and receipt['donor_claim_ids'][group] == sorted(retained)
                 and set(receipt['donor_controls'][group]['claims']) == set(retained), 'Retained/never-claimed boundary differs')
+        require(receipt['retained_radon_ids'][group] == (old if group == 'T3' else []) + retained,
+                'Retained Radon answers do not preserve both admitted boot lineages')
         assigned = [sid for c in CARDS for sid in receipt['allocation'][c][group]]
         require(len(assigned) == len(set(assigned)) == len(remaining) and set(assigned) == set(remaining),
                 'Reallocated IDs are not an exact disjoint remaining cover')
-    require(sum(len(x) for x in receipt['remaining_ids'].values()) <= 1776, 'Finite handoff budget exceeded')
+        require(not set(assigned) & (set(old) | set(excluded)), 'Handoff reissues an answered or unresolved old claim')
+    require(receipt['maximum_new_model_calls'] == sum(len(x) for x in receipt['remaining_ids'].values()) <= 1547,
+            'Finite reboot handoff budget exceeded')
 
 
 def science(p, resolve=verified):
     if 'handoff_entry' not in p:
+        if 'reboot_entry' in p:
+            from . import qwen_remaining_t13_reboot as reboot
+            return reboot.science(p, resolve)
         return storage.science(p, resolve)
     entry = p['handoff_entry']; root = Path(p['workspace_root'])
     require(set(entry) in ({'implementation', 'receipt', 'runtime_profile'}, {'implementation', 'receipt', 'runtime_profile', 'fence'})
@@ -92,7 +118,8 @@ def science(p, resolve=verified):
             and receipt['implementation_sha256'] == file_sha256(__file__)
             and receipt['plan_sha256'] == p['experiment_plan']['sha256'], 'Reallocation receipt differs')
     authorization(resolve(absolute_ref(root, receipt['authorization'])), receipt['source_manifest_sha256'])
-    validate_partition(receipt, resolve(p['experiment_plan']))
+    validate_partition(receipt, resolve(p['experiment_plan']),
+                       lambda ref: resolve(q.rebase(ref, str(root))))
     if 'implementation' in p:
         require('fence' in entry, 'Sealed handoff profile lacks a bound donor fence')
     if 'fence' in entry:
@@ -212,14 +239,25 @@ def allocate(remaining, canonical, seconds):
 
 def prepare(root, request_path, output):
     root = Path(root); request = read(request_path); arc = archive.Archive(root); output = Path(output)
-    require(output == root / REL and not output.exists(), 'Use one new handoff1 directory; never overwrite')
+    require(output == root / REL and not output.exists(), 'Use one new reboot handoff directory; never overwrite')
     require(request['schema'] == NAME + '/handoff1-request-v1', 'Wrong handoff request')
     authorization(arc.ref(request['authorization']), request['manifest']['sha256'])
     require(ready(root, request)['status'] == 'READY_BOTH_FOURIER_COMPLETE', 'Both Fourier queues must finish first')
     queues = {c: queue_terminal(arc, request['queues'][c], ('COMPLETE',) if c != 'radon0' else
               ('PAUSED', 'PAUSED_BEFORE_SUCCESSOR', 'COMPLETE')) for c in CARDS}
     spec = arc.ref(request['manifest']); completed = {c: {g: [] for g in GROUPS} for c in CARDS}
-    runtimes = {}; retained_refs = []; proofs = []; times = defaultdict(list); donor_controls = {}; source_claims = {}
+    from . import qwen_remaining_t13_reboot as reboot
+    require(len(spec.get('reboot_admissions', [])) == 1 and not spec.get('reallocations'),
+            'One explicit reboot admission and no previous handoff are required')
+    admission_ref = spec['reboot_admissions'][0]; admitted = arc.ref(admission_ref)
+    reboot.verify_snapshot(admitted, arc)
+    require(spec['retired_profiles'] == {
+        'interrupted': [admitted['original_profiles']['T3']],
+        'never_started': [admitted['original_profiles']['T1']]}, 'Original interrupted/unstarted owners differ')
+    runtimes = {}; retained_refs = []; proofs = []; times = defaultdict(list); donor_controls = {}; source_claims = {}; donors = {}
+    for record in admitted['accepted_records']:
+        if not record['deep']:
+            times['radon0', 'T3'].append(record['timing'])
     with archive.installed():
         _, _, owners, groups = archive.manifest_profiles(root, spec)
         archive.claim_ledger(arc, owners, groups)
@@ -228,9 +266,15 @@ def prepare(root, request_path, output):
             require(card in CARDS and group in GROUPS and all('handoff_entry' not in x['profile'] for x in ordered), 'Only one handoff is allowed')
             for owner in ordered:
                 p = owner['profile']; out = arc.path(p['output']); ref = owner['reference']
-                runtimes[card, group] = (p, ref)
                 if card == 'radon0':
-                    require('storage_entry' in p, 'Retired pre-restart Radon profile cannot be selected')
+                    require('reboot_entry' in p and p['reboot_entry']['admission']['sha256'] == admission_ref['sha256'],
+                            'Only the explicitly recovered clean Radon donor may be selected')
+                    template_ref = p['reboot_entry']['original_profile']
+                    template = arc.ref(template_ref); storage.science(template, arc.ref)
+                    runtimes[card, group] = (template, template_ref)
+                else:
+                    require('reboot_entry' not in p, 'Fourier has an unexpected recovery lineage')
+                    runtimes[card, group] = (p, ref)
                 if out.exists():
                     records, proof = archive.audit_segment(root, ref['path']); proofs.append(proof)
                     retained_refs.append(portable_ref(root, ref, card))
@@ -244,6 +288,7 @@ def prepare(root, request_path, output):
             require(claims == set(completed[card][group]), 'Source group has an unresolved claim')
             source_claims[card, group] = sorted(claims)
             if card == 'radon0':
+                donors[group] = ordered[-1]['reference']
                 control = read(arc.path(latest['control_file']))
                 require(control['paused'] and control['generation'] == latest['control_generation'], 'Pause both Radon controls before snapshot')
                 donor_controls[group] = {'path': str(Path(latest['control_file']).relative_to(latest['workspace_root'])),
@@ -255,8 +300,8 @@ def prepare(root, request_path, output):
         require(all(completed[c][g] == plan['cards'][c]['groups'][g] for g in GROUPS), 'Fourier source work is not complete')
     remaining = {}
     for group in GROUPS:
-        expected = plan['cards']['radon0']['groups'][group]; done = completed['radon0'][group]
-        require(done == expected[:len(done)], 'Radon answers are not an ordered retained prefix')
+        expected = admitted['never_claimed'][group]; done = completed['radon0'][group]
+        require(done == expected[:len(done)], 'Recovered Radon answers are not a clean prefix of never-claimed work')
         remaining[group] = expected[len(done):]
     if not any(remaining.values()):
         return {'status': 'NO_HANDOFF_RADON_ALREADY_COMPLETE', 'model_calls': 0}
@@ -278,16 +323,25 @@ def prepare(root, request_path, output):
                          (arc.path(request['manifest']['path']), 'source-manifest.json')):
         (output / name).write_bytes(source.read_bytes())
     receipt = {'schema': NAME + '/handoff1-receipt-v1', 'status': 'SEALED_NEVER_CLAIMED',
+        'batch': BATCH, 'original_reboot_admission': admission_ref,
+        'retained_reboot_ids': completed['radon0'],
+        'UNCERTAIN_ids_not_reissued': admitted['UNCERTAIN_ids'],
+        'expected_unique_total': q.TOTAL,
+        'maximum_accepted_without_uncertain_retry': q.TOTAL - len(admitted['UNCERTAIN_ids']),
+        'maximum_new_model_calls': sum(map(len, remaining.values())),
         'implementation_sha256': file_sha256(__file__), 'plan_sha256': spec['plan_sha256'],
         'source_manifest_sha256': request['manifest']['sha256'], 'authorization': relative_ref(root, output / 'authorization.json'),
         'source_manifest': relative_ref(root, output / 'source-manifest.json'), 'retained_profiles': retained_refs,
-        'retained_radon_ids': completed['radon0'], 'remaining_ids': remaining, 'allocation': allocation,
+        'retained_radon_ids': {g: (admitted['accepted_prefix_ids'] if g == 'T3' else []) + completed['radon0'][g]
+                              for g in GROUPS}, 'remaining_ids': remaining, 'allocation': allocation,
         'ordinary_rates': rate_proofs, 'orphan_single_sides_retained_on_radon': orphans,
         'source_audits': proofs, 'source_queue_states': {c: {**queues[c][2],
             'relative_path': str(Path(queues[c][2]['path']).relative_to(root))} for c in CARDS},
         'donor_controls': donor_controls, 'donor_claim_ids': {g: source_claims['radon0', g] for g in GROUPS},
-        'runtime_profiles': {c: {} for c in CARDS}, 'catalogs': {},
+        'runtime_profiles': {c: {} for c in CARDS}, 'donor_profiles': {}, 'catalogs': {},
         'scope': 'One closed-boundary reassignment of never-claimed Radon IDs. No new qualification or model parameter change.'}
+    require(sum(len(x) for x in receipt['retained_reboot_ids'].values()) + receipt['maximum_new_model_calls'] == 1547,
+            'Recovery retained/remaining accounting differs from1547 never-claimed IDs')
     for card in CARDS:
         remote = q.ROOTS['radon' if card == 'radon0' else 'fourier']
         catalog = output / (card + '-sources.json')
@@ -298,6 +352,11 @@ def prepare(root, request_path, output):
             path = output / (card + '-' + group + '-runtime.json')
             path.write_bytes(arc.path(runtimes[card, group][1]['path']).read_bytes())
             receipt['runtime_profiles'][card][group] = relative_ref(root, path)
+    for group in GROUPS:
+        path = output / ('radon0-' + group + '-donor.json')
+        path.write_bytes(arc.path(donors[group]['path']).read_bytes())
+        receipt['donor_profiles'][group] = relative_ref(root, path)
+    validate_partition(receipt, plan, arc.ref)
     write_new(output / 'receipt.json', receipt); drafts = {c: [] for c in CARDS}
     for card in CARDS:
         remote = q.ROOTS['radon' if card == 'radon0' else 'fourier']
@@ -306,7 +365,7 @@ def prepare(root, request_path, output):
             if not ids: continue
             p = copy.deepcopy(runtimes[card, group][0])
             for key in ('implementation', 'operational_wrapper', 'worker_token', 'media_files', 'storage_entry',
-                        'continuation_parent', 'continuation_wait', 'retained_prefix_length'):
+                        'reboot_entry', 'continuation_parent', 'continuation_wait', 'retained_prefix_length'):
                 p.pop(key, None)
             worker = worker_name(card, group)
             p.update(worker=worker, assigned_ids=ids, maximum_model_calls=len(ids), control_generation=0,
@@ -321,7 +380,7 @@ def prepare(root, request_path, output):
             science(p, arc.ref)
             control = output / (card + '-' + group + '-control.json'); write_new(control, {'generation': 0, 'paused': True})
             path = output / (worker + '-draft.json'); write_new(path, p); drafts[card].append(relative_ref(root, path))
-    write_new(output / 'plan.json', {'schema': NAME + '/handoff1-plan-v1', 'status': 'PREPARED_NOT_LAUNCHED',
+    write_new(output / 'plan.json', {'schema': NAME + '/handoff1-plan-v1', 'batch': BATCH, 'status': 'PREPARED_NOT_LAUNCHED',
         'receipt': relative_ref(root, output / 'receipt.json'), 'drafts': drafts})
     return {'status': 'PREPARED_NOT_LAUNCHED', 'receipt': descriptor(output / 'receipt.json'),
         'counts': {c: {g: len(allocation[c][g]) for g in GROUPS} for c in CARDS}, 'model_calls': 0}
@@ -329,6 +388,9 @@ def prepare(root, request_path, output):
 
 def donor_snapshot_unchanged(root, receipt):
     root = Path(root)
+    from . import qwen_remaining_t13_reboot as reboot
+    arc = archive.Archive(root)
+    reboot.verify_snapshot(arc.ref(receipt['original_reboot_admission']), arc)
     for info in receipt['donor_controls'].values():
         path = root / info['claim_root']
         require({f.stem: file_sha256(f) for f in path.glob('*.json')} == info['claims'], 'Donor claim ledger changed since snapshot')
@@ -345,10 +407,10 @@ def fence_donor(root, receipt_path):
     authorization(verified(absolute_ref(root, receipt['authorization'])), receipt['source_manifest_sha256'])
     require(receipt['source_manifest']['sha256'] == receipt['source_manifest_sha256'], 'Source manifest binding differs')
     verified(absolute_ref(root, receipt['source_manifest']))
-    validate_partition(receipt, read(root / 'plans' / NAME / 'plan.json'))
+    validate_partition(receipt, read(root / 'plans' / NAME / 'plan.json'), archive.Archive(root).ref)
     for group in GROUPS:
-        template = verified(absolute_ref(root, receipt['runtime_profiles']['radon0'][group]))
-        storage.science(template)
+        template = verified(absolute_ref(root, receipt['donor_profiles'][group]))
+        science(template)
         info = receipt['donor_controls'][group]
         require(template['card'] == 'radon0' and template['resource_group'] == group
                 and Path(template['control_file']) == root / info['path']
@@ -515,7 +577,7 @@ def seal_card(root, card):
         draft = root / ref['path']; require(file_sha256(draft) == ref['sha256'], 'Prepared draft changed')
         target = Path(str(draft).replace('-draft.json', '-profile.json'))
         seal(draft, target); profiles.append(descriptor(target))
-    target = root / REL / (card + '-handoff1-queue.json')
+    target = root / REL / (card + '-' + BATCH + '-queue.json')
     if profiles:
         q.write_queue(target, profiles, root)
     value = {'status': 'SEALED_PAUSED_NOT_LAUNCHED' if profiles else 'NO_WORK', 'card': card,
@@ -536,8 +598,11 @@ def build_manifest(root, receipt_path, output, segments=None):
             p = archive.Archive(root).ref(ref)
             science(p, archive.Archive(root).ref); require(p.get('continuation_parent'), 'Extra profile is not a continuation')
             refs.append(portable_ref(root, ref, p['card']))
-    write_new(output, {'schema': NAME + '/segments-v1', 'plan_sha256': receipt['plan_sha256'],
-        'profiles': refs, 'reallocations': [portable_ref(root, descriptor(receipt_path))]})
+    source = archive.Archive(root).ref(absolute_ref(root, receipt['source_manifest']))
+    value = {k: copy.deepcopy(v) for k, v in source.items() if k not in ('profiles', 'reallocations')}
+    value.update(schema=NAME + '/segments-v1', plan_sha256=receipt['plan_sha256'],
+                 profiles=refs, reallocations=[portable_ref(root, descriptor(receipt_path))])
+    write_new(output, value)
     return {'status': 'MANIFEST_PREPARED_NOT_INSTALLED', 'manifest': descriptor(output)}
 
 
@@ -548,13 +613,24 @@ def snapshot_files(root, request_path):
     for card, ref in request['queues'].items():
         queue = arc.ref(ref); host = 'radon' if card == 'radon0' else 'fourier'
         output[host].update((str(arc.path(ref['path']).relative_to(root)), str(arc.path(queue['state_path']).relative_to(root))))
-    for ref in arc.ref(request['manifest'])['profiles']:
+    manifest = arc.ref(request['manifest'])
+    for ref in manifest['profiles']:
         p = arc.ref(ref); host = 'radon' if p['card'] == 'radon0' else 'fourier'
         for path in (ref['path'], p['output'], p['claim_root'], p['control_file'],
                      str(Path(p['output']).with_suffix('.wait.json')), str(Path(p['output']).with_suffix('.launch.json'))):
             output[host].add(str(arc.path(path).relative_to(root)))
+    for ref in manifest.get('reboot_admissions', []):
+        admitted = arc.ref(ref)
+        refs = [ref, admitted['closure_evidence'], *admitted['original_profiles'].values(),
+                *admitted['original_evidence'].values(), *admitted['original_claims'].values()]
+        for bound in refs:
+            output['radon'].add(str(arc.path(bound['path']).relative_to(root)))
+        for original in admitted['original_profiles'].values():
+            p = arc.ref(original)
+            for path in (p['output'], p['claim_root'], p['control_file']):
+                output['radon'].add(str(arc.path(path).relative_to(root)))
     return {'status': 'EXPLICIT_SOURCE_SNAPSHOT_PATHS', 'relative_paths_by_host': {k: sorted(v) for k, v in output.items()},
-        'scope': 'Only listed source metadata/output/claim directories. An unstarted Radon successor has no output/wait/launch; the coordinator must distinguish that expected absence from missing attempted records.'}
+        'scope': 'Only listed source metadata/output/claim directories and admitted original reboot evidence. An unstarted Radon successor has no output/wait/launch; the interrupted original has no invented wait/result.'}
 
 
 def main():
