@@ -37,8 +37,10 @@ def descriptor(path):
 
 
 def adapter_identity():
+    from . import qwen_remaining_t13_storage as storage
     return {'schema': NAME + '/archive-adapter-v1', 'adapter': descriptor(__file__),
         'frozen_audit': descriptor(frozen.__file__), 'shared_scientific_audit': descriptor(shared.__file__),
+        'storage_profile_validator': descriptor(storage.__file__),
         'change': 'Only per-segment claim exists() is scoped by profile_sha256. The complete ledger is validated before/after the original full audit.',
         'scientific_model_calls': 0, 'original_records_modified': False}
 
@@ -151,19 +153,21 @@ def audit_segment(root, profile_path):
 
 @contextmanager
 def installed():
+    from .qwen_remaining_t13_storage import science_context
     previous = frozen.audit_segment, frozen.Archive
     frozen.audit_segment, frozen.Archive = audit_segment, Archive
     try:
-        yield
+        with science_context():
+            yield
     finally:
         frozen.audit_segment, frozen.Archive = previous
 
 
 def analyze(root, manifest, profile=None):
-    arc, spec, owners, groups = manifest_profiles(root, manifest)
-    before = claim_ledger(arc, owners, groups)
-    identity = adapter_identity()
     with installed():
+        arc, spec, owners, groups = manifest_profiles(root, manifest)
+        before = claim_ledger(arc, owners, groups)
+        identity = adapter_identity()
         if profile:
             path = arc.path(profile); p = read(path)
             require(digest(p) in owners, 'Requested profile is not explicitly selected')
