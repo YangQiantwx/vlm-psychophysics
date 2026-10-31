@@ -14,12 +14,20 @@ from pathlib import Path
 
 from . import official_x_results as shared
 from . import qwen_remaining_t13_results as frozen
-from .refinement_worker import read, require
+from .refinement_worker import read, require, verified, write_new
 from .storage import atomic_json, digest, file_sha256
 
 NAME = 'qwen-x-remaining-t13-20261030'
 SSD_RUN = '/home/q/cvpr2027_runs_ssd/' + NAME
 _original_audit_segment = frozen.audit_segment
+POSTCLOSE_SCHEMA = NAME + '/postclose-queue-audit-admission-v1'
+POSTCLOSE_QUEUE_SHA = 'f860b0b81843c618a6482e103f56af726fb7eaa4955189e92107ea4bbd9cf050'
+POSTCLOSE_PROFILE_SHAS = ('00ebbc9ceea6bbc5496b1f40d565310b35d3086c4930556851560181d3d394b1',
+                         'a4e40052ef6d5c7b572eef1c930acd1462d0a6210115adf4efdbc362671d02f1')
+POSTCLOSE_EVIDENCE_NAMES = ('identity.json', 'versions.json', 'runtime.json', 'public-settings.json', 'load.json',
+                          'engine-owner.json', 'lease.json', 'exit.json', 'raw.jsonl', 'events.jsonl',
+                          'request-timings.jsonl', 'deep-observations.jsonl', 'input-admissions.jsonl',
+                          'custom-selector-admissions.jsonl')
 
 
 class Archive(shared.Archive):
@@ -39,6 +47,16 @@ def descriptor(path):
     return {'path': str(path), 'sha256': file_sha256(path)}
 
 
+def portable_resolver(profile, resolve=None):
+    """Preserve the caller's archive root while mapping all recorded host paths."""
+    bound = getattr(resolve, '__self__', None)
+    if resolve is None or resolve is verified:
+        return Archive(profile['workspace_root']).ref
+    if isinstance(bound, shared.Archive):
+        return Archive(bound.root).ref
+    return resolve
+
+
 def adapter_identity():
     from . import qwen_remaining_t13_storage as storage
     from . import qwen_remaining_t13_handoff as handoff
@@ -53,7 +71,7 @@ def adapter_identity():
 
 
 def science(profile, resolve=None):
-    resolve = resolve or Archive(profile['workspace_root']).ref
+    resolve = portable_resolver(profile, resolve)
     if 'handoff_entry' in profile:
         from .qwen_remaining_t13_handoff import science as validate
     elif 'reboot_entry' in profile:
@@ -68,6 +86,147 @@ def lineage_key(profile):
         from .qwen_remaining_t13_handoff import lineage_key as key
         return key(profile)
     return ('reboot1' if 'reboot_entry' in profile else 'baseline', profile['card'], profile['resource_group'])
+
+
+def _load_validators():
+    # The storage validator snapshots q.science at import. Initialize it before
+    # installing the read-only dispatcher, preserving the frozen original.
+    from . import qwen_remaining_t13_storage, qwen_remaining_t13_reboot, qwen_remaining_t13_handoff
+
+
+def _postclose_queue_sources(arc, queue_ref, outer_wait_path):
+    """Only this paused87 child / untouchedT1 / outer analysis-path failure."""
+    from . import qwen_remaining_t13_reboot as reboot
+    queue = arc.ref(queue_ref)
+    require(queue_ref['sha256'] == POSTCLOSE_QUEUE_SHA
+            and queue['status'] == 'SEALED' and queue['automatic_retry'] is False
+            and tuple(ref['sha256'] for ref in queue['profiles']) == POSTCLOSE_PROFILE_SHAS,
+            'Postclose admission is restricted to the original reboot1 queue')
+    state_path = arc.path(queue['state_path']); state = read(state_path)
+    p, p1 = (arc.ref(ref) for ref in queue['profiles']); out = arc.path(p['output']); out1 = arc.path(p1['output'])
+    require(p['card'] == p1['card'] == 'radon0' and p['resource_group'] == 'T3' and p1['resource_group'] == 'T1'
+            and p['reboot_entry']['batch'] == p1['reboot_entry']['batch'] == 'reboot1'
+            and len(p['assigned_ids']) == 509 and len(p1['assigned_ids']) == 1038, 'Foreign postclose worker scope')
+    expected_error = "[Errno 2] No such file or directory: " + repr(p['reboot_entry']['original_profile']['path'])
+    require(p['reboot_entry']['original_profile']['path'].startswith('/Users/qianyang/Desktop/cvpr2027_benchmark/')
+            and state['status'] == 'HELD_NO_RETRY' and state['error_type'] == 'FileNotFoundError'
+            and state['error'] == expected_error and state['plan']['sha256'] == queue_ref['sha256']
+            and state['current_profile'] == queue['profiles'][0]
+            and state['owner']['boot_id'] == reboot.NEW_BOOT and state['owner']['host'] == p['hostname'],
+            'Outer failure was not the exact postclose Mac-path audit refusal')
+    require(len(state['workers']) == 1, 'A successor was attempted before the postclose refusal')
+    supervisor = state['workers'][0]
+    require(supervisor['profile'] == queue['profiles'][0] and supervisor['real_supervisor_wait'] is True
+            and supervisor['returncode'] == 0 and 'terminal_status' not in supervisor,
+            'Outer supervisor did not really wait successfully before its audit failed')
+    stem = arc.path(queue_ref['path']).stem
+    expected_outer = state_path.parent / (stem + '.wait.json')
+    require(arc.path(outer_wait_path) == expected_outer, 'Wrong original outer wait path')
+    outer = read(expected_outer)
+    require(outer['real_wait_observed'] is True and outer['returncode'] == 1
+            and outer['child_pid'] == state['owner']['pid']
+            and outer['completed_unix'] >= state['owner']['started_unix'], 'Original outer wait1 is not genuinely bound')
+    log_path = state_path.parent / (stem + '.log'); log = log_path.read_text()
+    require(log.rstrip().endswith('FileNotFoundError: ' + expected_error)
+            and all(name in log for name in ('qwen_remaining_t13_results.py', 'qwen_remaining_t13_reboot.py',
+                                             'official_x_results.py', "closed(ref['path'])",
+                                             "resolve(entry['original_profile'])")),
+            'Original traceback is not the known postclose analysis failure')
+    launch_path = state_path.parent / (stem + '.launch.json'); launch = read(launch_path)
+    require(launch['status'] == 'LAUNCHED_ONCE' and launch['queue']['sha256'] == queue_ref['sha256'],
+            'Original queue launch binding differs')
+    wait_path = out.with_suffix('.wait.json'); wait = read(wait_path); result_path = out / 'result.json'; result = read(result_path)
+    ids = p['assigned_ids'][:87]
+    require(wait['profile_sha256'] == digest(p) and wait['returncode'] == 0 and wait['real_wait_observed'] is True
+            and wait['owned_engines_exited'] is True and wait['original_physical_lease_released'] is True
+            and wait['terminal_status'] == result['status'] == 'PAUSED'
+            and wait['completed_ids'] == result['completed_ids'] == ids
+            and not result['UNCERTAIN_ids'] and result['unattempted_ids'] == p['assigned_ids'][87:]
+            and not (out / 'failure.json').exists(), 'Child is not the genuine clean paused87 worker')
+    require(not out1.exists() and not out1.with_suffix('.launch.json').exists()
+            and not out1.with_suffix('.wait.json').exists()
+            and not list(arc.path(p1['claim_root']).glob('*.json')), 'T1 successor was attempted')
+    claim_paths = {x.stem: x for x in arc.path(p['claim_root']).glob('*.json')}
+    require(set(claim_paths) == set(ids), 'The paused child has an unanswered/foreign claim')
+    return {'queue': queue, 'state': state, 'profile': p, 'successor': p1, 'accepted_ids': ids,
+            'paths': {'original_queue': arc.path(queue_ref['path']), 'queue_state': state_path,
+                      'outer_wait': expected_outer, 'outer_log': log_path, 'queue_launch': launch_path,
+                      'worker_profile': arc.path(queue['profiles'][0]['path']),
+                      'successor_profile': arc.path(queue['profiles'][1]['path']),
+                      'worker_wait': wait_path, 'worker_result': result_path}, 'claim_paths': claim_paths}
+
+
+def verify_postclose_queue_admission(arc, queue_ref, admission_ref):
+    receipt = arc.ref(admission_ref)
+    from . import qwen_remaining_t13_handoff as handoff
+    require(receipt['schema'] == POSTCLOSE_SCHEMA
+            and receipt['status'] == 'ACCEPTED_CLEAN_PAUSED_WORKER_OUTER_AUDIT_FAILURE'
+            and receipt['original_queue']['sha256'] == queue_ref['sha256'] == POSTCLOSE_QUEUE_SHA
+            and arc.path(receipt['original_queue']['path']) == arc.path(queue_ref['path'])
+            and receipt['archive_implementation']['sha256'] == file_sha256(__file__)
+            and receipt['handoff_implementation']['sha256'] == file_sha256(handoff.__file__)
+            and receipt['original_outer_returncode'] == 1 and receipt['worker_returncode'] == 0
+            and receipt['effective_terminal_status'] == 'PAUSED'
+            and receipt['no_original_lifecycle_files_modified'] is True
+            and receipt['new_model_calls'] == 0, 'Wrong or stale postclose-only admission')
+    current = _postclose_queue_sources(arc, queue_ref, receipt['bindings']['outer_wait']['path'])
+    require(set(receipt['bindings']) == set(current['paths']) | set(POSTCLOSE_EVIDENCE_NAMES), 'Incomplete postclose evidence binding set')
+    for key, path in current['paths'].items():
+        require(arc.path(receipt['bindings'][key]['path']) == path, 'Misplaced original postclose metadata')
+    for name in POSTCLOSE_EVIDENCE_NAMES:
+        require(arc.path(receipt['bindings'][name]['path']) == arc.path(current['profile']['output']) / name,
+                'Misplaced original postclose scientific evidence')
+    for ref in receipt['bindings'].values():
+        require(file_sha256(arc.path(ref['path'])) == ref['sha256'], 'Postclose evidence changed')
+    require(set(receipt['claims']) == set(current['claim_paths']), 'Postclose claim scope changed')
+    for sid, ref in receipt['claims'].items():
+        require(arc.path(ref['path']) == current['claim_paths'][sid]
+                and file_sha256(current['claim_paths'][sid]) == ref['sha256'], 'Postclose claim bytes changed')
+    require(receipt['accepted_ids'] == current['accepted_ids'] and receipt['accepted_profile'] == current['queue']['profiles'][0]
+            and receipt['never_started_profile'] == current['queue']['profiles'][1]
+            and receipt['remaining_counts'] == {'T3': 422, 'T1': 1038}
+            and receipt['UNCERTAIN_ids_not_reissued'] == ['t3_2e29ac8a4e90ee6c0f7f'], 'Postclose accepted/remaining boundary changed')
+    proof = receipt['scientific_audit']
+    require(proof['accepted'] == 87 and proof['original_returncode'] == 0
+            and proof['profile']['sha256'] == current['queue']['profiles'][0]['sha256']
+            and proof['raw']['sha256'] == receipt['bindings']['raw.jsonl']['sha256']
+            and proof['wait']['sha256'] == receipt['bindings']['worker_wait']['sha256'], 'Postclose full scientific audit binding differs')
+    return receipt
+
+
+def admit_postclose_queue_failure(root, queue_path, outer_wait_path, output):
+    """Supplementary audit only; preserve outerrc1 and all original worker files."""
+    _load_validators(); arc = Archive(root); queue_ref = descriptor(arc.path(queue_path))
+    source = _postclose_queue_sources(arc, queue_ref, outer_wait_path)
+    target = Path(output)
+    require(target.resolve(strict=False) not in {Path(x).resolve() for x in source['paths'].values()}
+            and not target.name.endswith(('.wait.json', '.launch.json', '-state.json')),
+            'Supplement must be a separate file, never an original lifecycle receipt')
+    records, proof = audit_segment(root, source['queue']['profiles'][0]['path'])
+    require([x['sample_id'] for x in records] == source['accepted_ids'], 'Independent full scientific audit did not accept the87')
+    paths = dict(source['paths']); out = arc.path(source['profile']['output'])
+    for name in POSTCLOSE_EVIDENCE_NAMES:
+        path = out / name; require(path.exists(), 'Missing actual postclose scientific evidence: ' + name); paths[name] = path
+    controls = {g: read(arc.path(p['control_file'])) for g, p in [('T3', source['profile']), ('T1', source['successor'])]}
+    require(all(c['paused'] and c['generation'] == 0 for c in controls.values()), 'Pause both original reboot1 controls before admission')
+    from . import qwen_remaining_t13_handoff as handoff
+    receipt = {'schema': POSTCLOSE_SCHEMA, 'status': 'ACCEPTED_CLEAN_PAUSED_WORKER_OUTER_AUDIT_FAILURE',
+               'original_queue': queue_ref, 'archive_implementation': descriptor(__file__),
+               'handoff_implementation': descriptor(handoff.__file__),
+               'original_outer_returncode': 1, 'worker_returncode': 0, 'effective_terminal_status': 'PAUSED',
+               'original_state_status': source['state']['status'], 'accepted_profile': source['queue']['profiles'][0],
+               'never_started_profile': source['queue']['profiles'][1], 'accepted_ids': source['accepted_ids'],
+               'remaining_counts': {'T3': 422, 'T1': 1038},
+               'UNCERTAIN_ids_not_reissued': ['t3_2e29ac8a4e90ee6c0f7f'],
+               'bindings': {k: descriptor(path) for k, path in paths.items()},
+               'claims': {sid: descriptor(path) for sid, path in source['claim_paths'].items()},
+               'scientific_audit': proof, 'no_original_lifecycle_files_modified': True, 'new_model_calls': 0,
+               'creation_control_snapshots': controls,
+               'scope': 'Only the known Mac-path postclose audit failure. The original outer wait1 and HELD state remain unchanged.'}
+    write_new(target, receipt)
+    verify_postclose_queue_admission(arc, queue_ref, descriptor(target))
+    return {'status': receipt['status'], 'accepted': 87, 'remaining_counts': receipt['remaining_counts'],
+            'original_outer_returncode': 1, 'worker_returncode': 0, 'admission': descriptor(target), 'new_model_calls': 0}
 
 
 def manifest_profiles(root, manifest):
@@ -159,6 +318,7 @@ class _ClaimRoot:
 
 def audit_segment(root, profile_path):
     """Delegate every original check; change only claim-existence ownership."""
+    _load_validators()
     arc = Archive(root); path = arc.path(profile_path); p = read(path)
     identity = digest(p); claim_root = arc.path(p['claim_root'])
 
@@ -179,6 +339,7 @@ def audit_segment(root, profile_path):
 
 @contextmanager
 def installed():
+    _load_validators()
     from . import qwen_remaining_t13 as runner
     previous = frozen.audit_segment, frozen.Archive, runner.science
     frozen.audit_segment, frozen.Archive = audit_segment, Archive
@@ -451,10 +612,16 @@ def reallocated_full(root, manifest, arc, spec, owners, groups):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--root', required=True); parser.add_argument('--manifest', required=True)
+    parser.add_argument('--root', required=True); parser.add_argument('--manifest')
     parser.add_argument('--profile')
+    parser.add_argument('--admit-postclose-queue'); parser.add_argument('--outer-wait'); parser.add_argument('--output')
     args = parser.parse_args()
-    print(json.dumps(analyze(args.root, args.manifest, args.profile)), flush=True)
+    if args.admit_postclose_queue:
+        value = admit_postclose_queue_failure(args.root, args.admit_postclose_queue, args.outer_wait, args.output)
+    else:
+        require(args.manifest, 'An explicit segment manifest is required')
+        value = analyze(args.root, args.manifest, args.profile)
+    print(json.dumps(value), flush=True)
 
 
 if __name__ == '__main__':

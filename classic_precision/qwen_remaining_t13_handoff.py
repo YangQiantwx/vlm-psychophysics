@@ -104,7 +104,8 @@ def validate_partition(receipt, plan, resolve=verified):
             'Finite reboot handoff budget exceeded')
 
 
-def science(p, resolve=verified):
+def science(p, resolve=None):
+    resolve = archive.portable_resolver(p, resolve)
     if 'handoff_entry' not in p:
         if 'reboot_entry' in p:
             from . import qwen_remaining_t13_reboot as reboot
@@ -179,10 +180,15 @@ def science_context():
         q.science = previous
 
 
-def queue_terminal(arc, ref, allowed):
+def queue_terminal(arc, ref, allowed, postclose_admission=None):
     value = arc.ref(ref); state_path = arc.path(value['state_path'])
     require(state_path.exists(), 'Source queue has no state')
-    state = read(state_path); require(state['status'] in allowed, 'Source queue is not safely terminal')
+    state = read(state_path)
+    if postclose_admission is not None:
+        admitted = archive.verify_postclose_queue_admission(arc, ref, postclose_admission)
+        require(admitted['effective_terminal_status'] in allowed, 'Supplement does not cover an allowed terminal boundary')
+        return value, state, descriptor(state_path)
+    require(state['status'] in allowed, 'Source queue is not safely terminal')
     require([w['profile'] for w in state['workers']] == value['profiles'][:len(state['workers'])], 'Queue supervisor sequence differs')
     if state['status'] == 'COMPLETE':
         require(len(state['workers']) == len(value['profiles']) and all(w['terminal_status'] == 'COMPLETE' for w in state['workers']),
@@ -243,8 +249,10 @@ def prepare(root, request_path, output):
     require(request['schema'] == NAME + '/handoff1-request-v1', 'Wrong handoff request')
     authorization(arc.ref(request['authorization']), request['manifest']['sha256'])
     require(ready(root, request)['status'] == 'READY_BOTH_FOURIER_COMPLETE', 'Both Fourier queues must finish first')
+    postclose = request.get('postclose_admissions', {})
+    require(set(postclose) <= {'radon0'}, 'Postclose supplementation is only for the exact Radon queue')
     queues = {c: queue_terminal(arc, request['queues'][c], ('COMPLETE',) if c != 'radon0' else
-              ('PAUSED', 'PAUSED_BEFORE_SUCCESSOR', 'COMPLETE')) for c in CARDS}
+              ('PAUSED', 'PAUSED_BEFORE_SUCCESSOR', 'COMPLETE'), postclose_admission=postclose.get(c)) for c in CARDS}
     spec = arc.ref(request['manifest']); completed = {c: {g: [] for g in GROUPS} for c in CARDS}
     from . import qwen_remaining_t13_reboot as reboot
     require(len(spec.get('reboot_admissions', [])) == 1 and not spec.get('reallocations'),
@@ -331,6 +339,7 @@ def prepare(root, request_path, output):
         'maximum_new_model_calls': sum(map(len, remaining.values())),
         'implementation_sha256': file_sha256(__file__), 'plan_sha256': spec['plan_sha256'],
         'source_manifest_sha256': request['manifest']['sha256'], 'authorization': relative_ref(root, output / 'authorization.json'),
+        'postclose_admissions': copy.deepcopy(postclose),
         'source_manifest': relative_ref(root, output / 'source-manifest.json'), 'retained_profiles': retained_refs,
         'retained_radon_ids': {g: (admitted['accepted_prefix_ids'] if g == 'T3' else []) + completed['radon0'][g]
                               for g in GROUPS}, 'remaining_ids': remaining, 'allocation': allocation,
@@ -396,6 +405,10 @@ def donor_snapshot_unchanged(root, receipt):
         require({f.stem: file_sha256(f) for f in path.glob('*.json')} == info['claims'], 'Donor claim ledger changed since snapshot')
     state = receipt['source_queue_states']['radon0']
     require(file_sha256(root / state['relative_path']) == state['sha256'], 'Donor queue changed since closure')
+    for card, ref in receipt.get('postclose_admissions', {}).items():
+        require(card == 'radon0', 'Foreign postclose donor')
+        admitted = arc.ref(ref)
+        archive.verify_postclose_queue_admission(arc, admitted['original_queue'], ref)
 
 
 def fence_donor(root, receipt_path):
@@ -613,6 +626,16 @@ def snapshot_files(root, request_path):
     for card, ref in request['queues'].items():
         queue = arc.ref(ref); host = 'radon' if card == 'radon0' else 'fourier'
         output[host].update((str(arc.path(ref['path']).relative_to(root)), str(arc.path(queue['state_path']).relative_to(root))))
+        if card == 'radon0':
+            stem = arc.path(ref['path']).stem; parent = arc.path(queue['state_path']).parent
+            output[host].update(str((parent / (stem + suffix)).relative_to(root))
+                                for suffix in ('.wait.json', '.log', '.launch.json'))
+    for card, ref in request.get('postclose_admissions', {}).items():
+        require(card == 'radon0', 'Foreign supplementary queue admission')
+        admitted = archive.verify_postclose_queue_admission(arc, request['queues'][card], ref)
+        output['radon'].add(str(arc.path(ref['path']).relative_to(root)))
+        for bound in [*admitted['bindings'].values(), *admitted['claims'].values()]:
+            output['radon'].add(str(arc.path(bound['path']).relative_to(root)))
     manifest = arc.ref(request['manifest'])
     for ref in manifest['profiles']:
         p = arc.ref(ref); host = 'radon' if p['card'] == 'radon0' else 'fourier'
