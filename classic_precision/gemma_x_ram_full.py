@@ -27,7 +27,7 @@ from .storage import atomic_json, file_sha256
 
 NAME = provisional.NAME
 MODULE = 'classic_precision.gemma_x_ram_full'
-QUALIFIED_PLAN_SHA = 'd03e812508b7b62d802ecd207bb16696d65906cc8ac97f3d9176242ad33c34d0'
+QUALIFIED_PLAN_SHA = '3e542749ad99d23c3ee3da765b0cd5215f22ee7d144e544f4e2d41c9a31c2fe9'
 ADAPTER_FIELDS = {'ram_full_adapter', 'ram_six_worker_plan', 'original_reserved_radon_draft'}
 _SCIENCE = full.science
 _VERIFY = full.verify_dependencies
@@ -63,7 +63,7 @@ def qualified_ram_template(plan, template, reference):
 
 def six_gate(plan_ref, summary_ref, resolve=verified):
     require(plan_ref['sha256'] == QUALIFIED_PLAN_SHA,
-            'Only the explicitly launched exec2 six-worker plan can qualify Radon full')
+            'Only the explicitly sealed exec3 six-worker plan can qualify Radon full')
     plan = resolve(plan_ref); summary = resolve(summary_ref)
     require_six_status(plan, summary)
     _GATE(plan_ref, summary_ref, resolve)

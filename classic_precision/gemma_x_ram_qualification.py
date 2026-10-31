@@ -28,11 +28,11 @@ from .storage import digest, file_sha256, atomic_json, _append
 
 NAME = 'gemma-x-ram-qualification-20261031'
 MODULE = 'classic_precision.gemma_x_ram_qualification'
-FILTER = ['self_attn.qkv_proj.weight']
+FILTER = ['self_attn.qkv_proj.weight', 'self_attn.o_proj.weight']
 GIB = 1024**3
-OFFLOAD_GB = 12  # Official upper bound; this filter contains only10.25390625GiB.
-EXPECTED_BYTES = 11010048000  # All50 sliding +10 full-attention BF16 QKV parameters.
-RESOURCES = {'min_free_gpu_gib': 77, 'min_available_ram_gib': 40}
+OFFLOAD_GB = 14  # Official whole-parameter traversal reaches14.02734375GiB.
+EXPECTED_BYTES = 15061745664  # QKV+O for decoder layers0..52,106 BF16 parameters.
+RESOURCES = {'min_free_gpu_gib': 77, 'min_available_ram_gib': 48}
 PREVIOUS_SOURCE_SHA = '9861ad19424cea879b55069fe38ac42bc84de63bf842878054be029fdca62c64'
 RAM_FIELDS = {'ram_adapter', 'ram_deployment_authorization', 'original_qualification_profile',
               'fourier_output_reference', 'zero_call_startup_parent'}
@@ -47,8 +47,14 @@ _SUMMARIZE = qualification.summarize
 
 
 def expected_parameters():
-    return {f'language_model.model.layers.{i}.self_attn.qkv_proj.weight':
-            [20480 if i % 6 == 5 else 16384, 5376] for i in range(60)}
+    # Official UVA walks each layer's QKV then O and stops after a complete
+    # Parameter crosses the byte cap. Layers53..59 remain on GPU.
+    expected = {}
+    for i in range(53):
+        prefix = f'language_model.model.layers.{i}.self_attn.'
+        expected[prefix + 'qkv_proj.weight'] = [20480 if i % 6 == 5 else 16384, 5376]
+        expected[prefix + 'o_proj.weight'] = [5376, 16384 if i % 6 == 5 else 8192]
+    return expected
 
 
 def validate_placement(receipt, phase):
@@ -168,7 +174,7 @@ def ram_worker_identity(worker, model):
     offloader = get_offloader(); size = sum(x['bytes'] for x in actual.values())
     require(set(actual) == set(expected) and size == EXPECTED_BYTES
             and offloader.cpu_offload_bytes == size and offloader.uva_offloading is True,
-            'Actual post-load RAM placement does not match the10.25390625GiB budget')
+            'Actual post-load RAM placement does not match the14.02734375GiB budget')
     free, total = torch.cuda.mem_get_info()
     allocated, reserved = torch.cuda.memory_allocated(), torch.cuda.memory_reserved()
     available = available_ram_bytes()
@@ -293,7 +299,7 @@ def prepare(root, qualification_plan):
             'gpu_admission_gib': 77, 'estimated_static_headroom_at_admission_gib': 77 - (31.18 - EXPECTED_BYTES / GIB + 48),
             'warmup_tokens': 49152, 'gateup_gelu_residual_lower_bound_gib': 6.3984375,
             'observed_T3_prompt_tokens': 33457, 'original_ram_minimum_gib': 20,
-            'estimated_pinned_allocator_gib': 15, 'extra_host_margin_gib': 5,
+            'estimated_pinned_allocator_gib': 22, 'extra_host_margin_gib': 5,
             'gpu_admission_is_not_a_runtime_fit_guarantee': True},
         'expected_parameters': expected_parameters(),
         'engine_delta': {'cpu_offload_gb': OFFLOAD_GB, 'cpu_offload_params': FILTER, 'offload_backend': 'uva',
@@ -362,10 +368,18 @@ def prepare_repair(root, old_queue, admission, output_dir=None, attempt=1):
     if kind == 'GPU_UTILIZATION_STARTUP_GATE':
         require(first['model_load_started'] is False and 'is less than desired GPU memory utilization' in text
                 and 'Loading model from scratch' not in text, 'Different startup refusal needs separate review')
-    else:
-        require(kind == 'MISSING_PINNED_NVCC_PATH' and first['model_load_started'] is True
+    elif kind == 'MISSING_PINNED_NVCC_PATH':
+        require(first['model_load_started'] is True
                 and 'nvcc' in text and ('not found' in text or 'No such file' in text)
                 and 'Loading model from scratch' in text, 'Different zero-call deployment failure needs separate review')
+    else:
+        require(kind == 'OFFICIAL_AUTOTUNE_WARMUP_OOM' and first['model_load_started'] is True
+                and 'flashinfer_autotune' in text and 'torch.OutOfMemoryError' in text
+                and 'Tried to allocate 504.00 MiB' in text,
+                'Different zero-call warmup failure needs separate review')
+        outer = arc.ref(admitted['outer_wait'])
+        require(outer['returncode'] == 1 and outer['real_wait_observed'],
+                'Previous warmup queue has not actually exited')
     require(isinstance(attempt, int) and attempt >= 1, 'Explicit positive deployment attempt required')
     plans = Path(output_dir) if output_dir else root / 'plans' / NAME / ('execution-repair' + str(attempt))
     require(not plans.exists(), 'Refuse to replace a prepared repair')
@@ -382,14 +396,16 @@ def prepare_repair(root, old_queue, admission, output_dir=None, attempt=1):
             'estimated_static_GPU_gib': 31.18 - EXPECTED_BYTES / GIB + 48,
             'gpu_admission_gib': 77, 'estimated_static_headroom_at_admission_gib': 77 - (31.18 - EXPECTED_BYTES / GIB + 48),
             'warmup_tokens': 49152, 'gateup_gelu_residual_lower_bound_gib': 6.3984375,
-            'actual_T3_prompt_tokens': 33457, 'estimated_pinned_allocator_gib': 15,
+            'actual_T3_prompt_tokens': 33457, 'estimated_pinned_allocator_gib': 22,
             'original_ram_minimum_gib': 20, 'extra_host_margin_gib': 5,
             'fit_requires_actual_budgeted_engine_and_request': True},
         zero_call_startup_admission=full.remote_ref(admission, root, remote),
         previous_source=full.remote_ref(history, root, remote),
-        repair_reason=('Official util0.9 startup gate refused before model load;49152-token warmup needs more than the4GiB placement candidate'
-                       if kind == 'GPU_UTILIZATION_STARTUP_GATE' else
-                       'Weights loaded but pinned nvcc path was missing; restore the byte-identical13.0.88 toolchain path without changing profile environment or scientific settings'),
+        repair_reason={
+            'GPU_UTILIZATION_STARTUP_GATE': 'Official util0.9 startup gate refused before model load',
+            'MISSING_PINNED_NVCC_PATH': 'Restore the byte-identical13.0.88 toolchain path without changing profile environment',
+            'OFFICIAL_AUTOTUNE_WARMUP_OOM': 'Official autotune exhausted VRAM before any scientific request; add BF16 attention O projections to the official UVA filter while preserving KV48GiB, context65536, batch49152 and auto kernels',
+        }[kind],
         failure_kind=kind,
         attempted8GiB_configuration=False)
     if kind == 'MISSING_PINNED_NVCC_PATH':
@@ -414,7 +430,8 @@ def prepare_repair(root, old_queue, admission, output_dir=None, attempt=1):
             pause_file=str(Path(remote) / control.relative_to(root).with_suffix('.PAUSE.json')),
             ram_adapter=descriptor(__file__), ram_deployment_authorization=full.remote_ref(auth_path, root, remote),
             zero_call_startup_parent=ref, resources=dict(RESOURCES))
-        p['engine_kwargs'].update(cpu_offload_gb=OFFLOAD_GB, gpu_memory_utilization=0.8)
+        p['engine_kwargs'].update(cpu_offload_gb=OFFLOAD_GB, cpu_offload_params=FILTER,
+                                 offload_backend='uva', gpu_memory_utilization=0.8)
         science(p, arc.ref)
         path = plans / (worker + '-draft.json'); write_new(path, p)
         drafts.append({'cold': p['cold'], 'draft': descriptor(path)})
@@ -426,7 +443,8 @@ def prepare_repair(root, old_queue, admission, output_dir=None, attempt=1):
         'radon_formal_launch_authorized': False, 'automatic_retry': False}
     path = plans / 'radon-qualification-plan.json'; write_new(path, spec)
     return {'status': 'ZERO_CALL_DEPLOYMENT_REPAIR_PREPARED', 'plan': descriptor(path),
-            'actual_offloaded_parameter_bytes': EXPECTED_BYTES, 'offloaded_layers': 60,
+            'actual_offloaded_parameter_bytes': EXPECTED_BYTES,
+            'expected_offloaded_parameter_count': len(expected_parameters()), 'offloaded_layers': 53,
             'resources': RESOURCES, 'new_model_calls': 0}
 
 
