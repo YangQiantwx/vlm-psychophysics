@@ -1,7 +1,7 @@
 <!-- gemma-x-full-current -->
 **Gemma X正式9456由Fourier双卡继续完成，原1031答案保留且不重跑。** 已验四cold384条完整output/prompt全一致，每cold74/96，预选A同96题67/96。H原段与resume1、L接管2256共同构成正式选择，最终全量尚未验收交付。
 
-2026-10-31 12:38 HST，按人类新授权启动Radon原配置两cold×96；与Fourier现用X的模型/SDK/输入/采样及engine设置逐项一致，KV48GiB BF16、resident、无offload/无prefetch。启动GPU空闲94.956GiB、RAM118.778GiB，权重/输入/结果均NVMe。复用F384，当前选择为原six-worker plan576；R首轮初始化中，三卡结论待两轮原始审计。见[运行入口](/Users/qianyang/Desktop/cvpr2027_benchmark/runs/reproducibility/gemma-x-full-20261030/preparation-current.json)。R资格不改变Fourier正式路线，也不授权Radon正式ID重派。
+2026-10-31 12:38 HST，按人类新授权启动Radon原配置两cold×96；与Fourier现用X的模型/SDK/输入/采样及engine设置逐项一致，KV48GiB BF16、resident、无offload/无prefetch。启动GPU空闲94.956GiB、RAM118.778GiB，权重/输入/结果均NVMe。复用F384，当前选择为原six-worker plan576；R原配置资格运行中，已观测完整输出/prompt逐题与Fourier一致；三卡结论待两轮原始审计。见[运行入口](/Users/qianyang/Desktop/cvpr2027_benchmark/runs/reproducibility/gemma-x-full-20261030/preparation-current.json)。R资格不改变Fourier正式路线，也不授权Radon正式ID重派。
 
 旧Radon UVA3与prefetch8单独保留；prefetch的第8题LEFT对F四轮RIGHT（GT RIGHT）为真实不一致，原prefetch44GiB部署未通过。此次192用原resident48GiB配置独立验收，不替换旧答案或负结果；选定576之外保留旧11条。当前Fourier合格配置照常用于正式结果。动态队列与进度见[LATEST](/Users/qianyang/Desktop/cvpr2027/LATEST.md)，最终9456/169cell、A-X、四模型对照及交付以合并审计为准。
 <!-- /gemma-x-full-current -->
@@ -14,6 +14,8 @@
 网站https://vision-tasks.pages.dev/experiments/已发布deployment0b7d1341，线上四资源SHA及实际A/X、选线UI验收通过。HF `DrQY/vlm-psychophysics-classic-t1-t3/results/qwen-X-20261031-complete` commit10900c9c00df32a00da6ea6310cbd116d0365d62：13文件公开读回SHA/bytes一致；T3 1.3°为93/96。旧partial prefix与manifest保留。回执`classic-analysis-complete-publication.json`和`hf-results-complete-publication.json`；代码classic-precision已推103e2d407821985e931c131bfd8ed2407d7acb09。临时HF上传包已清理，正式原记录和复现代码保留。
 
 配置复现按部署划分：4GiB/65536的三卡资格沿用于T2/T3及同配置自然T2，T1三卡正式均用8GiB/98304。Radon同一T1完整48题的8GiB与4GiB两轮对照现已完成：两轮context均98304，96条完整output/prompt逐值等于原答，每轮27/48；8GiB的47/48请求观测有其他账户实际计算，4GiB时未见其他账户计算。原T1无需重跑，9456正式答案与分母不变；见[独立smoke summary](/Users/qianyang/Desktop/cvpr2027_benchmark/runs/reproducibility/qwen-x-kv-shared-smoke-20261031/summary.json)。
+
+新授权Qwen context smoke：复用已完成S的KV4GiB/context98304同一48题，只把context改为65536，其余配置与输入固定。独立48次预算已在Radon封存、尚未启动；当前Gemma两轮资格真实闭合后由cvpr-4接续，Fourier全量继续。完整output、generation与prompt IDs逐题比较，原9456与S96保持原样。[Context入口](/Users/qianyang/Desktop/cvpr2027_benchmark/runs/reproducibility/qwen-x-context-smoke-20261031/preparation-current.json)。
 <!-- /qwen-x-remaining-t13-current -->
 
 <!-- five-task-research-cards-20261030 -->
