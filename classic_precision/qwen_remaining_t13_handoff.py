@@ -259,9 +259,14 @@ def prepare(root, request_path, output):
             'One explicit reboot admission and no previous handoff are required')
     admission_ref = spec['reboot_admissions'][0]; admitted = arc.ref(admission_ref)
     reboot.verify_snapshot(admitted, arc)
-    require(spec['retired_profiles'] == {
-        'interrupted': [admitted['original_profiles']['T3']],
-        'never_started': [admitted['original_profiles']['T1']]}, 'Original interrupted/unstarted owners differ')
+    expected_retired = {'interrupted': admitted['original_profiles']['T3'],
+                        'never_started': admitted['original_profiles']['T1']}
+    require(set(spec['retired_profiles']) == set(expected_retired), 'Retired owner roles differ')
+    for role, expected in expected_retired.items():
+        refs = spec['retired_profiles'][role]
+        require(len(refs) == 1 and refs[0]['sha256'] == expected['sha256']
+                and arc.path(refs[0]['path']) == arc.path(expected['path']),
+                'Original interrupted/unstarted owners differ')
     runtimes = {}; retained_refs = []; proofs = []; times = defaultdict(list); donor_controls = {}; source_claims = {}; donors = {}
     for record in admitted['accepted_records']:
         if not record['deep']:
