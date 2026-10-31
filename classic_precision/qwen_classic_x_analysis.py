@@ -1,7 +1,7 @@
 """Read-only release of audited Qwen classic X records; retain missing claims.
 
 This never launches inference, changes a scientific ledger, or admits a raw run.
-Its inputs are the already accepted T13 archive and the completed T2 archive.
+Its inputs are accepted archives and, explicitly, one audited missing-sample retry.
 """
 import argparse
 import csv
@@ -13,12 +13,94 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from .cosmos_x_full_results import cell_key, pair_stats
-from .official_x_results import basic, timing_tables, write_csv
+from .official_x_results import Archive, basic, common_raw_checks, journal, timing_tables, write_csv
 from .refinement_worker import descriptor, digest, file_sha256, read, require
 from .storage import atomic_json
 
 NAME = 'qwen-x-remaining-t13-20261030'
 MISSING = 't3_2e29ac8a4e90ee6c0f7f'
+COMPLETION_SCHEMA = 'qwen-single-missing-X-audited-v1'
+
+
+def accepted_completion(root, path, partial_summary):
+    """Admit one separately audited retry; never reinterpret the old attempt."""
+    arc = Archive(root)
+    summary = read(path)
+    require(summary['schema'] == COMPLETION_SCHEMA and summary['status'] == 'COMPLETE_PASS'
+            and summary['assigned_ids'] == summary['accepted_ids'] == [MISSING]
+            and summary['new_model_calls'] == 1 and summary['science_unchanged'] is True
+            and summary['original_claim_preserved'] is True and summary['qualification_reused'] is True,
+            'Completion is not the explicit audited one-attempt result')
+    require(arc.path(summary['original_partial_summary']['path']).resolve() == partial_summary.resolve()
+            and arc.ref(summary['original_partial_summary']) == read(partial_summary),
+            'Completion does not bind the retained partial archive')
+    partial = read(partial_summary)
+    old = partial['quarantined_original_claims']
+    require(len(old) == 1 and old[0]['sample_id'] == MISSING, 'Original missing claim differs')
+    bindings = summary['bindings']
+    for ref in bindings.values():
+        require(file_sha256(arc.path(ref['path'])) == ref['sha256'], 'Completion evidence changed')
+    require(bindings['original_claim']['sha256'] == old[0]['original_claim']['sha256']
+            and arc.path(bindings['original_claim']['path']).resolve()
+            == arc.path(old[0]['original_claim']['path']).resolve(), 'Original claim binding differs')
+    original_claim = arc.ref(old[0]['original_claim'])
+    original_profile = arc.ref(old[0]['original_profile'])
+    require(original_claim['sample_id'] == MISSING
+            and original_claim['profile_sha256'] == digest(original_profile), 'Original claim identity differs')
+    profile = arc.ref(bindings['profile'])
+    raw_path = arc.path(bindings['raw']['path'])
+    raws = journal(raw_path)
+    wait, terminal = arc.ref(bindings['wait']), arc.ref(bindings['result'])
+    require(profile['assigned_ids'] == [MISSING] and profile['maximum_model_calls'] == 1
+            and not profile['automatic_retry'] and not profile['formal_auto_resume']
+            and len(raws) == 1 and raws[0]['sample_id'] == MISSING,
+            'Completion allocation/raw must contain exactly the missing sample')
+    out = arc.path(profile['output'])
+    require(raw_path.resolve() == (out / 'raw.jsonl').resolve()
+            and arc.path(bindings['result']['path']).resolve() == (out / 'result.json').resolve()
+            and arc.path(bindings['wait']['path']).resolve() == out.with_suffix('.wait.json').resolve()
+            and not (out / 'failure.json').exists(), 'Completion evidence paths or failure differ')
+    require(wait['returncode'] == 0 and wait['real_wait_observed'] is True
+            and wait['owned_engines_exited'] is True and wait['original_physical_lease_released'] is True
+            and wait['profile_sha256'] == digest(profile)
+            and wait['terminal_status'] == terminal['status'] == 'COMPLETE'
+            and wait['completed_ids'] == terminal['completed_ids'] == [MISSING]
+            and terminal['UNCERTAIN_ids'] == terminal['unattempted_ids'] == [],
+            'Completion has no clean real wait/owned exit/lease release')
+    require(summary['physical_lock_free'] is True
+            and summary['lock_free_evidence'] in bindings.values(), 'Completion lock-free proof is unbound')
+    # Compare the original scientific item, then check the actual one-record
+    # request. These are JSON/token checks, not decoding or qualification reruns.
+    original_item = arc.ref(original_profile['source_catalog'])['items'][MISSING]
+    item = arc.ref(profile['source_catalog'])['items'][MISSING]
+    require(item['task'] == original_item['task'] == 'T3'
+            and item['row'] == original_item['row']
+            and item['video_contract'] == original_item['video_contract']
+            and [(m['type'], m.get('sha256'), m.get('text')) for m in item['content']]
+            == [(m['type'], m.get('sha256'), m.get('text')) for m in original_item['content']],
+            'Completion source/GT/prompt/scientific parameters changed')
+    require(all(profile[k] == original_profile[k] for k in
+                ('model', 'base_model', 'checkpoint_assets',
+                 'request_mm_processor_kwargs', 'vision_observation', 'choices_by_task'))
+            and all(profile[k]['sha256'] == original_profile[k]['sha256'] for k in
+                    ('qualification_gate', 'reference_panel', 'selector_source')),
+            'Completion changes qualified scientific identity')
+    require(profile['expected_packages'] == arc.ref(profile['runtime_template'])['expected_packages'],
+            'Completion package contract differs from its qualified card template')
+    raw = raws[0]
+    common_raw_checks(profile, item, raw, 0)
+    records = arc.ref(summary['canonical_records'])
+    require(len(records) == 1 and records[0]['sample_id'] == MISSING, 'Completion export has extra/repeated IDs')
+    row = records[0]
+    expected = {'task': raw['task'], 'truth': raw['truth'], 'answer': raw['raw_answer'].strip(),
+                'raw_answer': raw['raw_answer'], 'correct': raw['correct'], 'eligible': True,
+                'parameters': item['row']['source_parameters'],
+                'source_media': [[m['type'], m['sha256']] for m in raw['source']['media']],
+                'raw_digest': digest(raw), 'profile_sha256': digest(profile),
+                'output_token_ids': raw['output_token_ids'], 'finish_reason': raw['finish_reason'],
+                'stop_reason': raw['stop_reason'], 'prompt_token_sha256': digest(raw['actual_prompt_token_ids'])}
+    require(all(row.get(k) == v for k, v in expected.items()), 'Completion canonical projection differs from raw')
+    return summary, records
 
 
 def bound_records(folder):
@@ -65,7 +147,7 @@ def identity(a, b):
             'Comparison source/task/GT mismatch: ' + a['sample_id'])
 
 
-def render(cells, pair_cells, between, out):
+def render(cells, pair_cells, between, out, missing=True):
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
@@ -76,7 +158,7 @@ def render(cells, pair_cells, between, out):
     colors = {'A': '#dc6a32', 'X': '#2867ac', 'Cosmos': '#31916e',
               'Nemo': '#9a5ab6', 'Qwen': '#2867ac'}
     for mode, title in [('paired-A-X', 'Qwen: A and X on the same video IDs'),
-                        ('shared-three-model-X', 'Protocol X: 9,455 shared videos')]:
+                        ('shared-three-model-X', 'Protocol X: ' + format(sum(map(len, between.values())), ',') + ' shared videos')]:
         fig, axes = plt.subplots(3, 4, figsize=(16, 10), constrained_layout=True)
         for ax, (task, cond) in zip(axes.flat, panels):
             keys = sorted(k for k in cells if k[0] == task and (task == 'T3' or k[1] == cond))
@@ -101,32 +183,49 @@ def render(cells, pair_cells, between, out):
             if task == 'T3':
                 ax.set_xscale('log')
         axes.flat[0].legend(frameon=False)
-        fig.suptitle(title + '\nOne reboot-interrupted Qwen video remains unscored', fontsize=16)
+        fig.suptitle(title + ('\nOne reboot-interrupted Qwen video remains unscored' if missing else ''), fontsize=16)
         for ext in ('png', 'pdf'):
             fig.savefig(out / (mode + '.' + ext), dpi=180)
         plt.close(fig)
 
 
-def analyze(root):
+def analyze(root, completion_summary=None, out_dir=None):
     root = Path(root)
     runs = root / 'runs/reproducibility'
     t13dir = runs / NAME / 'analysis'
     t2dir = runs / 'qwen-x-classic-t2-20261029'
     s13, r13 = bound_records(t13dir)
-    s2, r2 = bound_records(t2dir)
     require(s13['status'] == 'PARTIAL_CLASSIC_QWEN_T13_X_UNRESOLVED_CLAIM'
             and s13['missing_ids'] == [MISSING] and len(r13) == 6575,
             'This release requires the explicit one-claim partial archive')
-    require(s2['status'] == 'COMPLETE_CLASSIC_QWEN_T2_X' and len(r2) == 2880,
-            'T2 archive is incomplete')
+    completion = None
+    if completion_summary:
+        require(out_dir, 'Completion requires a separate explicit output directory')
+        completion, extra = accepted_completion(root, Path(completion_summary), t13dir / 'summary.json')
+        # Reuse the accepted 9,455-record export rather than re-auditing T2 raw
+        # or the old 6,575-record worker/input/qualification evidence.
+        previous, accepted = bound_records(runs / NAME / 'classic-analysis')
+        require(previous['status'] == 'PARTIAL_PASS_ONE_UNRESOLVED_CLAIM'
+                and previous['missing_ids'] == [MISSING] and len(accepted) == 9455
+                and {r['sample_id'] for r in accepted if r['task'] != 'T2'} == {r['sample_id'] for r in r13}
+                and previous['accepted_parent_archives'] == [descriptor(t13dir / 'summary.json'),
+                                                              descriptor(t2dir / 'summary.json')],
+                'Accepted classic parent differs')
+        r2 = [r for r in accepted if r['task'] == 'T2']
+        r13 += extra
+    else:
+        s2, r2 = bound_records(t2dir)
+        require(s2['status'] == 'COMPLETE_CLASSIC_QWEN_T2_X' and len(r2) == 2880,
+                'T2 archive is incomplete')
+    count = 9456 if completion else 9455
     records = [dict(r, model='qwen', variant='X') for r in r13 + r2]
     for row in records:
         row.setdefault('phase', 'classic_' + row['task'])
         row.setdefault('replicate', None)
     lookup = {r['sample_id']: r for r in records}
-    require(len(lookup) == len(records) == 9455 and MISSING not in lookup,
+    require(len(lookup) == len(records) == count and (MISSING in lookup) == bool(completion),
             'Duplicate or missing scope differs')
-    require(Counter(r['task'] for r in records) == {'T1': 3840, 'T2': 2880, 'T3': 2735},
+    require(Counter(r['task'] for r in records) == {'T1': 3840, 'T2': 2880, 'T3': 2736 if completion else 2735},
             'Task denominators differ')
     require(all(r['eligible'] and r['correct'] == (r['answer'] == r['truth']) for r in records),
             'Accepted record score differs')
@@ -181,14 +280,20 @@ def analyze(root):
             r[model] = peer['answer']
             r[model + '_correct'] = peer['correct']
         between[tuple(x['cell'])].append(r)
-    out = runs / NAME / 'classic-analysis'
-    out.mkdir(exist_ok=True)
+    out = Path(out_dir) if out_dir else runs / NAME / 'classic-analysis'
+    if out_dir:
+        protected = [t13dir, runs / NAME / 'classic-analysis', t2dir]
+        require(all(out.resolve() != p.resolve() and out.resolve() not in p.resolve().parents
+                    for p in protected), 'Completion cannot overwrite an original archive')
+    if completion:
+        require(not out.exists() or not any(out.iterdir()), 'Completion output must be new or empty')
+    out.mkdir(parents=True, exist_ok=True)
     atomic_json(out / 'canonical-records.json', records)
     write_csv(out / 'predictions.csv', records)
     cell_rows = [{'cell': list(k), 'expected_n': 96 if k[0] == 'T3' and k[1] != 90 else 48,
                   'truth_counts': dict(Counter(r['truth'] for r in rows)), **basic(rows)}
                  for k, rows in sorted(cells.items())]
-    require(sum(r['expected_n'] - r['n'] for r in cell_rows) == 1, 'Missing cell budget differs')
+    require(sum(r['expected_n'] - r['n'] for r in cell_rows) == (0 if completion else 1), 'Missing cell budget differs')
     write_csv(out / 'cells.csv', cell_rows)
     write_csv(out / 'paired-A-X.csv', paired)
     write_csv(out / 'cells-A-X.csv', [{'cell': list(k), **pair_stats(rows)} for k, rows in sorted(pair_cells.items())])
@@ -198,11 +303,11 @@ def analyze(root):
               for k, rows in sorted(between.items())])
     write_csv(out / 'timing.csv', [dict(worker=w, **t) for w in sorted({r['worker'] for r in records})
                                  for t in timing_tables([r for r in records if r['worker'] == w])])
-    render(cells, pair_cells, between, out)
-    summary = {'schema': 'qwen-classic-X-accepted-analysis-v1', 'status': 'PARTIAL_PASS_ONE_UNRESOLVED_CLAIM',
+    render(cells, pair_cells, between, out, missing=not completion)
+    summary = {'schema': 'qwen-classic-X-accepted-analysis-v1', 'status': 'COMPLETE_PASS' if completion else 'PARTIAL_PASS_ONE_UNRESOLVED_CLAIM',
                'generated_HST': datetime.now(ZoneInfo('Pacific/Honolulu')).isoformat(),
-               'unique_videos': 9455, 'expected_unique_videos': 9456, 'configs': 169,
-               'missing_ids': [MISSING], 'missing_scored_as_wrong': False, 'new_model_calls': 0,
+               'unique_videos': count, 'expected_unique_videos': 9456, 'configs': 169,
+               'missing_ids': [] if completion else [MISSING], 'missing_scored_as_wrong': False, 'new_model_calls': 0,
                'tasks': {t: basic(r for r in records if r['task'] == t) for t in ['T1', 'T2', 'T3']},
                'A_X_paired': [{'task': t, **pair_stats([r for r in paired if r['task'] == t])}
                               for t in ['T1', 'T2', 'T3']],
@@ -213,6 +318,26 @@ def analyze(root):
                                'A/X is a protocol-package comparison, not a single-factor load or bit-depth effect.',
                                'Cosmos/Nemo common-ID curves exclude the same one ID; their full original results remain unchanged.']}
     summary['outputs'] = {p.name: descriptor(p) for p in out.iterdir() if p.is_file() and p.name != 'summary.json'}
+    if completion:
+        t13out = out / 't13'
+        t13out.mkdir()
+        atomic_json(t13out / 'canonical-records.json', r13)
+        t13summary = {'schema': NAME + '/authorized-completion-overlay-v1',
+            'status': 'COMPLETE_CLASSIC_QWEN_T13_X_WITH_AUTHORIZED_RETRY', 'unique_videos': len(r13),
+            'expected_unique_videos': 6576, 'missing_ids': [], 'historical_UNCERTAIN_ids': [MISSING],
+            'original_partial_archive': descriptor(t13dir / 'summary.json'),
+            'audited_completion': descriptor(completion_summary), 'new_model_calls': 0,
+            'tasks': {t: basic(r for r in r13 if r['task'] == t) for t in ['T1', 'T3']},
+            'outputs': {'canonical-records.json': descriptor(t13out / 'canonical-records.json')}}
+        require(len(r13) == len({r['sample_id'] for r in r13}) == 6576, 'T13 completion scope differs')
+        atomic_json(t13out / 'summary.json', t13summary)
+        summary.update(audited_completion=descriptor(completion_summary),
+                       completed_T13_archive=descriptor(t13out / 'summary.json'),
+                       prior_classic_archive=descriptor(runs / NAME / 'classic-analysis/summary.json'),
+                       authorized_attempt_model_calls=1, original_partial_archives_preserved=True,
+                       historical_UNCERTAIN_ids=[MISSING],
+                       limitations=['The original reboot claim remains quarantined; its separately authorized retry supplies the one missing score.',
+                                    'A/X is a protocol-package comparison, not a single-factor load or bit-depth effect.'])
     atomic_json(out / 'summary.json', summary)
     return {k: summary[k] for k in ['status', 'unique_videos', 'configs', 'tasks', 'A_X_paired']}
 
@@ -220,5 +345,7 @@ def analyze(root):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--root', required=True)
+    parser.add_argument('--completion-summary')
+    parser.add_argument('--out-dir')
     args = parser.parse_args()
-    print(json.dumps(analyze(args.root), ensure_ascii=False))
+    print(json.dumps(analyze(args.root, args.completion_summary, args.out_dir), ensure_ascii=False))
