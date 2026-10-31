@@ -568,6 +568,7 @@ def current_snapshot(root, result):
     result=add_current_video(root,result)
     result=add_cosmos_x_full(root,result)
     result=add_qwen_t2_x(root,result)
+    result=add_qwen_classic_x(root,result)
     path=root/'runs/reproducibility/operator/current-static-final-20261026-summary.json'
     if path.exists() and not all(k in result for k in ('static_current','T1_static_current','current_static')):
         current=json.loads(path.read_text());assert current['status']=='COMPLETE_PASS' and current['single_counts']=={k:456 for k in ['qwen','cosmos','gemma','nemo']}
@@ -611,6 +612,37 @@ def add_qwen_t2_x(root, result):
         'bindings':{k:comparison['bindings'][k]['sha256'] for k in ['classic','natural','parent_summary']},
         'paired_A_X_n':comparison['paired_A_X_n'],'A_X_answer_changes':comparison['A_X_answer_changes'],
         'scope':'Same Qwen X runtime, 180 frames, 500 ms; natural changes both objects and backgrounds.'}
+    return result
+
+
+def add_qwen_classic_x(root, result):
+    """Publish the audited partial release with observed and planned counts."""
+    folder=root/'runs/reproducibility/qwen-x-remaining-t13-20261030/classic-analysis'
+    path=folder/'summary.json'
+    if not path.exists():return result
+    summary=json.loads(path.read_text())
+    assert summary['status']=='PARTIAL_PASS_ONE_UNRESOLVED_CLAIM'
+    assert summary['unique_videos']==9455 and summary['expected_unique_videos']==9456 and summary['configs']==169
+    assert summary['missing_ids']==['t3_2e29ac8a4e90ee6c0f7f'] and not summary['missing_scored_as_wrong']
+    cells=folder/'cells.csv'
+    assert hashlib.sha256(cells.read_bytes()).hexdigest()==summary['outputs']['cells.csv']['sha256']
+    rows=list(csv.DictReader(cells.open()));t1=[];video=[]
+    for row in rows:
+        key=json.loads(row['cell']);n=int(row['n']);expected=int(row['expected_n']);correct=int(row['correct'])
+        answers=json.loads(row['answers']);truth=json.loads(row['truth_counts'])
+        assert sum(answers.values())==sum(truth.values())==n and n<=expected
+        if key[0]=='T1':
+            t1.append({'sf_cycles_per_aperture':key[1],'modulation_depth':key[2],'arm':'video',
+                       'expected_n':expected,'n':n,'correct':correct,'accuracy':correct/n,'answers':answers})
+        else:
+            video.append({'cell':key,'model':'qwen','correct':correct,'completed':n,'expected':expected,
+                          'prediction_counts':answers,'truth_counts':truth})
+    assert len(t1)==80 and len(video)==89 and sum(int(r['n']) for r in rows)==9455
+    result['qwen_x_full']={'status':summary['status'],'version':'X','precision':'NVFP4',
+        'summary_sha256':hashlib.sha256(path.read_bytes()).hexdigest(),'unique_videos':9455,
+        'expected_unique_videos':9456,'missing_ids':summary['missing_ids'],'configs':169,'tasks':summary['tasks'],
+        'T1':{'complete':True,**summary['tasks']['T1'],'cells':t1},'video_cells':video,
+        'A_X_paired':summary['A_X_paired'],'results_url':'./qwen-x/cells.csv'}
     return result
 
 
@@ -900,6 +932,7 @@ def main():
     p.add_argument('--refresh-classic',action='store_true',help='Only refresh the completed T1/T2 interactive public snapshot')
     p.add_argument('--refresh-t3',action='store_true',help='Refresh observed T3 scalar trials; mark partial panels explicitly')
     p.add_argument('--refresh-current',action='store_true',help='Refresh the current RGB16 scalar snapshot without publishing')
+    p.add_argument('--refresh-qwen-x',action='store_true',help='Update only Qwen X results, their viewer, and bounded analysis files in an existing stage')
     p.add_argument('--refresh-previews',action='store_true',help='Build browser derivatives from retained evaluation examples; no inference')
     p.add_argument('--keep-results',action='store_true',help='Reuse the existing scalar snapshot for a presentation-only deployment')
     args=p.parse_args(); root=args.root.resolve(); SITE_ROOT=args.site_root.resolve()
@@ -907,6 +940,32 @@ def main():
         refresh_t45(root,SITE_ROOT/'review',args.stage.resolve() if args.stage else args.output.resolve()/'stage');return
     if args.refresh_previews:
         refresh_previews(root);return
+    if args.refresh_qwen_x:
+        stage=args.stage or args.output/'stage'
+        target=stage/'experiments/current.json'
+        previous=json.loads(target.read_text())
+        current=add_qwen_classic_x(root,json.loads(target.read_text()))
+        assert 'qwen_x_full' in current and {k:v for k,v in previous.items() if k!='qwen_x_full'}=={k:v for k,v in current.items() if k!='qwen_x_full'}
+        target.write_text(json.dumps(current,separators=(',',':'),allow_nan=False)+'\n')
+        # Maintain the local viewer without replacing unrelated current fields.
+        local=SITE_ROOT/'review/current.json'
+        local.write_text(json.dumps(add_qwen_classic_x(root,json.loads(local.read_text())),separators=(',',':'),allow_nan=False)+'\n')
+        viewer=(SITE_ROOT/'review/current.js').read_bytes()
+        assert not PRIVATE.search(viewer.decode())
+        (stage/'experiments/current.js').write_bytes(viewer)
+        app=stage/'experiments/app.js'
+        text=app.read_text();h=hashlib.sha256(viewer).hexdigest()[:16]
+        text,n=re.subn(r"import\('./current\.js(?:\?[^']*)?'\)","import('./current.js?v="+h+"')",text)
+        assert n==1;app.write_text(text)
+        index=stage/'experiments/index.html';h=hashlib.sha256(app.read_bytes()).hexdigest()[:16]
+        page,n=re.subn(r'(src=[\"\'](?:\./)?app\.js)(?:\?[^\"\']*)?',lambda m:m[1]+'?v='+h,index.read_text())
+        assert n==1;index.write_text(page)
+        analysis=root/'runs/reproducibility/qwen-x-remaining-t13-20261030/classic-analysis'
+        accepted=json.loads((analysis/'summary.json').read_text());dest=stage/'experiments/qwen-x';dest.mkdir(exist_ok=True)
+        names=('cells.csv','paired-A-X.csv','cells-A-X.csv','shared-three-model-cells.csv','paired-A-X.png','paired-A-X.pdf','shared-three-model-X.png','shared-three-model-X.pdf')
+        for name in names:
+            raw=(analysis/name).read_bytes();assert hashlib.sha256(raw).hexdigest()==accepted['outputs'][name]['sha256'];(dest/name).write_bytes(raw)
+        print(json.dumps({'status':'QWEN_X_PARTIAL_STAGE_REFRESHED','videos':9455,'expected':9456,'other_result_fields_unchanged':True,'analysis_files':len(names),'stage':str(stage)}));return
     if args.refresh_current:
         target=SITE_ROOT/'review/current.json'
         target.write_text(json.dumps(current_results(root,args.code_root),separators=(',',':'),allow_nan=False)+'\n')
@@ -1047,6 +1106,13 @@ def main():
     if review.is_dir():
         code(review,'/experiments/',('index.html','app.js','style.css','classic.js','classic.css','current.js','t45-final.js','t45-final.css'))
         config(review/'current.json','/experiments/current.json',current_snapshot(root,read(review/'current.json')) if args.keep_results else current_results(root,args.code_root))
+        qwen_analysis=root/'runs/reproducibility/qwen-x-remaining-t13-20261030/classic-analysis'
+        if (qwen_analysis/'summary.json').exists():
+            accepted=read(qwen_analysis/'summary.json')
+            assert accepted['status']=='PARTIAL_PASS_ONE_UNRESOLVED_CLAIM'
+            for name in ('cells.csv','paired-A-X.csv','cells-A-X.csv','shared-three-model-cells.csv','paired-A-X.png','paired-A-X.pdf','shared-three-model-X.png','shared-three-model-X.pdf'):
+                raw=(qwen_analysis/name).read_bytes();assert hashlib.sha256(raw).hexdigest()==accepted['outputs'][name]['sha256']
+                write('/experiments/qwen-x/'+name,raw)
         comparison=root/'runs/reproducibility/natural-t2-spoon-20261030'
         if (comparison/'classic-X-comparison-summary.json').exists():
             for name in ('classic-X-vs-natural-X.csv','classic-X-vs-natural-X.png','classic-X-vs-natural-X.pdf','A-X-paired.csv','A-X-cells.csv','spoon-old-new-paired.csv'):
