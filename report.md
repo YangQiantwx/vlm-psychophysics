@@ -1,3 +1,25 @@
+<!-- gemma-x-full-current -->
+**2026-10-31 06:30 HST：Fourier两卡Gemma X正式任务已实际推理；Radon正在新RAM部署资格启动。** 最新人类授权明确允许Fourier先正式跑，R资格失败时安全暂停；这取代旧“等六worker全过才启动F”的门，不冒称三卡已经复现。F四个cold共384条的完整output/prompt IDs逐项全等，均74/96，原A为67/96；证明`plans/gemma-x-provisional-20261031/fourier-gate.json`，状态PROVISIONAL_FOURIER_PASS_RADON_PENDING。原96输入、A预选依据与旧启动失败均保留。
+
+F当前唯一正式queue为`plans/gemma-x-provisional-20261031/fourier0-full-queue.json`及fourier1对应文件，各3600；R2256保留，合计9456唯一正式ID。两queue已activate及LAUNCHED_ONCE，勿重复；run根`runs/reproducibility/gemma-x-provisional-20261031`下真实outer launch/owner/wait。06:03 HST有界快照F0/F1各61/3600、owner LIVE、各1在途、无failure；最近20普通19.109/19.383秒。两卡T1/T2/T3六个首实际GPU输入均PASS，`startup-fourier.json`，无额外调用，不重复首图。原CPU链/全帧180/有效768×512、补底16到528、budget280/实际176tokens、official auto/autotuneON/ctx65536/KV48GiB BF16/batch49152/eager/oneSeq/cache0科学设置不改。
+
+R当前唯一queue=`plans/gemma-x-ram-qualification-20261031/execution-repair2/radon-qualification-queue.json`，SHA796175287a6912913c336a49fb1af9d60cfb9d244b80145034bfd017c383d0ea；外层prefix=`radon0-ram-qualification-exec2-queue`，已唯一启动，当前未声称首GPU或复现PASS。两worker为radon0-ram-qualification-cold1-exec2及cold2-exec2，顺序96+96。six-worker-plan SHAd03e812508b7b62d802ecd207bb16696d65906cc8ac97f3d9176242ad33c34d0保留原F四worker，只替换R两部署。官方UVA filter仅BF16 self_attn.qkv_proj.weight；cpu_offload_gb=12为上限，实际预期60层11,010,048,000B=10.25390625GiB，NVFP4/vision/KV/ctx/batch/auto不改；gpu_memory_utilization=.8只调整显式48GiB KV下的官方startup预算。GPU>=77GiB、RAM>=40GiB；本次启动实见78.96875GiB/116.900GiB。加载后及首预算内请求必须核真实host指针/参数/字节与>=1GiB可用余量；不能只认配置。逐条先落原raw，再比较完整output/prompt IDs；不一致写reproduction-failure.json并停止，随后F在请求边界pause。R资格未完成前不派2256正式。
+
+R原4GiB候选因官方.9×94.97GiB startup门在权重加载前拒绝：0claim/0raw/0INTENT，实际worker和outer wait1、owned退出/leasefree。原记录/源码SHA9861ad19保留于implementation-history，原controls已generation+1 fence，不能恢复。官方49,152-token warmup临时张量说明4GiB余量不足；8GiB仅CPU讨论，未运行。新RAM源码SHA5f3325f985333b0062ea07bc0cdcb040a990498ce2929301e98cc880b18badd7；F provisional SHAa1811e56（完整以profile绑定为准）冻结，原四Gemma模块不改。R权重/DS/run均NVMe device66306；新run canonical指向/home/q/cvpr2027_runs_ssd/gemma-x-ram-qualification-20261031，旧大资产不重传。
+
+另保留exec1零调用失败：实际已offload10.25GiB并加载，但旧FLASHINFER_NVCC路径缺失使官方JIT退出；worker/outer真实wait1，0claim/raw/INTENT，controls已fence。恢复该路径到本机已有CUDA13.0.88，nvcc与Fourier逐字节SHA一致（b8e2347d…），未安装/升级SDK。官方已有build.ninja经16 CPU并行81.24秒编译成功，真实returncode0，证据nvcc-path-repair.json与official-kernel-cpu-build.json。当前exec2于06:14唯一启动；06:28有界快照owner LIVE、0claim/raw、无failure，实际model_runner加载35.79秒/20.93GiB，仍初始化，首GPU验收PENDING。新gemma_x_ram_full.py（0468da76…）已CPU验证接续R2256及最终审计/比较入口；未真实六workerPASS前拒绝准备R正式draft。
+
+CPU只读status按实际queue.profiles调用cosmos_x_full_status.inspect_profile，并以outer boot/PID/startticks核owner；Gemma资格queue无state_path，不使用通用queue_status。启动/资格每10分钟、长段每小时，平稳不通知。执行queue/supervisor必须用sealed GPU解释器及显式PYTHONPATH，不能用CPU解释器启动worker。R两cold原记录齐后用gemma_x_ram_qualification summarize核完整576/96/真实闭合/输入链与RAM residency，只有PASS_GEMMA_X_THREE_CARDS_TWO_COLD才接R正式。启动配置问题可修部署并保留失败；已claim/UNCERTAIN不得自动重派。全部9456及169cell验收后出A/X和四模型X同ID比较、网站/HF/GitHub交付，完成后停唯一cvpr-4；不新增natural/T4/T5/其它模型。
+<!-- /gemma-x-full-current -->
+
+<!-- qwen-x-remaining-t13-current -->
+**2026-10-31 05:56 HST：Qwen X经典T1–T3全部9456条已完成、严格验收并发布。** T1 1918/3840，T2 2616/2880，T3 2564/2736；169个cell均有完整分母。人类明确授权只补跑重启中断的`t3_2e29ac8a4e90ee6c0f7f`，独立attempt答LEFT且正确；实际worker/outer wait0、owned退出及原lease释放、原科学配置/输入/GT/prompt/tokens审计通过。0新资格、仅1个授权新调用；原claim、228重启前缀、87恢复段、全部失败与原9455 PARTIAL保持原样，不再运行任何Qwen任务或health poll。
+
+完整选择入口`runs/reproducibility/qwen-x-remaining-t13-20261030/classic-analysis-complete-retry1/summary.json`（SHA 5f78f51e0072030b128b65e264ad44392a23cee328b7e27a533990461a816a48）；独立单条审计`one-attempt/summary.json` SHA738c4feea0576488910986e3b33d997712b131e8c4f6ec9541fb8fe40b58192b。完整T13为原6575加这1条，`classic-analysis-complete-retry1/t13/summary.json`绑定两部分；旧11段manifest与原PARTIAL审计不改。A/X共同ID配对：T1 1924→1918但1468答案改变；T2 1872条1528→1610；T3 1584条1419→1420。Cosmos/Nemo/Qwen X共同9456视频对照和逐ID/逐cell/速度/PNG/PDF均已生成，图片实际检查。
+
+网站https://vision-tasks.pages.dev/experiments/已发布deployment0b7d1341，线上四资源SHA及实际A/X、选线UI验收通过。HF `DrQY/vlm-psychophysics-classic-t1-t3/results/qwen-X-20261031-complete` commit10900c9c00df32a00da6ea6310cbd116d0365d62：13文件公开读回SHA/bytes一致；T3 1.3°为93/96。旧partial prefix与manifest保留。回执`classic-analysis-complete-publication.json`和`hf-results-complete-publication.json`；代码classic-precision已推103e2d407821985e931c131bfd8ed2407d7acb09。临时HF上传包已清理，正式原记录和复现代码保留。
+<!-- /qwen-x-remaining-t13-current -->
+
 <!-- five-task-research-cards-20261030 -->
 ## What the five tasks measure
 

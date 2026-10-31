@@ -30,10 +30,12 @@ NAME = 'gemma-x-ram-qualification-20261031'
 MODULE = 'classic_precision.gemma_x_ram_qualification'
 FILTER = ['self_attn.qkv_proj.weight']
 GIB = 1024**3
-EXPECTED_BYTES = 4404019200  # 20 sliding + 4 full-attention QKV parameters.
-RESOURCES = {'min_free_gpu_gib': 77, 'min_available_ram_gib': 28}
+OFFLOAD_GB = 12  # Official upper bound; this filter contains only10.25390625GiB.
+EXPECTED_BYTES = 11010048000  # All50 sliding +10 full-attention BF16 QKV parameters.
+RESOURCES = {'min_free_gpu_gib': 77, 'min_available_ram_gib': 40}
+PREVIOUS_SOURCE_SHA = '9861ad19424cea879b55069fe38ac42bc84de63bf842878054be029fdca62c64'
 RAM_FIELDS = {'ram_adapter', 'ram_deployment_authorization', 'original_qualification_profile',
-              'fourier_output_reference'}
+              'fourier_output_reference', 'zero_call_startup_parent'}
 OUTPUT_KEYS = ('raw_answer', 'output_token_ids', 'finish_reason', 'stop_reason', 'truth', 'question')
 _SCIENCE = qualification.science
 _VERIFY = qualification.verify_code
@@ -46,7 +48,7 @@ _SUMMARIZE = qualification.summarize
 
 def expected_parameters():
     return {f'language_model.model.layers.{i}.self_attn.qkv_proj.weight':
-            [20480 if i % 6 == 5 else 16384, 5376] for i in range(24)}
+            [20480 if i % 6 == 5 else 16384, 5376] for i in range(60)}
 
 
 def validate_placement(receipt, phase):
@@ -82,9 +84,24 @@ def science(p, resolve=verified):
             and deployment['offload_expected_parameter_bytes'] == EXPECTED_BYTES,
             'Missing finite RAM deployment authorization')
     require(p['ram_adapter']['sha256'] == file_sha256(__file__), 'RAM deployment adapter changed')
+    if p.get('zero_call_startup_parent'):
+        parent = resolve(p['zero_call_startup_parent'])
+        admission = resolve(deployment['zero_call_startup_admission'])
+        prior_sha = deployment['previous_source']['sha256']
+        require(parent['ram_adapter']['sha256'] == prior_sha
+                and parent['cold'] == p['cold'] and parent['assigned_ids'] == p['assigned_ids']
+                and admission['status'] in ('PASS_ZERO_SCIENTIFIC_CALLS_STARTUP_ONLY_FAILURE',
+                                            'PASS_ZERO_SCIENTIFIC_CALLS_DEPLOYMENT_FAILURE')
+                and admission['remaining_qualification_calls'] == 192
+                and len(prior_sha) == 64,
+                'Zero-call repair lineage or original source identity changed')
+        archive = getattr(resolve, '__self__', None)
+        source = archive.path(deployment['previous_source']['path']) if archive else Path(deployment['previous_source']['path'])
+        require(file_sha256(source) == prior_sha, 'Preserved failed deployment source changed')
     e = p['engine_kwargs']
-    require(e['cpu_offload_gb'] == 4 and e['cpu_offload_params'] == FILTER
-            and e['offload_backend'] == 'uva' and p['resources'] == RESOURCES,
+    require(e['cpu_offload_gb'] == OFFLOAD_GB and e['cpu_offload_params'] == FILTER
+            and e['offload_backend'] == 'uva' and e['gpu_memory_utilization'] == 0.8
+            and p['resources'] == RESOURCES,
             'Changed explicit RAM placement/budget')
     require(p['environment'] == original['environment']
             and not p.get('bootstrap') and p['automatic_retry'] is False
@@ -96,6 +113,7 @@ def science(p, resolve=verified):
     for k in RAM_FIELDS: normalized.pop(k, None)
     normalized['resources'] = original['resources']
     normalized['engine_kwargs']['cpu_offload_gb'] = 0
+    normalized['engine_kwargs']['gpu_memory_utilization'] = original['engine_kwargs']['gpu_memory_utilization']
     normalized['engine_kwargs'].pop('cpu_offload_params')
     normalized['engine_kwargs'].pop('offload_backend')
     require(full.frozen_settings(normalized) == full.frozen_settings(original),
@@ -150,7 +168,7 @@ def ram_worker_identity(worker, model):
     offloader = get_offloader(); size = sum(x['bytes'] for x in actual.values())
     require(set(actual) == set(expected) and size == EXPECTED_BYTES
             and offloader.cpu_offload_bytes == size and offloader.uva_offloading is True,
-            'Actual post-load RAM placement does not match the4.1015625GiB budget')
+            'Actual post-load RAM placement does not match the10.25390625GiB budget')
     free, total = torch.cuda.mem_get_info()
     allocated, reserved = torch.cuda.memory_allocated(), torch.cuda.memory_reserved()
     available = available_ram_bytes()
@@ -269,14 +287,17 @@ def prepare(root, qualification_plan):
         'maximum_remaining_model_calls': 192, 'cards': ['radon0'], 'cold_starts': [1, 2],
         'original_qualification_plan': descriptor(qualification_plan), 'fourier_gate': descriptor(proof_path),
         'resource_budget': RESOURCES, 'offload_expected_parameter_bytes': EXPECTED_BYTES,
-        'budget_derivation': {'original_minimum_gpu_gib': 80,
-            'expected_saved_parameter_gib': EXPECTED_BYTES / GIB, 'additional_margin_gib': 1,
-            'derived_minimum_gpu_gib': 80 - EXPECTED_BYTES / GIB + 1,
-            'rounded_gpu_admission_gib': 77, 'original_ram_minimum_gib': 20,
-            'estimated_pinned_allocator_gib': 6, 'extra_host_margin_gib': 2,
+        'budget_derivation': {'observed_F_model_load_gib': 31.18,
+            'expected_saved_parameter_gib': EXPECTED_BYTES / GIB,
+            'fixed_KV_gib': 48, 'estimated_static_GPU_gib': 31.18 - EXPECTED_BYTES / GIB + 48,
+            'gpu_admission_gib': 77, 'estimated_static_headroom_at_admission_gib': 77 - (31.18 - EXPECTED_BYTES / GIB + 48),
+            'warmup_tokens': 49152, 'gateup_gelu_residual_lower_bound_gib': 6.3984375,
+            'observed_T3_prompt_tokens': 33457, 'original_ram_minimum_gib': 20,
+            'estimated_pinned_allocator_gib': 15, 'extra_host_margin_gib': 5,
             'gpu_admission_is_not_a_runtime_fit_guarantee': True},
         'expected_parameters': expected_parameters(),
-        'engine_delta': {'cpu_offload_gb': 4, 'cpu_offload_params': FILTER, 'offload_backend': 'uva'},
+        'engine_delta': {'cpu_offload_gb': OFFLOAD_GB, 'cpu_offload_params': FILTER, 'offload_backend': 'uva',
+                         'gpu_memory_utilization': 0.8},
         'stop_fourier_required_on_output_or_prompt_mismatch': True,
         'automatic_retry': False, 'formal_radon_launch_authorized_by_this_file': False,
         'official_reference': 'https://docs.vllm.ai/en/stable/api/vllm/config/offload/'}
@@ -299,7 +320,8 @@ def prepare(root, qualification_plan):
             ram_adapter=descriptor(__file__),
             ram_deployment_authorization=full.remote_ref(plans / 'ram-deployment-authorization.json', root, remote),
             fourier_output_reference=full.remote_ref(plans / 'fourier-output-reference.json', root, remote))
-        p['engine_kwargs'].update(cpu_offload_gb=4, cpu_offload_params=FILTER, offload_backend='uva')
+        p['engine_kwargs'].update(cpu_offload_gb=OFFLOAD_GB, cpu_offload_params=FILTER,
+                                 offload_backend='uva', gpu_memory_utilization=0.8)
         science(p, arc.ref)
         draft = plans / (worker + '-draft.json'); write_new(draft, p)
         drafts.append({'cold': w['cold'], 'draft': descriptor(draft)})
@@ -311,17 +333,128 @@ def prepare(root, qualification_plan):
     return {**value, 'plan': descriptor(plans / 'radon-qualification-plan.json'), 'new_model_calls': 0}
 
 
+def prepare_repair(root, old_queue, admission, output_dir=None, attempt=1):
+    """Replace a proven closed zero-scientific-call deployment failure."""
+    root = Path(root).resolve(); arc = full.Archive(root); old_queue = Path(old_queue)
+    queue = read(old_queue); admitted = read(admission)
+    require(admitted['status'] in ('PASS_ZERO_SCIENTIFIC_CALLS_STARTUP_ONLY_FAILURE',
+                                   'PASS_ZERO_SCIENTIFIC_CALLS_DEPLOYMENT_FAILURE')
+            and admitted['queue']['sha256'] == file_sha256(old_queue)
+            and admitted['remaining_qualification_calls'] == 192
+            and len(admitted['workers']) == len(queue['profiles']) == 2,
+            'Startup refusal does not prove the whole192-call budget remains unspent')
+    parent_profiles = [(arc.ref(ref), ref) for ref in queue['profiles']]
+    parent_profiles.sort(key=lambda item: item[0]['cold'])
+    source_sha = parent_profiles[0][0]['ram_adapter']['sha256']
+    require(all(p['ram_adapter']['sha256'] == source_sha for p, _ in parent_profiles), 'Repair parents used different source versions')
+    history = root / 'plans' / NAME / 'implementation-history' / ('gemma_x_ram_qualification-' + source_sha + '.py')
+    require(file_sha256(history) == source_sha, 'Original failed deployment source was not preserved')
+    by_cold = {w['cold']: w for w in admitted['workers']}
+    require(set(by_cold) == {1, 2} and all(w['scientific_claims'] == w['raw_rows'] == w['intent_rows'] == 0
+                                        for w in by_cold.values()), 'Old RAM attempt has scientific dispatches')
+    first = by_cold[1]; wait = arc.ref(first['wait']); log = arc.path(first['startup_log']['path'])
+    require(file_sha256(log) == first['startup_log']['sha256']
+            and wait['returncode'] == 1 and wait['real_wait_observed'] and not wait['completed_ids']
+            and wait['owned_engines_exited'] and wait['original_physical_lease_released']
+            and by_cold[2]['never_launched'],
+            'Old failed deployment has not closed with zero scientific dispatches')
+    text = log.read_text(); kind = admitted.get('failure_kind', 'GPU_UTILIZATION_STARTUP_GATE')
+    if kind == 'GPU_UTILIZATION_STARTUP_GATE':
+        require(first['model_load_started'] is False and 'is less than desired GPU memory utilization' in text
+                and 'Loading model from scratch' not in text, 'Different startup refusal needs separate review')
+    else:
+        require(kind == 'MISSING_PINNED_NVCC_PATH' and first['model_load_started'] is True
+                and 'nvcc' in text and ('not found' in text or 'No such file' in text)
+                and 'Loading model from scratch' in text, 'Different zero-call deployment failure needs separate review')
+    require(isinstance(attempt, int) and attempt >= 1, 'Explicit positive deployment attempt required')
+    plans = Path(output_dir) if output_dir else root / 'plans' / NAME / ('execution-repair' + str(attempt))
+    require(not plans.exists(), 'Refuse to replace a prepared repair')
+    old_preparation = read(root / 'plans' / NAME / 'radon-qualification-plan.json')
+    originals = parent_profiles
+    remote = originals[0][0]['workspace_root']
+    deployment = arc.ref(originals[0][0]['ram_deployment_authorization'])
+    deployment.update(resource_budget=dict(RESOURCES), offload_expected_parameter_bytes=EXPECTED_BYTES,
+        expected_parameters=expected_parameters(),
+        engine_delta={'cpu_offload_gb': OFFLOAD_GB, 'cpu_offload_params': FILTER,
+                      'offload_backend': 'uva', 'gpu_memory_utilization': 0.8},
+        budget_derivation={'observed_F_model_load_gib': 31.18, 'fixed_KV_gib': 48,
+            'expected_saved_parameter_gib': EXPECTED_BYTES / GIB,
+            'estimated_static_GPU_gib': 31.18 - EXPECTED_BYTES / GIB + 48,
+            'gpu_admission_gib': 77, 'estimated_static_headroom_at_admission_gib': 77 - (31.18 - EXPECTED_BYTES / GIB + 48),
+            'warmup_tokens': 49152, 'gateup_gelu_residual_lower_bound_gib': 6.3984375,
+            'actual_T3_prompt_tokens': 33457, 'estimated_pinned_allocator_gib': 15,
+            'original_ram_minimum_gib': 20, 'extra_host_margin_gib': 5,
+            'fit_requires_actual_budgeted_engine_and_request': True},
+        zero_call_startup_admission=full.remote_ref(admission, root, remote),
+        previous_source=full.remote_ref(history, root, remote),
+        repair_reason=('Official util0.9 startup gate refused before model load;49152-token warmup needs more than the4GiB placement candidate'
+                       if kind == 'GPU_UTILIZATION_STARTUP_GATE' else
+                       'Weights loaded but pinned nvcc path was missing; restore the byte-identical13.0.88 toolchain path without changing profile environment or scientific settings'),
+        failure_kind=kind,
+        attempted8GiB_configuration=False)
+    if kind == 'MISSING_PINNED_NVCC_PATH':
+        deployment['toolchain_path_repair'] = {
+            'unchanged_FLASHINFER_NVCC': originals[0][0]['environment']['FLASHINFER_NVCC'],
+            'expected_nvcc_sha256': 'b8e2347d9d7fcadf8812a27324d515de99d033d3e48611811ece7e66d7895f8a',
+            'version': '13.0.88', 'repair': 'Restore the missing historical directory as a symlink to the existing byte-identical cu13 installation',
+            'profile_environment_changed': False, 'SDK_or_compiler_upgrade': False}
+    auth_path = plans / 'ram-deployment-authorization.json'; write_new(auth_path, deployment)
+    drafts = []
+    for old, ref in originals:
+        require(ref == by_cold[old['cold']]['profile'] and old['ram_adapter']['sha256'] == source_sha,
+                'Repair parent is not the preserved original RAM deployment')
+        p = copy.deepcopy(old)
+        for key in ('implementation', 'worker_token', 'media_files', 'operational_wrapper', 'full_dependencies'):
+            p.pop(key, None)
+        worker = f'radon0-ram-qualification-cold{p["cold"]}-exec{attempt}'; control = plans / (worker + '-control.json')
+        write_new(control, {'generation': 0, 'paused': True, 'status': 'ZERO_CALL_DEPLOYMENT_REPAIR_PREPARED'})
+        p.update(worker=worker, output=str(Path(remote) / 'runs/reproducibility' / NAME / worker),
+            claim_root=str(Path(remote) / 'runs/reproducibility' / NAME / 'claims' / worker),
+            control_file=str(Path(remote) / control.relative_to(root)),
+            pause_file=str(Path(remote) / control.relative_to(root).with_suffix('.PAUSE.json')),
+            ram_adapter=descriptor(__file__), ram_deployment_authorization=full.remote_ref(auth_path, root, remote),
+            zero_call_startup_parent=ref, resources=dict(RESOURCES))
+        p['engine_kwargs'].update(cpu_offload_gb=OFFLOAD_GB, gpu_memory_utilization=0.8)
+        science(p, arc.ref)
+        path = plans / (worker + '-draft.json'); write_new(path, p)
+        drafts.append({'cold': p['cold'], 'draft': descriptor(path)})
+    spec = {'schema': NAME + '/preparation-v1', 'status': 'PREPARED_NOT_LAUNCHED',
+        'original_qualification_plan': old_preparation['original_qualification_plan'], 'drafts': drafts,
+        'zero_call_startup_admission': full.remote_ref(admission, root, remote),
+        'previous_source': full.remote_ref(history, root, remote),
+        'remaining_model_calls': 192, 'resource_budget': RESOURCES,
+        'radon_formal_launch_authorized': False, 'automatic_retry': False}
+    path = plans / 'radon-qualification-plan.json'; write_new(path, spec)
+    return {'status': 'ZERO_CALL_DEPLOYMENT_REPAIR_PREPARED', 'plan': descriptor(path),
+            'actual_offloaded_parameter_bytes': EXPECTED_BYTES, 'offloaded_layers': 60,
+            'resources': RESOURCES, 'new_model_calls': 0}
+
+
 def stage(plan_path):
     plan_path = Path(plan_path); spec = read(plan_path)
     require(spec['status'] == 'PREPARED_NOT_LAUNCHED' and spec['remaining_model_calls'] == 192,
             'Wrong finite RAM preparation')
     require(len(spec['drafts']) == 2 and {x['cold'] for x in spec['drafts']} == {1, 2},
             'Two distinct fresh Radon cold starts required')
+    if spec.get('zero_call_startup_admission'):
+        first = read(plan_path.parent / Path(spec['drafts'][0]['draft']['path']).name)
+        arc = full.Archive(first['workspace_root']); admission = arc.ref(spec['zero_call_startup_admission'])
+        for w in admission['workers']:
+            parent = arc.ref(w['profile'])
+            require(read(arc.path(parent['control_file']))['paused'], 'Old RAM control must be fenced before repair staging')
+            require(not any((arc.path(parent['claim_root']) / (sid + '.json')).exists()
+                            for sid in parent['assigned_ids']), 'Old RAM attempt acquired a claim after admission')
     profiles = []
     for entry in sorted(spec['drafts'], key=lambda x: x['cold']):
         draft = plan_path.parent / Path(entry['draft']['path']).name
         require(file_sha256(draft) == entry['draft']['sha256'], 'RAM draft changed')
         p = read(draft); require(p['hostname'] == socket.gethostname(), 'Wrong staging host')
+        deployment = verified(p['ram_deployment_authorization'])
+        if deployment.get('toolchain_path_repair'):
+            tool = deployment['toolchain_path_repair']; nvcc = Path(p['environment']['FLASHINFER_NVCC'])
+            require(str(nvcc) == tool['unchanged_FLASHINFER_NVCC'] and nvcc.is_file()
+                    and file_sha256(nvcc) == tool['expected_nvcc_sha256'],
+                    'Pinned nvcc path was not restored to the verified byte-identical compiler')
         arc = full.Archive(p['workspace_root']); _unspent(arc.ref(p['original_qualification_profile']), arc)
         output = draft.with_name(draft.name.replace('-draft.json', '-profile.json'))
         seal(draft, output); profiles.append(descriptor(output))
@@ -424,12 +557,15 @@ def summarize(root, plan, output):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=('prepare', 'stage', 'seal', 'activate', 'queue',
+    parser.add_argument('command', choices=('prepare', 'prepare-repair', 'stage', 'seal', 'activate', 'queue',
                                             'run', 'supervise', 'summarize', 'audit-profile'))
-    for name in ('root', 'qualification-plan', 'plan', 'profile', 'draft', 'output'):
+    for name in ('root', 'qualification-plan', 'plan', 'profile', 'draft', 'output',
+                 'old-queue', 'admission', 'output-dir'):
         parser.add_argument('--' + name)
+    parser.add_argument('--attempt', type=int, default=1)
     a = parser.parse_args()
     if a.command == 'prepare': value = prepare(a.root, a.qualification_plan)
+    elif a.command == 'prepare-repair': value = prepare_repair(a.root, a.old_queue, a.admission, a.output_dir, a.attempt)
     elif a.command == 'stage': value = stage(a.plan)
     elif a.command == 'seal': value = seal(a.draft, a.output)
     elif a.command == 'run': value = run(a.profile)
