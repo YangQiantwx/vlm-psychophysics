@@ -1,18 +1,9 @@
 <!-- gemma-x-full-current -->
-**2026-10-31 09:45 HST：按人类最新“Fourier继续全量两卡跑”授权，两卡已真实恢复正式推理；Radon保持失败闭合，仅做只读原因分析。** 原F0 520/F1 511共1031条答案全部保留。新H=`gemma-x-provisional-20261031`的`resume1/fourier0-full-segment1-queue.json`和fourier1对应已各唯一activate/launch，只派未claim的3080/3089条。当前外层prefix为`{card}-full-segment1-queue`，launch/owner/wait在Hrun；旧queue不恢复。09:29 HST首个有界快照新段3/1 PASS、两owner LIVE，之后两卡首个T1预算内实际输入均已全180帧CPU/native/GPU字节验收PASS；T2/T3未来首条各验一次，不追加调用。通用status把共享claim目录内父段520/511条误报为FOREIGN；须用SHA绑定祖先完成前缀的作用域监控，未知foreign仍拒绝，不能因此重派或停止正常worker。
+**Gemma X正式9456由Fourier双卡继续完成，原1031答案保留且不重跑。** 已验四cold384条完整output/prompt全一致，每cold74/96，预选A同96题67/96。H原段与resume1、L接管2256共同构成正式选择，最终全量尚未验收交付。
 
-原Radon正式2256从未有profile/queue/claim/输出，已在R实际核实并把原control从generation0 fence到1、paused=true。保留实际部署前文件缺失、仅为fence复制原draft/control的事实；证据Hplans `radon-formal-donor-fence-receipt.json`及`radon-formal-donor-admission-v2.json`（SHA7f6cf494340a44bd3f8a2807f38adabc096bf4a63e5f24ac71553240ce134ade）。新L=`gemma-x-fourier-takeover-20261031`把2256按LR配对各分1128条（各T1 456/T2 336/T3 336），源ID总union仍严格9456。两个L profiles/queues已在F通过源文件与SSD seal，controls PAUSED，**尚未launch**。现有cvpr-4负责各卡接续：对应H续段COMPLETE、worker/outer真实wait0、owned退出与原same-inode lease free、实际资源达标后，才一次activate/launch对应L queue；两卡可独立接续。不另启常驻controller、不复活旧queue、不自动retry。
+2026-10-31 12:38 HST，按人类新授权启动Radon原配置两cold×96；与Fourier现用X的模型/SDK/输入/采样及engine设置逐项一致，KV48GiB BF16、resident、无offload/无prefetch。启动GPU空闲94.956GiB、RAM118.778GiB，权重/输入/结果均NVMe。复用F384，当前选择为原six-worker plan576；R首轮初始化中，三卡结论待两轮原始审计。见[运行入口](/Users/qianyang/Desktop/cvpr2027_benchmark/runs/reproducibility/gemma-x-full-20261030/preparation-current.json)。R资格不改变Fourier正式路线，也不授权Radon正式ID重派。
 
-Lrun `preparation-current.json`绑定最新计划/六段初始manifest/全部queue与profile SHA；当前H队列SHA为F0 9040fb948fc9fdfd3707c4760d4bb30a38d73c59399c8d5baf8f80bffba8badf、F1 1c74e8c2316d0769925cfe5f94434102a01c7abda63cc86cd47dbe8d8392fc3d；L后继queue SHA为F0 cf91647d1af5a029453bd699a7d2b13bff867660b4158bae844a7f4671ba84a9、F1 52b476582d589f0de9ec98c4f9f914b2484753140b9c0b1cedf8e87a68a9e22d。推理supervisor/queue仍用封存GPU解释器、正确cwd/PYTHONPATH；原科学模块/官方混合NVFP4/全部180帧/有效768×512+底pad16至528/budget280实际176tokens/auto-autotuneON/KV48GiB BF16/ctx65536/batch49152不变。F权重、输入、输出均SSD。
-
-Radon真实负结果保留：K=`gemma-x-prefetch-qualification-20261031`第8个prefetch样本`t3_248e40cecbc199eaf28f`答LEFT，F四cold均RIGHT，GT RIGHT；第一答案token不同，prompt33457 IDs相同。R K为8raw/8claims、7TECHNICAL_PASS，失败raw已持久保存；worker/outer真实wait1，cold2从未启动；旧UVA3原答也保留。此次0新增诊断调用，原单条诊断proposal延期且未授权，不再阻塞F全量。R不再推理/healthpoll/重复归档，其他账户任务不动。
-
-只读分析`Krun/radon-reproduction-readonly-analysis.json`核实源视频、帧索引、prompt/采样、checkpoint/processor一致；attention backend同为TRITON_ATTN，prefill默认tactic警告相同。不同之处是resident与prefetch、KV48/44、GPU产品版本与autotune缓存状态。官方FlashInfer存在SM120 FP4 tactic改变greedy输出的同类记录，但该失败普通样本无独立GPU逐字节快照，也无逐forward权重字节和logit，尚不能单独锁定RAM、tactic或硬件。其他任务的计算竞争可以解释慢，不能单独证明答案差异。详细来源/哈希与待区分假设在JSON，不重复源码调查或偷偷加样本。
-
-当前资格口径仅`PASS_FOURIER_ONLY_TWO_CARDS_TWO_COLD`：F384条完整output/prompt全一致、每cold74/96；预选A同96为67/96。绝不冒称三卡资格PASS。最终用`gemma_x_fourier_takeover make-manifest/audit-full`覆盖H原暂停两段+H续跑两段+L两段（后续若有合法续段显式更新manifest），严格9456唯一/169cells/source/GT/prompt/全部真实闭合；A-X和四模型共同9456、速度、网站/HF/GitHub完成后暂停唯一cvpr-4。Qwen9456已完整交付，不再推理/poll/重复发布。监控F稳定每小时、阶段结束前45分钟改10分钟，平稳安静；已知R失败不再次触发F暂停。
-
-
-最新作用域监控验收（2026-10-31 09:47 HST）：H续段F0 59/F1 57，合原1031为1147/9456已保存；两owner LIVE、各1在途、无issues。20条ordinary均值19.173/19.480秒。新CPU监控/接续入口`gemma_x_fourier_operations.py` SHA4e98a28c7bbc6f52b04719a7223308310c56bf804846ec3e0968b50524d137c6已通过24项CPU边界和实际F作用域验收；保留generic原快照，正确区分520/511祖先claims。唯一cvpr-4已恢复小时执行，下一常规F检查不早于2026-10-31 10:47 HST；接续用operations launch硬核父段/外层/锁与资源后唯一dispatch。
+旧Radon UVA3与prefetch8单独保留；prefetch的第8题LEFT对F四轮RIGHT（GT RIGHT）为真实不一致，原prefetch44GiB部署未通过。此次192用原resident48GiB配置独立验收，不替换旧答案或负结果；选定576之外保留旧11条。当前Fourier合格配置照常用于正式结果。动态队列与进度见[LATEST](/Users/qianyang/Desktop/cvpr2027/LATEST.md)，最终9456/169cell、A-X、四模型对照及交付以合并审计为准。
 <!-- /gemma-x-full-current -->
 
 <!-- qwen-x-remaining-t13-current -->
@@ -21,6 +12,8 @@ Radon真实负结果保留：K=`gemma-x-prefetch-qualification-20261031`第8个p
 完整选择入口`runs/reproducibility/qwen-x-remaining-t13-20261030/classic-analysis-complete-retry1/summary.json`（SHA 5f78f51e0072030b128b65e264ad44392a23cee328b7e27a533990461a816a48）；独立单条审计`one-attempt/summary.json` SHA738c4feea0576488910986e3b33d997712b131e8c4f6ec9541fb8fe40b58192b。完整T13为原6575加这1条，`classic-analysis-complete-retry1/t13/summary.json`绑定两部分；旧11段manifest与原PARTIAL审计不改。A/X共同ID配对：T1 1924→1918但1468答案改变；T2 1872条1528→1610；T3 1584条1419→1420。Cosmos/Nemo/Qwen X共同9456视频对照和逐ID/逐cell/速度/PNG/PDF均已生成，图片实际检查。
 
 网站https://vision-tasks.pages.dev/experiments/已发布deployment0b7d1341，线上四资源SHA及实际A/X、选线UI验收通过。HF `DrQY/vlm-psychophysics-classic-t1-t3/results/qwen-X-20261031-complete` commit10900c9c00df32a00da6ea6310cbd116d0365d62：13文件公开读回SHA/bytes一致；T3 1.3°为93/96。旧partial prefix与manifest保留。回执`classic-analysis-complete-publication.json`和`hf-results-complete-publication.json`；代码classic-precision已推103e2d407821985e931c131bfd8ed2407d7acb09。临时HF上传包已清理，正式原记录和复现代码保留。
+
+配置复现按部署划分：4GiB/65536的三卡资格沿用于T2/T3及同配置自然T2，T1三卡正式均用8GiB/98304。Radon同一T1完整48题的8GiB与4GiB两轮对照现已完成：两轮context均98304，96条完整output/prompt逐值等于原答，每轮27/48；8GiB的47/48请求观测有其他账户实际计算，4GiB时未见其他账户计算。原T1无需重跑，9456正式答案与分母不变；见[独立smoke summary](/Users/qianyang/Desktop/cvpr2027_benchmark/runs/reproducibility/qwen-x-kv-shared-smoke-20261031/summary.json)。
 <!-- /qwen-x-remaining-t13-current -->
 
 <!-- five-task-research-cards-20261030 -->
