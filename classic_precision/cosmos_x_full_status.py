@@ -221,18 +221,39 @@ def status(root, plan_dir, include_resources=True):
             'model_calls': 0, 'mutations': 0}
 
 
+def queue_owner_observation(owner, boot_id, proc_root=Path('/proc')):
+    """Distinguish durable RUNNING text from the lifetime of its actual owner."""
+    if not owner:
+        return {'status': 'NOT_OBSERVED', 'alive': None}
+    if owner.get('boot_id') != boot_id:
+        return {'status': 'PREVIOUS_HOST_BOOT', 'alive': False,
+                'recorded_boot_id': owner.get('boot_id'), 'current_boot_id': boot_id}
+    try:
+        fields = (proc_root / str(int(owner['pid'])) / 'stat').read_text().rsplit(')', 1)[1].split()
+    except FileNotFoundError:
+        return {'status': 'OWNER_PROCESS_EXITED', 'alive': False}
+    except (OSError, ValueError, KeyError, IndexError):
+        return {'status': 'OWNER_IDENTITY_UNREADABLE', 'alive': None}
+    if len(fields) <= 19 or str(owner.get('process_start_ticks')) != fields[19]:
+        return {'status': 'OWNER_PID_IDENTITY_CHANGED', 'alive': False}
+    return {'status': 'LIVE', 'alive': True}
+
+
 def queue_status(root, queue_paths, include_resources=True):
     """Inspect exact sealed queues; never discover or resume other experiments."""
     root = Path(root)
     queues, workers, seen = [], [], set()
+    boot_id = Path('/proc/sys/kernel/random/boot_id').read_text().strip()
     for path in queue_paths:
         queue = read(path)
         if queue.get('status') != 'SEALED' or queue.get('automatic_retry') is not False:
             raise ValueError('Expected an explicitly sealed finite queue')
         state_path = Path(queue['state_path'])
         state = read(state_path) if state_path.exists() else {'status': 'NOT_LAUNCHED'}
+        owner = queue_owner_observation(state.get('owner'), boot_id)
         queues.append({'path': str(path), 'sha256': sha(path),
-                       'state_path': str(state_path), 'state': state})
+                       'state_path': str(state_path), 'state': state,
+                       'owner_observation': owner})
         for ref in queue['profiles']:
             if ref['path'] in seen:
                 raise ValueError('Repeated profile across requested queues')
@@ -243,6 +264,14 @@ def queue_status(root, queue_paths, include_resources=True):
             if profile['hostname'] != socket.gethostname() or Path(profile['workspace_root']) != root:
                 raise ValueError('Queue belongs to another host or workspace')
             worker = inspect_profile(ref['path'])
+            worker['queue_owner_observation'] = owner
+            if not worker['wait'] and owner['alive'] is False:
+                rebooted = owner['status'] == 'PREVIOUS_HOST_BOOT'
+                worker['issues'].append('QUEUE_OWNER_' + owner['status'])
+                worker['status'] = ('INTERRUPTED_BY_HOST_REBOOT' if rebooted
+                                    else 'QUEUE_OWNER_GONE_NEEDS_REVIEW')
+                worker['eta_remaining_seconds'] = None
+                worker['snapshot_note'] = 'Durable progress is not evidence of a live worker; no retry authorized.'
             worker.update({key: profile.get(key) for key in ('card', 'phase', 'resource_group')})
             workers.append(worker)
     if not workers:
@@ -250,7 +279,7 @@ def queue_status(root, queue_paths, include_resources=True):
     return {'schema': 'official-X-queue-live-status-v1', 'host': socket.gethostname(),
             'observed_UTC': datetime.now(timezone.utc).isoformat(),
             'observed_monotonic_seconds': time.monotonic(),
-            'boot_id': Path('/proc/sys/kernel/random/boot_id').read_text().strip(),
+            'boot_id': boot_id,
             'queues': queues, 'workers': workers,
             'resources': resources(root) if include_resources and any(not w['wait'] for w in workers)
                 else {'skipped': 'disabled or all requested profiles terminal'},
