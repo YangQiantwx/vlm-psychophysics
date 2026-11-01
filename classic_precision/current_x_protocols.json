@@ -126,7 +126,50 @@
         "kernel_config": "KernelConfig(ir_op_priority=IrOpPriorityConfig(rms_norm=['vllm_c', 'native'], fused_add_rms_norm=['vllm_c', 'native'], gelu_and_mul_sparse=['triton', 'native']), enable_flashinfer_autotune=True, enable_rocm_segmented_attn_autotune=False, enable_cutedsl_warmup=True, enable_jit_warmup=False, monokernel=False, moe_backend='auto', sparse_indexer_topk_backend='auto', linear_backend='auto', linear_backend_per_quant=None, rdna_hybrid_w4a16_prefill_dequant='disable')",
         "flashinfer_autotune": true,
         "receipt_sha256": "8d8ada3aaadb96a39ace2d787e67b582d4c73d4c071c3e358a58c3712686cb4d"
-      }
+      },
+      "effective_LLM_kwargs": {
+        "allowed_local_media_path": "${DATA_ROOT}",
+        "async_scheduling": false,
+        "cpu_offload_gb": 0,
+        "disable_chunked_mm_input": true,
+        "disable_custom_all_reduce": true,
+        "dtype": "bfloat16",
+        "enable_chunked_prefill": true,
+        "enable_prefix_caching": false,
+        "enforce_eager": true,
+        "gpu_memory_utilization": 0.9,
+        "kv_cache_dtype": "bfloat16",
+        "kv_cache_memory_bytes": 18253611008,
+        "limit_mm_per_prompt": {
+          "audio": 0,
+          "image": 0,
+          "video": 1
+        },
+        "max_model_len": 65536,
+        "max_num_batched_tokens": 36000,
+        "max_num_seqs": 1,
+        "media_io_kwargs": {
+          "video": {
+            "fps": -1,
+            "num_frames": 180,
+            "video_backend": "opencv"
+          }
+        },
+        "mm_processor_cache_gb": 0,
+        "mm_processor_kwargs": {
+          "do_resize": false,
+          "do_sample_frames": false
+        },
+        "model": "${MODEL_DIR}",
+        "quantization": "modelopt_fp4",
+        "seed": 0,
+        "skip_mm_profiling": true,
+        "tensor_parallel_size": 1,
+        "tokenizer": "${TOKENIZER_DIR}",
+        "trust_remote_code": false,
+        "video_pruning_rate": 0.0
+      },
+      "effective_settings_receipt_sha256": "a70d5a8e672f151b97ebf0b6941bf20281c96fc1212948b8696a5eb71a7839d3"
     },
     "nemo": {
       "model": "nemo",
@@ -286,7 +329,109 @@
         "kernel_config": "KernelConfig(ir_op_priority=IrOpPriorityConfig(rms_norm=['vllm_c', 'native'], fused_add_rms_norm=['vllm_c', 'native'], gelu_and_mul_sparse=['triton', 'native']), enable_flashinfer_autotune=False, enable_rocm_segmented_attn_autotune=False, enable_cutedsl_warmup=True, enable_jit_warmup=False, monokernel=False, moe_backend='auto', sparse_indexer_topk_backend='auto', linear_backend='auto', linear_backend_per_quant=None, rdna_hybrid_w4a16_prefill_dequant='disable')",
         "flashinfer_autotune": false,
         "receipt_sha256": "91a9de6f4dc04f3b1d1639f9cb1fb72563f9f41c6fa931485b7e1855f126888a"
-      }
+      },
+      "effective_LLM_kwargs": {
+        "allowed_local_media_path": "${DATA_ROOT}",
+        "disable_custom_all_reduce": true,
+        "dtype": "bfloat16",
+        "enable_chunked_prefill": true,
+        "enable_prefix_caching": false,
+        "enforce_eager": true,
+        "gpu_memory_utilization": 0.78,
+        "hf_overrides": {
+          "vision_config": {
+            "args": {
+              "cls_token_per_teacher": true,
+              "cpe_max_size": 2048,
+              "max_num_patches": 13312,
+              "min_num_patches": 1024,
+              "model": "vit_huge_patch16_224",
+              "register_multiple": 10,
+              "teachers": [
+                {
+                  "name": 0,
+                  "use_summary": true
+                },
+                {
+                  "name": 1,
+                  "use_summary": true
+                },
+                {
+                  "name": 2,
+                  "use_summary": false
+                }
+              ]
+            },
+            "attention_probs_dropout_prob": 0.0,
+            "drop_path_rate": 0.0,
+            "dtype": "bfloat16",
+            "hidden_act": "gelu",
+            "hidden_dropout_prob": 0.0,
+            "hidden_size": 1280,
+            "image_size": 224,
+            "initializer_range": 0.02,
+            "layer_norm_eps": 1e-06,
+            "layerscale_value": 1.0,
+            "max_img_size": 2048,
+            "max_num_patches": 13312,
+            "min_num_patches": 1024,
+            "mlp_ratio": 4.0,
+            "model_type": "radio",
+            "norm_mean": [
+              0.48145466,
+              0.4578275,
+              0.40821073
+            ],
+            "norm_std": [
+              0.26862954,
+              0.26130258,
+              0.27577711
+            ],
+            "num_attention_heads": 16,
+            "num_channels": 3,
+            "num_cls_tokens": 3,
+            "num_hidden_layers": 32,
+            "num_registers": 7,
+            "patch_size": 16,
+            "qkv_bias": true,
+            "summary_idxs": [
+              0,
+              1
+            ],
+            "use_swiglu_ffn": false,
+            "video_maintain_aspect_ratio": true,
+            "video_target_num_patches": 1536,
+            "video_temporal_patch_size": 2
+          }
+        },
+        "kernel_config": {
+          "enable_flashinfer_autotune": false
+        },
+        "kv_cache_dtype": "bfloat16",
+        "kv_cache_memory_bytes": 2147483648,
+        "limit_mm_per_prompt": {
+          "audio": 0,
+          "image": 0,
+          "video": 1
+        },
+        "max_model_len": 65536,
+        "max_num_batched_tokens": 4096,
+        "max_num_seqs": 1,
+        "media_io_kwargs": {
+          "video": {
+            "fps": -1,
+            "num_frames": 180,
+            "video_backend": "opencv"
+          }
+        },
+        "mm_processor_cache_gb": 0,
+        "model": "${MODEL_DIR}",
+        "seed": 0,
+        "tensor_parallel_size": 1,
+        "trust_remote_code": true,
+        "video_pruning_rate": 0.0
+      },
+      "effective_settings_receipt_sha256": "b7175d6aae002bce8040bd6c5e596ea7a8e97fa788f444b9576bfdc88b8c54a8"
     },
     "qwen_T1": {
       "model": "qwen",
@@ -399,7 +544,57 @@
         "kernel_config": "KernelConfig(ir_op_priority=IrOpPriorityConfig(rms_norm=['vllm_c', 'native'], fused_add_rms_norm=['vllm_c', 'native'], gelu_and_mul_sparse=['triton', 'native']), enable_flashinfer_autotune=False, enable_rocm_segmented_attn_autotune=False, enable_cutedsl_warmup=True, enable_jit_warmup=False, monokernel=False, moe_backend='auto', sparse_indexer_topk_backend='auto', linear_backend='auto', linear_backend_per_quant=None, rdna_hybrid_w4a16_prefill_dequant='disable')",
         "flashinfer_autotune": false,
         "receipt_sha256": "72b8117a1fd067c8f37210451d0303889a6983003296266f58fc3a774d7965d1"
-      }
+      },
+      "effective_LLM_kwargs": {
+        "allowed_local_media_path": "${DATA_ROOT}",
+        "compilation_config": {
+          "mode": 0
+        },
+        "cpu_offload_gb": 24,
+        "cpu_offload_params": [
+          "experts"
+        ],
+        "disable_custom_all_reduce": true,
+        "enable_chunked_prefill": true,
+        "enable_prefix_caching": false,
+        "enforce_eager": true,
+        "engram_config": {
+          "cpu_offload": true
+        },
+        "gpu_memory_utilization": 0.78,
+        "kernel_config": {
+          "enable_flashinfer_autotune": false
+        },
+        "kv_cache_dtype": "bfloat16",
+        "kv_cache_memory_bytes": 8589934592,
+        "limit_mm_per_prompt": {
+          "audio": 0,
+          "image": 180,
+          "video": 1
+        },
+        "max_model_len": 98304,
+        "max_num_batched_tokens": 49152,
+        "max_num_seqs": 1,
+        "media_io_kwargs": {
+          "video": {
+            "fps": -1,
+            "num_frames": 180,
+            "video_backend": "opencv"
+          }
+        },
+        "mm_processor_cache_gb": 0,
+        "mm_processor_kwargs": {
+          "do_resize": false,
+          "do_sample_frames": false
+        },
+        "model": "${MODEL_DIR}",
+        "quantization": "modelopt",
+        "seed": 0,
+        "tensor_parallel_size": 1,
+        "trust_remote_code": true,
+        "worker_extension_cls": "classic_precision.official_x_qsa_selector.XQSAWorkerExtension"
+      },
+      "effective_settings_receipt_sha256": "754b1f4c9893cf7afcc02da10148a0b1c34a849a5564d8525c053b78ad7c2292"
     },
     "qwen_T23": {
       "model": "qwen",
@@ -513,7 +708,57 @@
         "kernel_config": "KernelConfig(ir_op_priority=IrOpPriorityConfig(rms_norm=['vllm_c', 'native'], fused_add_rms_norm=['vllm_c', 'native'], gelu_and_mul_sparse=['triton', 'native']), enable_flashinfer_autotune=False, enable_rocm_segmented_attn_autotune=False, enable_cutedsl_warmup=True, enable_jit_warmup=False, monokernel=False, moe_backend='auto', sparse_indexer_topk_backend='auto', linear_backend='auto', linear_backend_per_quant=None, rdna_hybrid_w4a16_prefill_dequant='disable')",
         "flashinfer_autotune": false,
         "receipt_sha256": "bad53ce2ece3945c28c13ac42552d9515f1e1b177a5fb478f71014cd8aca06f5"
-      }
+      },
+      "effective_LLM_kwargs": {
+        "allowed_local_media_path": "${DATA_ROOT}",
+        "compilation_config": {
+          "mode": 0
+        },
+        "cpu_offload_gb": 24,
+        "cpu_offload_params": [
+          "experts"
+        ],
+        "disable_custom_all_reduce": true,
+        "enable_chunked_prefill": true,
+        "enable_prefix_caching": false,
+        "enforce_eager": true,
+        "engram_config": {
+          "cpu_offload": true
+        },
+        "gpu_memory_utilization": 0.78,
+        "kernel_config": {
+          "enable_flashinfer_autotune": false
+        },
+        "kv_cache_dtype": "bfloat16",
+        "kv_cache_memory_bytes": 4294967296,
+        "limit_mm_per_prompt": {
+          "audio": 0,
+          "image": 1,
+          "video": 1
+        },
+        "max_model_len": 65536,
+        "max_num_batched_tokens": 49152,
+        "max_num_seqs": 1,
+        "media_io_kwargs": {
+          "video": {
+            "fps": -1,
+            "num_frames": 180,
+            "video_backend": "opencv"
+          }
+        },
+        "mm_processor_cache_gb": 0,
+        "mm_processor_kwargs": {
+          "do_resize": false,
+          "do_sample_frames": false
+        },
+        "model": "${MODEL_DIR}",
+        "quantization": "modelopt",
+        "seed": 0,
+        "tensor_parallel_size": 1,
+        "trust_remote_code": true,
+        "worker_extension_cls": "classic_precision.official_x_qsa_selector.XQSAWorkerExtension"
+      },
+      "effective_settings_receipt_sha256": "8348a8fd139570eabc746e1ea85eb457e7db0b3cae407eb86d301064fe3708d1"
     },
     "gemma": {
       "model": "gemma",
@@ -664,7 +909,51 @@
         "kernel_config": "KernelConfig(ir_op_priority=IrOpPriorityConfig(rms_norm=['vllm_c', 'native'], fused_add_rms_norm=['vllm_c', 'native'], gelu_and_mul_sparse=['triton', 'native']), enable_flashinfer_autotune=True, enable_rocm_segmented_attn_autotune=False, enable_cutedsl_warmup=True, enable_jit_warmup=False, monokernel=False, moe_backend='auto', sparse_indexer_topk_backend='auto', linear_backend='auto', linear_backend_per_quant=None, rdna_hybrid_w4a16_prefill_dequant='disable')",
         "flashinfer_autotune": true,
         "receipt_sha256": "ada33361c7d7e5bb5b8a2f98a7f448d82d9cea048733b5fe94d84345b16c3571"
-      }
+      },
+      "effective_LLM_kwargs": {
+        "allowed_local_media_path": "${DATA_ROOT}",
+        "async_scheduling": false,
+        "cpu_offload_gb": 0,
+        "disable_custom_all_reduce": true,
+        "dtype": "bfloat16",
+        "enable_chunked_prefill": true,
+        "enable_prefix_caching": false,
+        "enforce_eager": true,
+        "gpu_memory_utilization": 0.9,
+        "kv_cache_dtype": "bfloat16",
+        "kv_cache_memory_bytes": 51539607552,
+        "limit_mm_per_prompt": {
+          "audio": 0,
+          "image": 1,
+          "video": {
+            "count": 1,
+            "num_frames": 180
+          }
+        },
+        "max_model_len": 65536,
+        "max_num_batched_tokens": 49152,
+        "max_num_seqs": 1,
+        "media_io_kwargs": {
+          "video": {
+            "fps": -1,
+            "num_frames": 180,
+            "video_backend": "opencv"
+          }
+        },
+        "mm_processor_cache_gb": 0,
+        "mm_processor_kwargs": {
+          "do_resize": false,
+          "do_sample_frames": false,
+          "max_soft_tokens": 140
+        },
+        "model": "${MODEL_DIR}",
+        "quantization": "modelopt",
+        "seed": 0,
+        "skip_mm_profiling": true,
+        "tensor_parallel_size": 1,
+        "tokenizer": "${TOKENIZER_DIR}"
+      },
+      "effective_settings_receipt_sha256": "1765c505334381ce9242f4464eed81d37743a27cf2e7d3d6762d13056a644ac6"
     }
   },
   "diagnostic_operations": {

@@ -51,3 +51,18 @@ def test_unknown_task_rejected_and_legacy_export_retained():
     with pytest.raises(ValueError):
         configuration('qwen', 'current-x', task='T4')
     assert configuration('qwen', 'native-original')['status'] == 'CONFIG_ONLY_NOT_A_RUN'
+def test_effective_reader_settings_are_exported():
+    from pathlib import Path
+    from classic_precision.reproduce import current_configuration
+    for model in ('cosmos', 'qwen', 'nemo', 'gemma'):
+        config = current_configuration(model, 'T1', '/tmp/model', data_root='/tmp/source')
+        recipe = config['recipe']
+        actual = recipe['effective_LLM_kwargs']
+        assert actual['media_io_kwargs']['video'] == {
+            'fps': -1, 'num_frames': 180, 'video_backend': 'opencv'}
+        assert actual['allowed_local_media_path'] == str(Path('/tmp/source').resolve())
+        assert actual['model'] == str(Path('/tmp/model').resolve())
+        if 'tokenizer' in recipe['engine_kwargs']:
+            assert actual['tokenizer'] == str(Path('/tmp/model').resolve())
+        assert all(actual[key] == value for key, value in recipe['engine_kwargs'].items())
+

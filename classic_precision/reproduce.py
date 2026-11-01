@@ -15,10 +15,12 @@ def current_configuration(model, task, model_dir=None, tokenizer_dir=None, data_
     except KeyError as error:
         raise ValueError('Current X requires a supported model and T1, T2 or T3') from error
     recipe = copy.deepcopy(manifest['variants'][variant])
-    bindings = {'${MODEL_DIR}': model_dir, '${TOKENIZER_DIR}': tokenizer_dir or model_dir}
-    for key, value in list(recipe['engine_kwargs'].items()):
-        if isinstance(value, str) and value in bindings and bindings[value] is not None:
-            recipe['engine_kwargs'][key] = str(Path(bindings[value]).resolve())
+    bindings = {'${MODEL_DIR}': model_dir, '${TOKENIZER_DIR}': tokenizer_dir or model_dir,
+                '${DATA_ROOT}': data_root}
+    for settings in ('engine_kwargs', 'effective_LLM_kwargs'):
+        for key, value in list(recipe[settings].items()):
+            if isinstance(value, str) and value in bindings and bindings[value] is not None:
+                recipe[settings][key] = str(Path(bindings[value]).resolve())
     return {'schema': manifest['schema'], 'status': 'CONFIG_ONLY_NOT_A_RUN',
             'protocol': 'current-x', 'variant': variant, 'task': task,
             'recipe': recipe, 'data_root': str(Path(data_root).resolve()) if data_root else None,
