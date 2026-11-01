@@ -88,7 +88,8 @@ def queue_spec(path, resolve=verified):
             and q['operator']['sha256'] == file_sha256(__file__), 'Not a finite natural queue or operator changed')
     profiles = [resolve(ref) for ref in q['profiles']]
     require(all(p['natural_x']['source_approval'] == q['source_approval']
-                and p['natural_x']['model'] == q['model'] for p in profiles), 'Queue/approval/model differs')
+                and p['natural_x']['model'] == q['model'] and p['natural_x']['fence'] == q['fence']
+                for p in profiles), 'Queue/approval/model/fence differs')
     require(len({p['card'] for p in profiles}) == 1, 'One finite queue per physical card')
     ids = [sid for p in profiles for sid in p['assigned_ids']]
     require(len(ids) == len(set(ids))
@@ -207,6 +208,7 @@ def continuation(arc, profile, seen=None):
             and parent['natural_x']['source_approval'] == profile['natural_x']['source_approval']
             and parent['natural_x']['allocation'] == profile['natural_x']['allocation']
             and parent['natural_x']['shard'] == profile['natural_x']['shard']
+            and parent['natural_x']['fence'] == profile['natural_x']['fence']
             and runner.settings(parent) == runner.settings(profile)
             and profile['control_generation'] == parent['control_generation'] + 1
             and profile['claim_root'] != parent['claim_root'] and profile['output'] != parent['output'],

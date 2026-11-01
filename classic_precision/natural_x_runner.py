@@ -142,6 +142,7 @@ def science(profile, resolve=verified):
         require(Path(os.path.abspath(profile[key])).is_relative_to(root / 'runs/reproducibility' / namespace), 'Foreign natural run path')
     for key in ('control_file', 'pause_file'):
         require(Path(os.path.abspath(profile[key])).is_relative_to(root / 'plans' / namespace), 'Foreign control/pause path')
+    require(Path(os.path.abspath(spec['fence'])).is_relative_to(root / 'plans' / namespace), 'Foreign run fence')
     ids = profile['assigned_ids']
     require(ids and len(ids) == len(set(ids)) == profile['maximum_model_calls']
             and set(ids) <= set(catalog['items']), 'Foreign/duplicate natural allocation')
@@ -214,7 +215,8 @@ def draft(template_ref, approval_ref, catalog_ref, allocation_ref, shard, worker
         pause_file=str(pause), control_generation=0, automatic_retry=False, formal_auto_resume=False,
         natural_x={'model': model, 'source_approval': approval_ref, 'qualified_template': template_ref,
             'allocation': allocation_ref, 'shard': shard, 'runner': descriptor(__file__),
-            'run_namespace': approval['run_namespace']})
+            'run_namespace': approval['run_namespace'],
+            'fence': str(Path(p['workspace_root']) / 'plans' / approval['run_namespace'] / 'fence.json')})
     runtime = approval.get('runtime_references', {}).get(template_ref['sha256'])
     if runtime: p['natural_x']['qualified_runtime'] = runtime
     if prompt_catalog is not None: p['reference_prompt_catalog'] = prompt_catalog
@@ -224,6 +226,10 @@ def draft(template_ref, approval_ref, catalog_ref, allocation_ref, shard, worker
 
 class Boundary(RequestBoundary):
     def check(self):
+        fence = read(self.profile['natural_x']['fence'])
+        if fence['paused'] or fence['generation'] != self.profile['control_generation']:
+            self.requested = True
+            return True
         control = read(self.profile['control_file'])
         if control['paused'] or control['generation'] != self.profile['control_generation']:
             self.requested = True

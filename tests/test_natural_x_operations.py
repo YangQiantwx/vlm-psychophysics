@@ -362,3 +362,12 @@ def test_template_without_card_needs_an_explicit_operation_label(study):
     p=runner.draft(*args,card='fourier0')
     assert p['card']=='fourier0' and p['hostname']==template['hostname']
     assert p['gpu_uuid']==template['gpu_uuid'] and p['physical_lock']==template['physical_lock']
+
+
+def test_global_fence_stops_worker_even_before_per_profile_control_update(study):
+    s=study;put(s.p['control_file'],{'generation':0,'paused':False})
+    assert runner.Boundary(s.p).check() is False
+    put(s.q['fence'],{'generation':1,'paused':True})
+    # Simulate a delayed/interrupted control write. No further claim is issued.
+    assert op.read(s.p['control_file'])=={'generation':0,'paused':False}
+    assert runner.Boundary(s.p).check() is True
