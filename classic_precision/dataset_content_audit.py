@@ -184,6 +184,10 @@ def match_alpha(base, event, bg, candidates):
 
 def parse_name(path, domain, task):
     name = Path(path).name
+    # Source-pixel revisions retain the readable condition and carry a short
+    # revision suffix; catalog SHA and parent lineage remain authoritative.
+    if domain == 'natural':
+        name = re.sub(r'_rev[0-9a-f]{8}(?=\.mp4$)', '', name)
     number = r'(\d+(?:\.\d+)?)'
     if task == 'T1':
         p = r'T1_(left|right)_' + (r'bg-(na_\d{3}|gpt_\d{3})_' if domain == 'natural' else '')
