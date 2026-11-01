@@ -77,10 +77,12 @@ def filename(entry):
     return f"T3_vertical{reference.title()}_{tilt}_{number(angle)}deg_{label}.mkv"
 
 
-def relabel_index(index, layout="tasks"):
+def relabel_index(index, layout="tasks", identity_registry=None):
     validate_index(index)
     if layout not in ("tasks", "flat"):
         raise ValueError("Layout must be tasks or flat")
+    if identity_registry is not None and layout != "tasks":
+        raise ValueError("The versioned identity registry fixes the canonical task-folder layout")
     result, mapping, paths = deepcopy(index), [], set()
     for sid, original in index["items"].items():
         path = (original["task"] if layout == "tasks" else "videos") + "/" + filename(original)
@@ -95,6 +97,11 @@ def relabel_index(index, layout="tasks"):
     result["layout_policy"] = "task-folders-v1" if layout == "tasks" else "flat-v1"
     result["index_id"] = digest({k: v for k, v in result.items() if k != "index_id"})
     validate_index(result)
+    if identity_registry is not None:
+        result = identity_registry.project_index(result)
+        for row in mapping:
+            row["legacy_sample_id"] = row["sample_id"]
+            row["sample_id"] = identity_registry.canonical_id(row["sample_id"], domain="classic")
     return result, sorted(mapping, key=lambda r: r["sample_id"])
 
 
@@ -104,8 +111,12 @@ def main():
     p.add_argument("--output", type=Path, required=True)
     p.add_argument("--mapping", type=Path, required=True)
     p.add_argument("--layout", choices=("tasks", "flat"), default="tasks")
+    p.add_argument("--identity-registry", type=Path,
+                   help="Opt-in versioned alias CSV; frozen generator IDs remain unchanged")
     args = p.parse_args()
-    result, mapping = relabel_index(load_index(args.index), args.layout)
+    from .dataset_identity import IdentityRegistry
+    registry = IdentityRegistry.from_csv(args.identity_registry) if args.identity_registry else None
+    result, mapping = relabel_index(load_index(args.index), args.layout, registry)
     atomic_json(args.output, result)
     with args.mapping.open("w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=list(mapping[0]))

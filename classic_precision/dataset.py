@@ -65,6 +65,11 @@ def validate_index(index):
                  and math.isfinite(entry["fps"]) and entry["fps"] > 0, "Invalid frame rate")
         counts[entry["task"]] = counts.get(entry["task"], 0) + 1
     _require(index.get("counts") == counts, "Dataset task denominators differ")
+    if "identity_schema" in index:
+        from .dataset_identity import IdentityRegistry, REGISTRY_SCHEMA
+        _require(index["identity_schema"] == REGISTRY_SCHEMA and bool(index.get("dataset_revision")),
+                 "Unsupported versioned source identity registry")
+        IdentityRegistry.from_index(index)
     return index
 
 
@@ -115,6 +120,16 @@ def index_from_catalog(catalog):
 
 def load_index(path):
     return validate_index(json.loads(Path(path).read_text()))
+
+
+def resolve_entry(index, sample_id):
+    """Accept canonical/legacy IDs or full paths without changing frozen entries."""
+    validate_index(index)
+    if sample_id in index["items"]:
+        return index["items"][sample_id]
+    from .dataset_identity import IdentityRegistry
+    binding = IdentityRegistry.from_index(index).resolve(sample_id, domain="classic")
+    return index["items"].get(binding.canonical_id, index["items"].get(binding.legacy_sample_id))
 
 
 def decode_video(path, entry):
@@ -176,9 +191,10 @@ def decode_video(path, entry):
 
 
 def read_sample(index, sample_id, root):
-    validate_index(index)
-    entry = index["items"][sample_id]
-    return decode_video(Path(root) / entry["video_relative"], entry)
+    entry = resolve_entry(index, sample_id)
+    from .dataset_identity import IdentityRegistry
+    path = IdentityRegistry.from_index(index).resolve_path(sample_id, root, domain="classic", verify_sha=True)
+    return decode_video(path, entry)
 
 
 def rgb16_to_fp32(codes):
@@ -197,7 +213,7 @@ def fetch_sample(repo_id, revision, sample_id, cache_dir=None, *, local_files_on
                   cache_dir=cache_dir, token=False, local_files_only=local_files_only)
     index_path = hf_hub_download(filename="dataset-index.json", **common)
     index = load_index(index_path)
-    entry = index["items"][sample_id]
+    entry = resolve_entry(index, sample_id)
     video = hf_hub_download(filename=entry["video_relative"], **common)
     return decode_video(video, entry)
 

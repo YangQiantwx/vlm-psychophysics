@@ -118,9 +118,22 @@ def checked_catalog(data_root, catalog_path, expected_sha):
 
 
 def selected_entries(selected, ids):
-    chosen = ids or sorted(selected)
-    require(len(chosen) == len(set(chosen)), "Duplicate requested ID")
-    require(set(chosen) <= set(selected), "Requested ID is outside the selected source release")
+    # Keep this file standalone in the source release. Resolve external naming
+    # aliases to frozen source keys before selection; seeds/order/raw keys and
+    # the pinned items/scope digests remain those of the qualified recipe.
+    aliases = {}
+    for sid, item in selected.items():
+        values = {sid, item.get('legacy_sample_id', sid), item.get('video_relative'), item.get('legacy_path')}
+        if item['task'] == 'T1' and sid.startswith('t1rgb16_'):
+            values.add('t1_' + digest({'schema': 'sample-identity-v1', 'domain': 'classic',
+                'task': 'T1', 'video_sha256': item['video_sha256']})[:20])
+        for value in values - {None}:
+            require(value not in aliases or aliases[value] == sid, 'Ambiguous source ID/path alias')
+            aliases[value] = sid
+    require(ids is None or all(value in aliases for value in ids),
+            "Requested ID is outside the selected source release")
+    chosen = [aliases[value] for value in ids] if ids else sorted(selected)
+    require(len(chosen) == len(set(chosen)), "Duplicate requested source ID or alias")
     return [(sid, selected[sid]) for sid in chosen]
 
 
