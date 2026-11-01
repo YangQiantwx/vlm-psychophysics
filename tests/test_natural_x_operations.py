@@ -226,12 +226,39 @@ def test_real_finite_constructors_keep_CPU_parent_and_sealed_worker(study,monkey
     monkeypatch.setattr(op,'Path',lambda *parts:SimpleNamespace(read_text=lambda:
         ('222 (worker) '+' '.join(['S']+['0']*18+['20'])) if str(parts[0])=='/proc' else owner()['boot_id'])
         if parts and (str(parts[0])=='/proc' or str(parts[0])=='/proc/sys/kernel/random/boot_id') else actual(*parts))
-    op.launch(s.qp);op.queue_supervisor(s.qp);op.execute(s.qp)
+    op.launch(s.qp)
+    monkeypatch.setattr(sys,'executable',s.p['python'])
+    op.queue_supervisor(s.qp);op.execute(s.qp)
     assert len(calls)==3
-    assert calls[0][0][:4]==[s.q['cpu_python'],'-B','-m',op.MODULE]
-    assert calls[1][0][:4]==[s.q['cpu_python'],'-B','-m',op.MODULE]
+    assert calls[0][0]==[s.p['python'],'-B','-m',op.MODULE,'queue-supervisor','--queue',str(s.qp)]
+    assert calls[1][0]==[s.p['python'],'-B','-m',op.MODULE,'queue','--queue',str(s.qp)]
     assert calls[2][0][:4]==[s.p['python'],'-B','-m',op.WORKER]
+    assert calls[0][1]['cwd']==s.root/'code/vlm-psychophysics'
+    assert all(calls[i][1]['env']['PYTHONPATH']==s.p['environment']['PYTHONPATH'] for i in (0,2))
     assert op.read(s.q['state_path'])['status']=='COMPLETE'
+
+
+@pytest.mark.parametrize('entry',['launch','queue-supervisor','queue'])
+def test_CPU_parent_and_GPU_execution_roles_refuse_wrong_interpreter(study,monkeypatch,entry):
+    s=study;calls=[]
+    monkeypatch.setattr(op.subprocess,'Popen',lambda *args,**kwargs:calls.append(args))
+    if entry=='launch':
+        monkeypatch.setattr(sys,'executable',s.p['python'])
+        invoke=lambda:op.launch(s.qp);message='host existing CPU qy'
+    elif entry=='queue-supervisor':
+        invoke=lambda:op.queue_supervisor(s.qp);message='sealed GPU interpreter'
+    else:
+        invoke=lambda:op.execute(s.qp);message='sealed GPU interpreter'
+    with pytest.raises(ValueError,match=message):invoke()
+    assert calls==[] and not any(p.exists() for p in op.paths(s.qp,s.q).values())
+    assert not Path(s.q['state_path']).exists()
+
+
+def test_finite_queue_refuses_mixed_sealed_GPU_interpreters(study):
+    s=study;p=copy.deepcopy(s.p);p['python']='/other/gpu/bin/python'
+    other=put(s.plans/'other-gpu-profile.json',p)
+    put(s.qp,{**s.q,'profiles':[s.pref,other]})
+    with pytest.raises(ValueError,match='One sealed GPU interpreter'):op.queue_spec(s.qp)
 
 
 def test_seal_resume_unpause_and_no_branch_preserve_old_state(study,monkeypatch):

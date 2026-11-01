@@ -91,6 +91,7 @@ def queue_spec(path, resolve=verified):
                 and p['natural_x']['model'] == q['model'] and p['natural_x']['fence'] == q['fence']
                 for p in profiles), 'Queue/approval/model/fence differs')
     require(len({p['card'] for p in profiles}) == 1, 'One finite queue per physical card')
+    require(len({p['python'] for p in profiles}) == 1, 'One sealed GPU interpreter per finite queue')
     ids = [sid for p in profiles for sid in p['assigned_ids']]
     require(len(ids) == len(set(ids))
             and all(len({p[key] for p in profiles}) == len(profiles) for key in ('output','claim_root','control_file','pause_file')),
@@ -474,7 +475,8 @@ def reserve_allocation(profile_ref, profile):
 
 
 def execute(queue_path):
-    q, _ = queue_spec(queue_path)
+    q, profiles = queue_spec(queue_path)
+    require(Path(sys.executable).resolve() == Path(profiles[0]['python']).resolve(), 'Queue must use the sealed GPU interpreter')
     with locked(q['controller_lock'], nonblocking=True): return _execute_owned(queue_path)
 
 
@@ -527,7 +529,7 @@ def launch(queue_path):
         for key in profiles[0]['cleared_environment']: env.pop(key, None)
         env.update(profiles[0]['environment'])
         with ps['launch'].with_suffix('.log').open('xb') as log:
-            child = subprocess.Popen([q['cpu_python'], '-B', '-m', MODULE, 'queue-supervisor', '--queue', str(queue_path)],
+            child = subprocess.Popen([profiles[0]['python'], '-B', '-m', MODULE, 'queue-supervisor', '--queue', str(queue_path)],
                 env=env, cwd=code, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
         ticks = Path('/proc', str(child.pid), 'stat').read_text().rsplit(')', 1)[1].split()[19]
         write_new(ps['launch'], {'queue': descriptor(queue_path), 'pid': child.pid,
@@ -536,11 +538,11 @@ def launch(queue_path):
 
 
 def queue_supervisor(queue_path):
-    q, _ = queue_spec(queue_path); ps = paths(queue_path, q)
-    require(Path(sys.executable).resolve() == Path(q['cpu_python']).resolve(), 'Outer supervisor must use host CPU qy')
+    q, profiles = queue_spec(queue_path); ps = paths(queue_path, q)
+    require(Path(sys.executable).resolve() == Path(profiles[0]['python']).resolve(), 'Outer supervisor must use the sealed GPU interpreter')
     require(read(ps['launch-intent'])['queue'] == descriptor(queue_path), 'Intent changed')
     write_new(ps['owner'], owner_identity())
-    child = subprocess.Popen([q['cpu_python'], '-B', '-m', MODULE, 'queue', '--queue', str(queue_path)])
+    child = subprocess.Popen([profiles[0]['python'], '-B', '-m', MODULE, 'queue', '--queue', str(queue_path)])
     rc = child.wait(); write_new(ps['wait'], {'returncode': rc, 'real_wait_observed': True,
         'owner': owner_identity(), 'child_pid': child.pid, 'queue': descriptor(queue_path)})
     return rc
