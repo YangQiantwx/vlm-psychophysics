@@ -21,7 +21,7 @@ classic-precision-reproduce = "classic_precision.reproduce:main"
 packages = ["classic_precision", "runtime_compat"]
 
 [tool.setuptools.package-data]
-classic_precision = ["protocol.json", "reproduction.json", "cosmos_x.json"]
+classic_precision = ["protocol.json", "reproduction.json", "cosmos_x.json", "current_x_protocols.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests/classic_precision"]

@@ -31,4 +31,22 @@ Readable filenames contain labels. Models and participants receive only the vide
 
 [`dataset_release.py`](classic_precision/dataset_release.py) builds a source-only staging tree without uploading. Publishing requires complete SHA-bound, decoded-content validation for every video. Source QA, encoded pixels and actual model preprocessing are separate measurements.
 
-The existing model runners preserve their frozen configuration and original scientific IDs. Current primary model recipes use official mixed NVFP4 checkpoints; historical BF16 and other protocols remain separate. [`reproduce`](classic_precision/reproduce.py) inspects pinned configurations without starting inference; [`cosmos_x`](classic_precision/cosmos_x.py) provides the existing portable Cosmos entry. A source download does not start a model or change a running experiment.
+Current official **X** recipes for all four models are in [`current_x_protocols.json`](classic_precision/current_x_protocols.json), with exact source hashes, model/tokenizer revisions, actual runtime receipts, input adapters and generation arguments. They use vLLM 0.33 and official mixed NVFP4 checkpoints.
+
+| Model | FlashInfer autotune | KV cache | Context |
+|---|---|---|---|
+| Cosmos | ON | 17 GiB | 65,536 |
+| Qwen T1 | OFF | 8 GiB | 98,304 |
+| Qwen T2/T3 | OFF | 4 GiB | 65,536 |
+| Nemotron | OFF | 2 GiB | 65,536 |
+| Gemma | ON | 48 GiB | 65,536 |
+
+Inspect a recipe without loading a model:
+
+```bash
+python -B -m classic_precision.reproduce show --model gemma --protocol current-x --task T1
+```
+
+All use the native 180-frame path. Gemma requires its pinned input adapter: its video budget is 280 soft tokens, yielding 176 effective tokens per frame with 16 bottom padding rows; the profile's image budget of 140 is a separate setting. Qwen requires its pinned QSA worker extension. The export preserves these distinctions and does not start inference. Execute through a finite sealed queue with the source catalog, exact task prompt, native input checks and physical GPU lease.
+
+The older `native-default`, `native-original` and `controlled-rgb16` exports remain historical protocols in `reproduction.json`; their framework/support notes do not describe current X. Running profiles and original scientific IDs remain frozen. A source download does not change a running experiment.
