@@ -1,33 +1,297 @@
-const $=id=>document.getElementById(id);
-const config=await fetch(new URL('./config.json',import.meta.url)).then(r=>r.json());
-const storageKey='cvpr-label-test-v1';
-let token=localStorage.getItem(storageKey),batch=null,current=0,lastTask=null,playing=false,ready=false,answeredAt=0,evidence=null;
-const media=new Map(),references=new Map();let referenceURL=null;
-let callbackId=null;
-function status(message='',error=false){if(message==='Identity changed')return;$('status').textContent=message;$('status').classList.toggle('error',error)}
-function show(id){for(const x of ['identity','choose','trial','done'])$(x).hidden=x!==id;$('change-identity').hidden=!token}
-async function api(path,body,raw=false){const identityToken=token;const r=await fetch(config.api+path,{method:body===undefined?'GET':'POST',signal:AbortSignal.timeout(raw?300000:30000),headers:{...(token?{Authorization:'Bearer '+token}:{}),...(body===undefined?{}:{'Content-Type':'application/json'})},body:body===undefined?undefined:JSON.stringify(body)});if(!r.ok){const x=await r.json().catch(()=>({}));const e=Error(x.error||'Connection interrupted. Try again.');e.status=r.status;throw e}const value=raw?r:await r.json();if(identityToken!==token)throw Error('Identity changed');return value}
-function outboxKey(){return 'cvpr-label-outbox:'+token}
-async function flush(){const pending=localStorage.getItem(outboxKey()+':playback');if(pending){await api('/api/playback',JSON.parse(pending));localStorage.removeItem(outboxKey()+':playback')}const value=localStorage.getItem(outboxKey());if(value){await api('/api/answer',JSON.parse(value));localStorage.removeItem(outboxKey())}}
-function clearMedia(){for(const entry of references.values()){entry.cancelled=true;if(entry.url)URL.revokeObjectURL(entry.url)};references.clear();referenceURL=null;$('reference').hidden=true;for(const x of media.values()){x.cancelled=true;if(x.url)URL.revokeObjectURL(x.url)};media.clear();$('video').removeAttribute('src');$('video').load()}
-function size(){const r=$('video').getBoundingClientRect();$('display-size').textContent=`768 × 512 source · CSS ${Math.round(r.width)} × ${Math.round(r.height)} · ${Math.round(r.width/768*100)}% · DPR ${devicePixelRatio}`;return {native:[768,512],css:[r.width,r.height],dpr:devicePixelRatio,css_rect:[r.left,r.top,r.width,r.height],viewport:[innerWidth,innerHeight],screen:[screen.width,screen.height],user_agent:navigator.userAgent,reference_css:$('reference').hidden?null:[$('reference-image').getBoundingClientRect().width,$('reference-image').getBoundingClientRect().height]}}
-new ResizeObserver(()=>{size();if(playing)evidence.events.push({event:'resize',at:performance.now()})}).observe($('stage'));
-async function loadMedia(index){if(media.has(index))return media.get(index).promise;const entry={};entry.promise=(async()=>{const trial=batch.trials[index];const r=await api(trial.media,undefined,true),blob=await r.blob();const hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',await blob.arrayBuffer())),x=>x.toString(16).padStart(2,'0')).join('');if(hash!==trial.sha256)throw Error('Video integrity check failed');if(entry.cancelled)throw Error('Identity changed');entry.url=URL.createObjectURL(blob);return entry.url})().catch(e=>{if(media.get(index)===entry)media.delete(index);throw e});media.set(index,entry);return entry.promise}
-async function loadReference(ref){if(references.has(ref.sha256))return references.get(ref.sha256).promise;const entry={};entry.promise=(async()=>{const r=await api(ref.media,undefined,true),blob=await r.blob(),hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',await blob.arrayBuffer())),x=>x.toString(16).padStart(2,'0')).join('');if(hash!==ref.sha256)throw Error('Reference integrity check failed');if(entry.cancelled)throw Error('Identity changed');entry.url=URL.createObjectURL(blob);return entry.url})().catch(e=>{if(references.get(ref.sha256)===entry)references.delete(ref.sha256);throw e});references.set(ref.sha256,entry);return entry.promise}
-async function showReference(ref){$('reference').hidden=!ref;if(!ref)return;referenceURL=await loadReference(ref);$('reference-image').src=referenceURL;await $('reference-image').decode();if($('reference-image').naturalWidth!==160||$('reference-image').naturalHeight!==160)throw Error('Reference dimensions differ from 160 × 160');$('reference').hidden=false}
-function prefetch(){for(let i=current;i<Math.min(batch.total,current+3);i++){if(!batch.trials[i].started&&!batch.trials[i].answered){loadMedia(i).catch(()=>{});if(batch.trials[i].reference)loadReference(batch.trials[i].reference).catch(()=>{});}}for(const [i,entry]of media){if(i<current){if(entry.url)URL.revokeObjectURL(entry.url);media.delete(i)}}}
-async function displayTrial(){status();show('trial');playing=false;ready=false;$('play').hidden=false;$('play').disabled=true;$('play').textContent='Play once';$('answers').hidden=true;$('skip').hidden=true;$('screen').classList.remove('hidden');$('screen-label').textContent='Loading video…';$('video').pause();$('video').removeAttribute('src');$('video').load();$('task-title').textContent=batch.task;$('progress').textContent=`${current+1} / ${batch.total}`;$('progress-fill').style.width=`${current/batch.total*100}%`;$('prompt').textContent=batch.prompt;size();const trial=batch.trials[current];try{await showReference(trial.reference||batch.reference)}catch(e){status(e.message,true);$('screen-label').textContent='Reference unavailable';return}if(config.disabled_tasks?.includes(batch.task)){$('play').hidden=true;$('screen-label').textContent='Source update in progress';status('This batch is paused. Saved responses are retained.');return}if(trial.started){$('play').hidden=true;$('screen-label').textContent=trial.played?'Playback complete':'Playback interrupted';if(trial.played){answeredAt=performance.now();$('answers').hidden=false}else{$('skip').hidden=false}prefetch();return}prefetch();try{const url=await loadMedia(current);$('video').src=url;await new Promise((resolve,reject)=>{$('video').oncanplaythrough=resolve;$('video').onerror=()=>reject(Error('This browser cannot play the video'));$('video').load()});ready=true;$('play').disabled=false;$('screen-label').textContent='Ready'}catch(e){status(e.message,true);$('screen-label').textContent='Video unavailable';$('play').textContent='Retry loading';$('play').disabled=false}}
-function buildChoices(){const answers=$('answers');answers.replaceChildren();for(const choice of batch.choices){const b=document.createElement('button');b.textContent=choice;b.onclick=()=>saveAnswer(choice);answers.append(b)}}
-async function useBatch(value){batch=value;lastTask=batch.task;clearMedia();buildChoices();current=batch.trials.findIndex(x=>!x.answered);if(current<0){await finish();return}await displayTrial()}
-async function state(){await flush();const data=await api('/api/state');if(data.batch){await useBatch(data.batch);return}clearMedia();show('choose');$('tasks').replaceChildren();for(const task of data.tasks){const b=document.createElement('button');b.textContent=`${task.id} · ${task.title}${task.disabled||config.disabled_tasks?.includes(task.id)?' · Source update':''}`;b.disabled=task.remaining===0||task.disabled||config.disabled_tasks?.includes(task.id);b.onclick=()=>claim(task.id);$('tasks').append(b)}status()}
-async function claim(task){if(config.disabled_tasks?.includes(task)){status(config.disabled_reason||'Source update in progress');return}try{status('Loading batch…');const result=await api('/api/claim',{task});if(result.batch)await useBatch(result.batch);else{status('All available videos in this task are complete.');await state()}}catch(e){status(e.message,true)}}
-async function finish(){await flush();await api('/api/complete',{batch_id:batch.id});show('done');$('progress-fill').style.width='100%';$('done-message').textContent=`${batch.total} response${batch.total===1?'':'s'} saved · Preview records`;status();clearMedia()}
-async function saveAnswer(answer,reason){for(const b of $('answers').children)b.disabled=true;$('skip').disabled=true;const payload={batch_id:batch.id,index:current,answer,reason,client_at:new Date().toISOString(),reaction_ms:Math.round(performance.now()-answeredAt)};localStorage.setItem(outboxKey(),JSON.stringify(payload));try{await flush();batch.trials[current].answered=true;current++;if(current===batch.total)await finish();else await displayTrial()}catch(e){status(e.message+' Your response remains on this device; refresh to retry.',true)}finally{for(const b of $('answers').children)b.disabled=false;$('skip').disabled=false}}
-$('identity-form').onsubmit=async e=>{e.preventDefault();try{$('identity-form').querySelector('button').disabled=true;const data=await api('/api/session',{email:$('email').value,mode:config.mode});token=data.token;localStorage.setItem(storageKey,token);await state()}catch(e){status(e.message,true)}finally{$('identity-form').querySelector('button').disabled=false}};
-$('play').onclick=async()=>{if(!ready&&!playing){await displayTrial();return}if(!ready||playing||batch.trials[current].started)return;$('play').disabled=true;try{await api('/api/start',{batch_id:batch.id,index:current,client_at:new Date().toISOString(),display:size()});batch.trials[current].started=true;playing=true;const v=$('video');v.defaultPlaybackRate=1;v.playbackRate=1;evidence={ended:false,rate:1,started_perf:performance.now(),frame_callbacks:0,first_media_time:null,last_media_time:null,events:[],visibility_at_start:document.visibilityState,focused_at_start:document.hasFocus(),started_client:new Date().toISOString()};function frame(_,metadata){evidence.frame_callbacks++;if(evidence.first_media_time===null)evidence.first_media_time=metadata.mediaTime;evidence.last_media_time=metadata.mediaTime;if(playing)callbackId=v.requestVideoFrameCallback(frame)}if(v.requestVideoFrameCallback)callbackId=v.requestVideoFrameCallback(frame);$('screen').classList.add('hidden');$('play').hidden=true;await v.play()}catch(e){playing=false;status(e.message,true);await state()}};
-$('video').onended=async()=>{playing=false;const v=$('video');if(callbackId&&v.cancelVideoFrameCallback)v.cancelVideoFrameCallback(callbackId);evidence.ended=true;evidence.client_elapsed_ms=performance.now()-evidence.started_perf;delete evidence.started_perf;evidence.played_ranges=Array.from({length:v.played.length},(_,i)=>[v.played.start(i),v.played.end(i)]);evidence.rate=v.playbackRate;evidence.media_time=v.currentTime;evidence.duration=v.duration;evidence.quality=v.getVideoPlaybackQuality?{total:v.getVideoPlaybackQuality().totalVideoFrames,dropped:v.getVideoPlaybackQuality().droppedVideoFrames}:null;evidence.ended_client=new Date().toISOString();evidence.display_at_end=size();$('screen').classList.remove('hidden');$('screen-label').textContent='Saving playback…';v.removeAttribute('src');v.load();try{localStorage.setItem(outboxKey()+':playback',JSON.stringify({batch_id:batch.id,index:current,evidence}));await flush();batch.trials[current].played=true;answeredAt=performance.now();$('screen-label').textContent='Choose your response';$('answers').hidden=false}catch(e){status(e.message,true);$('screen-label').textContent='Playback interrupted';$('skip').hidden=false}};
-for(const event of ['waiting','stalled','pause','seeking','ratechange'])$('video').addEventListener(event,()=>{if(playing&&evidence.events.length<128)evidence.events.push({event,at:performance.now(),media_time:$('video').currentTime})});
-document.addEventListener('visibilitychange',()=>{if(playing&&evidence.events.length<128)evidence.events.push({event:document.hidden?'hidden':'visible',at:performance.now()})});window.addEventListener('blur',()=>{if(playing&&evidence.events.length<128)evidence.events.push({event:'blur',at:performance.now()})});$('video').oncontextmenu=e=>e.preventDefault();$('skip').onclick=()=>saveAnswer(null,'playback_interrupted');$('next').onclick=()=>claim(lastTask);$('other').onclick=()=>state().catch(e=>status(e.message,true));$('change-identity').onclick=()=>{localStorage.removeItem(storageKey);token=null;clearMedia();show('identity');status()};
-if(token){show(null);status('Restoring session…');try{await state()}catch(e){if(e.status===401){localStorage.removeItem(storageKey);token=null;show('identity')}status(e.message,true)}}
+import {Outbox} from './outbox.js';
+import {MediaPool} from './media-pool.js?v=8ef852e1a776';
+const $ = id => document.getElementById(id);
+const config = await fetch(new URL('./config.json', import.meta.url)).then(r => r.json());
+const storageKey = 'cvpr-label-test-v1';
+let token = localStorage.getItem(storageKey), batch = null, current = 0, lastTask = null;
+let playing = false, starting = false, ready = false, saving = false, answeredAt = 0;
+let evidence = null, pool = null, outbox = null, view = 0, callbackId = null;
+let retryTimer = null, retryDelay = 1000, delivery = null, restoredReference = null;
+let restorePending = false;
 
-$('video').onratechange=()=>{const v=$('video');if(v.playbackRate!==1){if(playing)evidence.events.push({type:'ratechange',rate:v.playbackRate,at:v.currentTime});v.playbackRate=1}};
+function status(message = '', error = false) {
+  if (message === 'Identity changed') return;
+  $('status').textContent = message; $('status').classList.toggle('error', error);
+}
+function show(id) {
+  for (const name of ['identity', 'choose', 'trial', 'done']) $(name).hidden = name !== id;
+  $('change-identity').hidden = !token;
+}
+function busy(message = '') {
+  $('connection-progress').hidden = !message;
+  $('connection-label').textContent = message;
+}
+async function api(path, body, raw = false, signal) {
+  const identityToken = token;
+  const timeout = AbortSignal.timeout(raw ? 300000 : 30000);
+  const r = await fetch(config.api + path, {
+    method: body === undefined ? 'GET' : 'POST', signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+    headers: {...(identityToken ? {Authorization: 'Bearer ' + identityToken} : {}), ...(body === undefined ? {} : {'Content-Type': 'application/json'})},
+    body: body === undefined ? undefined : JSON.stringify(body)
+  });
+  if (!r.ok) { const x = await r.json().catch(() => ({})); const error = Error(x.error || 'Connection interrupted. Try again.'); error.status = r.status; throw error; }
+  const value = raw ? r : await r.json();
+  if (identityToken !== token) throw Error('Identity changed');
+  return value;
+}
+function syncState(count, error) {
+  $('sync-status').textContent = count ? (error ? 'Saved on this device · reconnecting' : 'Saving…') : 'All responses saved';
+  $('sync-status').dataset.pending = String(count);
+}
+function connectOutbox() {
+  outbox = new Outbox(localStorage, token, count => syncState(count));
+  syncState(outbox.entries().length);
+}
+async function flush() { if (outbox) await outbox.drain((path, body) => api(path, body)); }
+function sync() {
+  const identityToken = token, journal = outbox;
+  if (!journal) return;
+  clearTimeout(retryTimer);
+  journal.drain((path, body) => api(path, body)).then(() => {
+    if (token !== identityToken) return;
+    retryDelay = 1000; syncState(0);
+    if (restorePending) state().catch(error => status(error.message, true));
+  }).catch(error => {
+    if (token !== identityToken) return;
+    syncState(journal.entries().length, error);
+    if (error.status && error.status < 500 && error.status !== 429) {
+      status('Your records are kept on this device. ' + error.message, true); return;
+    }
+    retryTimer = setTimeout(sync, retryDelay); retryDelay = Math.min(15000, retryDelay * 2);
+  });
+}
+function clearMedia() {
+  view++; pool?.close(); pool = null;
+  ready = false; playing = false; $('trial').dataset.ready = 'false'; $('play').disabled = true;
+  $('loading-details').hidden = true;
+  if (restoredReference) URL.revokeObjectURL(restoredReference);
+  restoredReference = null; $('reference').hidden = true; $('reference-image').removeAttribute('src');
+  const v = $('video'); v.pause(); v.removeAttribute('src'); v.load();
+}
+function size() {
+  const r = $('video').getBoundingClientRect();
+  $('display-size').textContent = `768 × 512 source · CSS ${Math.round(r.width)} × ${Math.round(r.height)} · ${Math.round(r.width / 768 * 100)}% · DPR ${devicePixelRatio}`;
+  return {native: [768, 512], css: [r.width, r.height], dpr: devicePixelRatio, css_rect: [r.left, r.top, r.width, r.height], viewport: [innerWidth, innerHeight], screen: [screen.width, screen.height], user_agent: navigator.userAgent,
+    reference_css: $('reference').hidden ? null : [$('reference-image').getBoundingClientRect().width, $('reference-image').getBoundingClientRect().height]};
+}
+function bufferState() {
+  const count = pool ? [...pool.entries.values()].filter(e => e.index > current && e.ready).length : 0;
+  $('buffer-status').textContent = !batch || current + 1 >= batch.total ? '' : count ? 'Next video ready' : 'Preparing next video…';
+  $('buffer-status').dataset.ready = String(count);
+  const entry = pool?.entries.get(current);
+  if (!entry || ready || playing || starting || batch?.trials[current]?.started) return;
+  $('loading-details').hidden = false;
+  const bar = $('load-progress');
+  if (entry.total) bar.value = Math.min(1, entry.loaded / entry.total);
+  else bar.removeAttribute('value');
+  const phases = {queued:'Connecting…', downloading:'Downloading video…', verifying:'Checking video…', decoding:'Preparing playback…', reference:'Preparing reference…', ready:'Ready'};
+  $('screen-label').textContent = phases[entry.phase] || 'Preparing video…';
+  $('load-amount').textContent = entry.total ? `${Math.floor(Math.min(100, entry.loaded / entry.total * 100))}% · ${(entry.loaded / 1e6).toFixed(1)} / ${(entry.total / 1e6).toFixed(1)} MB` : 'Waiting for video data…';
+}
+function mount(entry) {
+  const old = $('video'), v = entry.video; v.id = 'video';
+  if (old !== v) { old.removeAttribute('id'); old.replaceWith(v); }
+  bindVideo(v);
+  $('reference').hidden = !entry.reference;
+  if (entry.reference) $('reference-image').src = entry.referenceURL;
+}
+async function restoreReference(ref) {
+  $('reference').hidden = !ref;
+  if (!ref) return;
+  const blob = await pool.blob(ref.media, ref.sha256);
+  restoredReference = URL.createObjectURL(blob); $('reference-image').src = restoredReference;
+  await $('reference-image').decode();
+}
+async function displayTrial() {
+  const generation = ++view, index = current, began = performance.now();
+  status(); show('trial'); playing = false; ready = false; saving = false;
+  $('play').hidden = false; $('play').disabled = true; $('play').textContent = 'Play once';
+  $('answers').hidden = true; $('skip').hidden = true; $('retry-save').hidden = true;
+  $('screen').classList.remove('hidden'); $('screen-label').textContent = 'Preparing video…';
+  $('loading-details').hidden = true;
+  $('reference').hidden = true;
+  $('task-title').textContent = batch.task; $('progress').textContent = `${current + 1} / ${batch.total}`;
+  $('progress-fill').style.width = `${current / batch.total * 100}%`; $('prompt').textContent = batch.prompt;
+  $('trial').dataset.index = String(index); $('trial').dataset.ready = 'false';
+  const trial = batch.trials[index];
+  if (config.disabled_tasks?.includes(batch.task)) {
+    $('play').hidden = true; $('screen-label').textContent = 'Source update in progress';
+    status('This batch is paused. Saved responses are retained.'); return;
+  }
+  pool.window(index); bufferState();
+  if (trial.started) {
+    $('loading-details').hidden = true;
+    $('play').hidden = true; $('screen-label').textContent = trial.played ? 'Choose your response' : 'Playback interrupted';
+    if (trial.played) { answeredAt = performance.now(); $('answers').hidden = false; }
+    else $('skip').hidden = false;
+    try { await restoreReference(trial.reference || batch.reference); } catch (error) { status(error.message, true); }
+    return;
+  }
+  const wasReady = Boolean(pool.entries.get(index)?.ready);
+  try {
+    const entry = await pool.get(index);
+    if (generation !== view) return;
+    mount(entry); size(); ready = true;
+    delivery = {prefetched: wasReady, selection_to_ready_ms: performance.now() - began, download_verify_ms: entry.download_verify_ms, decode_ms: entry.decode_ms, bytes: entry.bytes};
+    $('play').disabled = false; $('screen-label').textContent = 'Ready'; $('trial').dataset.ready = 'true';
+    $('loading-details').hidden = true;
+    $('trial').dataset.readyMs = delivery.selection_to_ready_ms.toFixed(2); bufferState();
+    document.dispatchEvent(new CustomEvent('label-ready', {detail: {...delivery, index}}));
+  } catch (error) {
+    if (generation !== view) return;
+    status(error.message, true); $('screen-label').textContent = 'Video unavailable';
+    $('loading-details').hidden = true;
+    $('play').textContent = 'Retry loading'; $('play').disabled = false;
+  }
+}
+function buildChoices() {
+  $('answers').replaceChildren();
+  for (const choice of batch.choices) {
+    const button = document.createElement('button'); button.textContent = choice;
+    button.onclick = () => saveAnswer(choice); $('answers').append(button);
+  }
+}
+async function useBatch(value) {
+  clearMedia(); batch = value; lastTask = batch.task; buildChoices();
+  pool = new MediaPool(batch, (path, signal) => api(path, undefined, true, signal), bufferState);
+  current = batch.trials.findIndex(t => !t.answered);
+  if (current < 0) { await finish(); return; }
+  await displayTrial();
+}
+async function state() {
+  busy('Restoring your session…');
+  let data;
+  try { await flush(); data = await api('/api/state'); }
+  finally { busy(); }
+  restorePending = false;
+  if (data.batch) { await useBatch(data.batch); return; }
+  clearMedia(); batch = null; show('choose'); $('tasks').replaceChildren();
+  for (const task of data.tasks) {
+    const button = document.createElement('button'); button.textContent = `${task.id} · ${task.title}${task.disabled || config.disabled_tasks?.includes(task.id) ? ' · Source update' : ''}`;
+    button.disabled = task.remaining === 0 || task.disabled || config.disabled_tasks?.includes(task.id);
+    button.onclick = () => claim(task.id); $('tasks').append(button);
+  }
+  status();
+}
+async function claim(task) {
+  if (config.disabled_tasks?.includes(task)) { status('Source update in progress'); return; }
+  $('next').disabled = true;
+  try {
+    busy('Preparing your batch…'); await flush(); status(); const result = await api('/api/claim', {task}); busy();
+    if (result.batch) await useBatch(result.batch); else await state();
+  } catch (error) { status(error.message, true); }
+  finally { busy(); $('next').disabled = false; }
+}
+async function finish() {
+  const identityToken = token, bid = batch.id;
+  show('done'); $('next').disabled = true; $('other').disabled = true;
+  $('done-title').textContent = 'Batch complete.'; $('done-message').textContent = 'Responses saved on this device · finishing sync…';
+  clearMedia();
+  try {
+    await flush(); await api('/api/complete', {batch_id: bid});
+    if (token !== identityToken || batch.id !== bid) return;
+    $('done-title').textContent = 'Batch saved.'; $('done-message').textContent = `${batch.total} responses saved · Preview records`;
+    $('next').disabled = false; $('other').disabled = false; status(); syncState(0);
+  } catch (error) {
+    if (token !== identityToken) return;
+    status('Your responses are kept on this device. Reconnecting…', true);
+    clearTimeout(retryTimer); retryTimer = setTimeout(() => finish(), 5000);
+  }
+}
+function saveAnswer(answer, reason) {
+  if (saving) return;
+  saving = true;
+  const payload = {batch_id: batch.id, index: current, answer, ...(reason ? {reason} : {}), client_at: new Date().toISOString(), reaction_ms: Math.round(performance.now() - answeredAt)};
+  try {
+    outbox.add('/api/answer', payload); // durable before either upload or UI advance
+    batch.trials[current].answered = true; current++; sync();
+    if (current === batch.total) finish(); else displayTrial();
+  } catch (error) { saving = false; status(error.message + ' Please keep this page open and retry.', true); }
+}
+async function startPlayback() {
+  if (!ready && !playing && !starting) { await displayTrial(); return; }
+  if (!ready || playing || starting || batch.trials[current].started) return;
+  starting = true; $('play').disabled = true; $('change-identity').disabled = true;
+  const clickTime = performance.now(), v = $('video');
+  $('screen-label').textContent = 'Starting…';
+  try {
+    // Upload may proceed while the next video is visible and ready. The existing
+    // server order/single-play gate must still acknowledge before playback.
+    await flush();
+    await api('/api/start', {batch_id: batch.id, index: current, client_at: new Date().toISOString(), display: size()});
+    batch.trials[current].started = true; playing = true;
+    v.defaultPlaybackRate = 1; v.playbackRate = 1;
+    evidence = {ended: false, rate: 1, started_perf: performance.now(), frame_callbacks: 0, first_media_time: null, last_media_time: null, events: [], visibility_at_start: document.visibilityState, focused_at_start: document.hasFocus(), started_client: new Date().toISOString(), delivery: {...delivery, click_to_start_ack_ms: performance.now() - clickTime}};
+    const frame = (_, metadata) => {
+      evidence.frame_callbacks++;
+      if (evidence.first_media_time === null) { evidence.first_media_time = metadata.mediaTime; evidence.delivery.click_to_first_frame_ms = performance.now() - clickTime; }
+      evidence.last_media_time = metadata.mediaTime;
+      if (playing) callbackId = v.requestVideoFrameCallback(frame);
+    };
+    if (v.requestVideoFrameCallback) callbackId = v.requestVideoFrameCallback(frame);
+    $('screen').classList.add('hidden'); $('play').hidden = true; await v.play();
+  } catch (error) {
+    playing = false; status(error.message, true);
+    if (batch.trials[current].started || error.status === 409) {
+      try { await state(); } catch (recovery) { status(recovery.message, true); }
+    } else { $('play').disabled = false; $('screen-label').textContent = 'Ready · reconnect to play'; sync(); }
+  } finally { starting = false; $('change-identity').disabled = playing; }
+}
+function ended(v) {
+  if (!playing || !evidence) return;
+  playing = false; $('change-identity').disabled = false; answeredAt = performance.now();
+  if (callbackId && v.cancelVideoFrameCallback) v.cancelVideoFrameCallback(callbackId);
+  evidence.ended = true; evidence.client_elapsed_ms = performance.now() - evidence.started_perf; delete evidence.started_perf;
+  evidence.played_ranges = Array.from({length: v.played.length}, (_, i) => [v.played.start(i), v.played.end(i)]);
+  evidence.rate = v.playbackRate; evidence.media_time = v.currentTime; evidence.duration = v.duration;
+  const quality = v.getVideoPlaybackQuality?.(); evidence.quality = quality ? {total: quality.totalVideoFrames, dropped: quality.droppedVideoFrames} : null;
+  evidence.ended_client = new Date().toISOString(); evidence.display_at_end = size();
+  $('screen').classList.remove('hidden'); $('screen-label').textContent = 'Choose your response';
+  v.removeAttribute('src'); v.load();
+  try {
+    outbox.add('/api/playback', {batch_id: batch.id, index: current, evidence});
+    batch.trials[current].played = true; $('answers').hidden = false; sync();
+  } catch (error) { status(error.message + ' Keep this page open and retry saving.', true); $('retry-save').hidden = false; }
+}
+function bindVideo(v) {
+  v.onended = () => ended(v); v.oncontextmenu = e => e.preventDefault();
+  for (const event of ['waiting', 'stalled', 'pause', 'seeking', 'ratechange']) v.addEventListener(event, () => {
+    if (playing && evidence.events.length < 128) evidence.events.push({event, at: performance.now(), media_time: v.currentTime});
+  });
+  v.onratechange = () => { if (v.playbackRate !== 1) v.playbackRate = 1; };
+}
+new ResizeObserver(() => { size(); if (playing && evidence.events.length < 128) evidence.events.push({event: 'resize', at: performance.now()}); }).observe($('stage'));
+document.addEventListener('visibilitychange', () => {
+  if (playing && evidence.events.length < 128) evidence.events.push({event: document.hidden ? 'hidden' : 'visible', at: performance.now()});
+  if (!document.hidden && token) sync();
+});
+window.addEventListener('blur', () => { if (playing && evidence.events.length < 128) evidence.events.push({event: 'blur', at: performance.now()}); });
+window.addEventListener('online', sync);
+window.addEventListener('beforeunload', event => { if (outbox?.entries().length) { event.preventDefault(); event.returnValue = ''; } });
+$('identity-form').onsubmit = async event => {
+  event.preventDefault(); const button = $('identity-form').querySelector('button'); button.disabled = true;
+  try {
+    busy('Connecting to your saved identity…');
+    const data = await api('/api/session', {email: $('email').value, mode: config.mode});
+    token = data.token; localStorage.setItem(storageKey, token); connectOutbox(); await state();
+  } catch (error) { status(error.message, true); } finally { busy(); button.disabled = false; }
+};
+$('play').onclick = startPlayback;
+$('retry-save').onclick = () => {
+  try { outbox.add('/api/playback', {batch_id: batch.id, index: current, evidence}); batch.trials[current].played = true; $('retry-save').hidden = true; $('answers').hidden = false; status(); sync(); }
+  catch (error) { status(error.message, true); }
+};
+$('skip').onclick = () => saveAnswer(null, 'playback_interrupted');
+$('next').onclick = () => claim(lastTask); $('other').onclick = () => state().catch(error => status(error.message, true));
+$('change-identity').onclick = async () => {
+  try { await flush(); clearTimeout(retryTimer); localStorage.removeItem(storageKey); token = null; outbox = null; clearMedia(); batch = null; show('identity'); status(); $('sync-status').textContent = ''; }
+  catch (error) { status('Your records are saved on this device. Reconnect before exiting.', true); }
+};
+if (token) {
+  show(null); restorePending = true; status('Restoring session…');
+  try { connectOutbox(); await state(); }
+  catch (error) {
+    if (error.status === 401 && !outbox?.entries().length) { localStorage.removeItem(storageKey); token = null; show('identity'); }
+    status(error.message, true); if (outbox?.entries().length) sync();
+  }
+}

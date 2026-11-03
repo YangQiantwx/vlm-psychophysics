@@ -7,7 +7,9 @@ Controlled motion, brightness and orientation tasks with classic and natural-con
 | Classic | 3,840 | 5,760 | 2,928 | Lossless RGB16 FFV1/MKV |
 | Natural | 3,840 | 3,840 | 2,736 | Lossless RGB8 H.264/MP4 |
 
-The classic 9,456-video primary selection retains all T1, 30-frame T2 exposures and T3 angles excluding 1.75°/2.25°. Auxiliary source conditions remain available. [The protocol](EXPERIMENT_PLAN.md) defines stimuli and scientific scope; [the research report](report.md) preserves earlier findings and negative results.
+The classic 9,456-video primary selection retains all T1, 30-frame T2 exposures and T3 angles excluding 1.75°/2.25°. Auxiliary source conditions remain available.
+
+Current natural T3 uses `natural-t3-lr-paired-20261102-v1`: each of the 2,736 primary classic configurations has one natural counterpart. Its 1,368 left/right pairs fix background, object, onset, angle and physical tilt direction while exchanging sides. The four photo/generated background × object groups contain 684 videos each; all 40 objects and 200 backgrounds are used. Source allocation, decoded-frame QA and exact pair tables are included in the pinned Hugging Face release. The 90° condition has 24 pairs. Discrete condition balance does not assert equal brightness or texture across natural images. [The protocol](EXPERIMENT_PLAN.md) defines stimuli and scientific scope; [the research report](report.md) preserves earlier findings and negative results.
 
 Download sources from Hugging Face:
 
