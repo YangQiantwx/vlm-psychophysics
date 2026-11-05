@@ -52,3 +52,38 @@ python -B -m classic_precision.reproduce show --model gemma --protocol current-x
 All use the native 180-frame path. Gemma requires its pinned input adapter: its video budget is 280 soft tokens, yielding 176 effective tokens per frame with 16 bottom padding rows; the profile's image budget of 140 is a separate setting. Qwen requires its pinned QSA worker extension. The export preserves these distinctions and does not start inference. Execute through a finite sealed queue with the source catalog, exact task prompt, native input checks and physical GPU lease.
 
 The older `native-default`, `native-original` and `controlled-rgb16` exports remain historical protocols in `reproduction.json`; their framework/support notes do not describe current X. Running profiles and original scientific IDs remain frozen. A source download does not change a running experiment.
+
+## Run the Astra T1 API pilot
+
+Use Python 3.11+ and FFmpeg (`ffprobe` on `PATH`) on macOS or Linux. Install OpenCV in your existing Python environment:
+
+```bash
+python -m pip install opencv-python-headless
+```
+
+Save a video list as `videos.json`. Relative paths resolve next to the manifest. Give each video a unique `id`. The `truth` field is optional and used only to score the saved answer.
+
+```json
+[
+  {"id": "clip-01", "video": "videos/clip-01.mkv", "truth": "LEFT"},
+  {"id": "clip-02", "video": "videos/clip-02.mp4"}
+]
+```
+
+From the repository root, prepare the requests and inspect `astra-output/preflight.json`. This step is offline and costs nothing.
+
+```bash
+python -B -m classic_precision.astra_t1_pilot \
+  --manifest videos.json --output astra-output --budget-usd 3.00
+```
+
+To submit those same requests, run the command again with `--execute`. Use your own `OPENAI_API_KEY` or enter it at the hidden terminal prompt. Set `OPENAI_PROJECT_ID` only if you want to specify a project explicitly.
+
+```bash
+python -B -m classic_precision.astra_t1_pilot \
+  --manifest videos.json --output astra-output --budget-usd 3.00 --execute
+```
+
+Each clip must be 768×512 with 180 frames at 60 fps. The script sends one request per clip with all RGB8 frames as lossless PNG images in chronological order, the fixed T1 question, `detail=original` and `reasoning.effort=low`. Filenames, labels and timestamps stay local. Requests run in manifest order. The script reserves **$1.2048** per next request using [Astra Standard rates](https://developers.openai.com/api/docs/models/gpt-6-astra) and stops when the remaining budget cannot cover it. Its totals are usage-based estimates.
+
+The output keeps the exact request JSON (including the PNGs), frame hashes and timestamps, HTTP metadata, raw API responses and a `complete.json` summary. Reasoning summaries and opaque encrypted items are preserved when returned. After submission, the directory is sealed against reruns. Use a fresh output and a manifest containing only unattempted clips to continue.
