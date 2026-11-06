@@ -1,4 +1,5 @@
 import base64
+from io import BytesIO
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -25,10 +26,10 @@ def _fixture(tmp_path):
                     video_path=path, video_sha256=digest, frames=180, fps=60, width=768, height=512)
 
     scope = 'classic/t2'
-    still, still_sha = media(scope + '/static/still.png', b'static fixture bytes')
+    still, still_sha = media(scope + '/static/still-GT_LEFT.png', b'static fixture bytes')
     sources = []
     for sid in ('source-a', 'source-b'):
-        path, digest = media(f'{scope}/{sid}.mkv', sid.encode())
+        path, digest = media(f'{scope}/{sid}-GT_LEFT.mkv', sid.encode())
         video = source(scope, sid, 'LEFT', path, digest)
         static = dict(sample_id=sid, truth='LEFT', video_sha256=digest, video_path=path,
                       static_case_id='shared-static-case', model_input_sha256=still_sha,
@@ -37,8 +38,8 @@ def _fixture(tmp_path):
         sources.extend((release.trial(scope, video, 'fixture', 'video-sha'),
                         release.trial(scope, video, 'fixture/static', 'static-sha', static=static)))
     scope = 'natural/t5'
-    path, digest = media(scope + '/video.mp4', b't5 video fixture')
-    ref, ref_sha = media(scope + '/reference.png', b't5 reference fixture')
+    path, digest = media(scope + '/video-GT_YES.mp4', b't5 video fixture')
+    ref, ref_sha = media(scope + '/reference-GT_YES.png', b't5 reference fixture')
     video = source(scope, 'source-c', 'YES', path, digest, 'none')
     video.update(reference_path=ref, reference_sha256=ref_sha)
     inspection = dict(sample_id='source-c', truth='YES', video_sha256=digest, video_path=path,
@@ -62,6 +63,57 @@ def _args(root, **changes):
                   media_root=root, model='provider/company/model-name', max_tokens=4096, workers=2,
                   retry=None, retry_uncertain=False, pilot_trial=None)
     return SimpleNamespace(**{**values, **changes})
+
+
+def test_gateway_post_contains_only_frozen_prompt_and_inline_media(tmp_path, monkeypatch):
+    requests = []
+
+    def open_request(request, timeout):
+        requests.append(request)
+        response = BytesIO(_response('LEFT'))
+        response.status, response.headers = 200, {}
+        return response
+
+    monkeypatch.setattr(runner, 'build_opener', lambda *handlers: SimpleNamespace(open=open_request))
+    model = 'openai/openai/gpt-6-astra'
+    config = dict(requested_model=model, max_completion_tokens=512)
+    for row in release.unique_requests(_fixture(tmp_path)).values():
+        body, evidence = runner.request_body(row, config, tmp_path, None)
+        assert runner.transport(body, 'fixture-credential')[0] == 200
+        request = requests[-1]
+        assert request.full_url == 'https://inference-api.nvidia.com/v1/chat/completions'
+        assert request.get_method() == 'POST'
+        assert request.get_header('Authorization') == 'Bearer fixture-credential'
+        assert request.get_header('Content-type') == 'application/json'
+        media = []
+        for item in row['media']:
+            kind = 'image_url' if item['mime'] == 'image/png' else 'video_url'
+            data = (tmp_path / item['path']).read_bytes()
+            url = f"data:{item['mime']};base64,{base64.b64encode(data).decode('ascii')}"
+            media.append({'type': kind, kind: {'url': url}})
+        assert json.loads(request.data) == {
+            'model': model, 'stream': False, 'max_completion_tokens': 512,
+            'messages': [{'role': 'user', 'content': media + [{'type': 'text', 'text': row['prompt']}]}],
+        }
+        assert b'GT_' not in request.data and row['sample_id'].encode() not in request.data
+        assert [item['path'] for item in evidence] == [item['path'] for item in row['media']]
+
+
+def test_evaluate_reports_completion_for_selected_scope(tmp_path, monkeypatch):
+    out = tmp_path / 'run'
+    out.mkdir()
+    monkeypatch.setattr(release, 'public_plan', lambda _: _fixture(tmp_path))
+    monkeypatch.setenv('NVIDIA_API_KEY', 'fixture-credential-unused')
+    monkeypatch.setattr(runner, 'transport', lambda *_: (200, {}, _response('LEFT')))
+    options = dict(command='evaluate', out=out, archive=None, private_index=None,
+                   private_metadata_root=None, metadata_root=None, scope=['classic/t2'], input='video')
+    first = runner.command(_args(tmp_path, **options, max_requests=1))
+    assert first['status'] == 'PARTIAL'
+    assert first['finished_selected_requests'] == 1
+    second = runner.command(_args(tmp_path, **options, max_requests=2))
+    assert second['status'] == 'COMPLETE'
+    assert second['finished_selected_requests'] == second['selected_requests'] == 2
+    assert runner.verify(out / 'return.zip')['unique_requests'] == 4
 
 
 def test_fixture_end_to_end(tmp_path, monkeypatch):

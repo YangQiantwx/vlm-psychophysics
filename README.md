@@ -1,6 +1,8 @@
 # Visual Psychophysics
 
-Five controlled visual judgments in Classic and Natural scenes. The [current Hugging Face release](https://huggingface.co/datasets/DrQY/vlm-psychophysics/tree/20baa977b183c8ecf56b5e4f7da569c5a93e9464) contains **20,256 videos and 20,256 ordered static records**. Explore the [stimulus library](https://vision-tasks.pages.dev/library/) and [model results](https://vision-tasks.pages.dev/experiments/).
+Five controlled visual judgments in Classic and Natural scenes. The [Hugging Face dataset](https://huggingface.co/datasets/DrQY/vlm-psychophysics) contains **20,256 videos and 20,256 static records**. Explore the [stimulus library](https://vision-tasks.pages.dev/library/) and [model results](https://vision-tasks.pages.dev/experiments/).
+
+[Run the Jinwei API evaluation](EXPERIMENT_PLAN.md#run-the-jinwei-evaluation).
 
 | Task | Judgment | Classic | Natural |
 |---|---|---:|---:|
@@ -36,4 +38,4 @@ The [Label preview](https://vision-tasks.pages.dev/label/) is in test mode. The 
 
 ## Execution routes and runtime contracts
 
-The [X execution table](EXPERIMENT_PLAN.md#execution-routes-and-runtime-contracts) links the video and static workers for Cosmos, Qwen, Nemotron and Gemma. The [profile extracts](reproduction/current-x-profiles.json) record settings from the executed extensions and identify their original sealed profiles by SHA-256. See the [Jinwei evaluation](EXPERIMENT_PLAN.md#run-the-jinwei-evaluation) for the account-backed API route and return archive.
+The [X execution table](EXPERIMENT_PLAN.md#execution-routes-and-runtime-contracts) links the video and static workers for Cosmos, Qwen, Nemotron and Gemma. The [profile extracts](reproduction/current-x-profiles.json) record settings from the executed extensions and identify their original sealed profiles by SHA-256.

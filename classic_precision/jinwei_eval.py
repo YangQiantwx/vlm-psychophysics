@@ -239,11 +239,14 @@ def invoke(out, receipt, row, config, media_root, private, credential, expected_
         return receipt
 
 
+def selected_requests(rows, args):
+    return {key: row for key, row in release.unique_requests(rows).items()
+            if (not args.scope or row['scope'] in args.scope)
+            and (not args.input or row['input'] == args.input)}
+
+
 def execution(out, plan, rows, args, private, pilot):
-    chosen = release.unique_requests(rows)
-    selected = {key: row for key, row in chosen.items()
-                if (not args.scope or row['scope'] in args.scope)
-                and (not args.input or row['input'] == args.input)}
+    selected = selected_requests(rows, args)
     release.require(bool(selected), 'The selection contains no callable trials')
     release.require(args.execute and args.max_requests > 0, 'Set --execute and a positive --max-requests')
     if any(r['source'] == 'private' for r in selected.values()):
@@ -309,7 +312,7 @@ def execution(out, plan, rows, args, private, pilot):
                 key = next(queue, None)
                 if key is None:
                     return
-                row = chosen[key]
+                row = selected[key]
                 receipt = dict(request_id=key, attempt=len(history.get(key, [])) + 1,
                                profile=row['profile'], sample_id=row['sample_id'],
                                source=row['source'], status='CLAIMED',
@@ -589,10 +592,12 @@ def command(args):
     packaged = export(args.out, archive)
     with closing(open_db(args.out)) as db:
         histories = records(db)
-    all_answered = all(histories.get(key) and histories[key][-1]['status'] in {
+    selected = selected_requests(rows, args)
+    finished = sum(1 for key in selected if histories.get(key) and histories[key][-1]['status'] in {
         'ANSWERED', 'FORMAT_OR_TOOL_FAILURE', 'TRUNCATED',
-    } for key in release.unique_requests(rows))
-    return {**packaged, 'status': 'COMPLETE' if all_answered else 'PARTIAL', 'pilot': pilot, 'run': run}
+    })
+    return {**packaged, 'status': 'COMPLETE' if finished == len(selected) else 'PARTIAL',
+            'selected_requests': len(selected), 'finished_selected_requests': finished, 'pilot': pilot, 'run': run}
 
 
 if __name__ == '__main__':

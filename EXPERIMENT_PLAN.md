@@ -57,20 +57,16 @@ python reproduction/render_new_stimuli.py t5-unmasked --snapshot HUB_SNAPSHOT \
 
 ## Run the Jinwei evaluation
 
-Use your own NVIDIA internal API account. Set `NVIDIA_API_KEY` in your shell and set `JINWEI_MODEL` to the exact model ID listed by your account. The inventory command reads the account's model list without inference. The planning command verifies the public release manifests and reports the number of requests.
+Start with strict T4 on the [pinned public release](https://huggingface.co/datasets/DrQY/vlm-psychophysics/tree/20baa977b183c8ecf56b5e4f7da569c5a93e9464). The ordered first/last-frame evaluation has 2,304 requests per model (768 Classic and 1,536 Natural), covering N=8 and N=16. Set `NVIDIA_API_KEY` and `JINWEI_MODEL` in your shell using the credentials and model ID from your account.
 
 ```bash
-python -m classic_precision.provider_api --provider nvidia-internal \
-  --inventory --out jinwei-models
-python -m classic_precision.jinwei_eval plan --out jinwei-output
+python -m classic_precision.jinwei_eval evaluate --out jinwei-t4-static \
+  --scope classic/t4 --scope natural/t4 --input static --execute --max-requests 2304
+python -m classic_precision.jinwei_eval verify --archive jinwei-t4-static/return.zip
 ```
 
-The full public plan contains 20,256 video requests and 14,682 distinct static X requests covering 20,064 scientific static records. The 192 T5 static inspection records stay outside the API evaluation. The executor first admits each input route through a pilot. Run with the same output path to continue pending requests. `--max-requests` caps new attempts per invocation, including pilots.
+The runner uses the NVIDIA gateway's OpenAI-compatible `POST /v1/chat/completions` with `max_completion_tokens`. It checks each file's SHA-256 and sends inline media in order followed by the frozen prompt. Filenames, paths, trial IDs and ground truth stay local for scoring and audit. Each task and input route starts with a pilot. Check image and video support on the account's actual model. A successful API response confirms acceptance of that request, and the serving frame count requires provider-side evidence.
 
-```bash
-python -m classic_precision.jinwei_eval evaluate --out jinwei-output \
-  --model "$JINWEI_MODEL" --execute --max-requests 34938 --workers 2
-python -m classic_precision.jinwei_eval verify --archive jinwei-output/return.zip
-```
+For T4 video, use `--input video` and a separate output directory. The 2,304 videos use Classic FFV1/MKV and Natural RGB H.264/MP4. For the full public run, omit the scope and input filters and use `--max-requests 34938` (20,256 video and 14,682 distinct static requests). T5 video includes its reference image.
 
-Return `jinwei-output/return.zip` with `return.zip.sha256`. The archive includes the plan, input evidence, original responses, failures and coverage. A partial run returns status 2 and still writes both files. Use `--media-root` for a local copy of the pinned media. An authorized private masked T5 supplement is a separate opt-in through the generation-pinned private index and `--allow-private-media-transfer`.
+Return `return.zip` and `return.zip.sha256` from the output directory. The archive preserves original responses, failures and coverage. A partial run still writes both files. Repeat the command with the same output directory to resume. The request cap includes pilots. Use `--media-root` to read a local copy of the pinned release.
