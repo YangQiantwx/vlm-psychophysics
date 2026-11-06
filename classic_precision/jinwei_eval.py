@@ -1,4 +1,4 @@
-"""Plan, pilot, resume and package the frozen benchmark on the NVIDIA internal gateway."""
+"""Plan, pilot, resume and package the frozen benchmark on hosted APIs."""
 from __future__ import annotations
 
 import argparse
@@ -21,11 +21,13 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 from zipfile import ZIP_DEFLATED, ZipFile
 
 from . import jinwei_release as release
+from . import native_video_api
 from .provider_api import ROUTES, parameters
 
 SCHEMA = 'jinwei-provider-v1'
 PROVIDER = 'nvidia-internal'
 BASE_URL, KEY_ENV, _ = ROUTES[PROVIDER]
+TASK_SCOPES = {f'{task}-{domain}': scope for scope in release.SCOPES for domain, task in [scope.split('/')]}
 RETRIES = {'SOURCE_ERROR', 'CLAIMED', 'HTTP_ERROR'}
 UNCERTAIN = {'SENT', 'TRANSPORT_UNKNOWN'}
 RETURN_FILES = ('plan.json', 'source-plan.jsonl', 'config.json', 'attempts.jsonl', 'results.jsonl', 'summary.json')
@@ -79,10 +81,16 @@ def build_plan(out, metadata_root=None, private=None):
     return plan, rows
 
 
-def configured(out, plan, model, max_tokens):
+def configured(out, plan, model, max_tokens, provider=PROVIDER, all_frames=False):
     release.require(bool(model) and bool(re.fullmatch(r'[A-Za-z0-9_.:/-]+', model)),
-                    'Set --model to the exact internal account model ID')
-    config = dict(schema=SCHEMA, provider=PROVIDER, endpoint=BASE_URL,
+                    'Set --model to the exact provider model ID')
+    hosted = native_video_api.HOSTED.get(provider)
+    endpoint = BASE_URL
+    if hosted:
+        endpoint = native_video_api.endpoint(provider)
+    elif provider == 'vllm':
+        endpoint = native_video_api.vllm_endpoint(os.environ.get('VLLM_BASE_URL', ''))
+    config = dict(schema=SCHEMA, provider=provider, endpoint=endpoint,
                   requested_model=model, max_completion_tokens=max_tokens,
                   source_plan_sha256=plan['source_plan_sha256'],
                   code_sha256={p.name: file_sha(p) for p in (
@@ -90,6 +98,13 @@ def configured(out, plan, model, max_tokens):
                   generation='provider defaults apart from token limit; no tools; no schema constraint',
                   transport='inline MIME-correct data URLs, image/reference then video as applicable',
                   processor_visibility='not exposed by provider', answer_parser='single-label-v1')
+    if hosted:
+        config.update(video_fps=hosted[1], transport='inline video bytes')
+        config['code_sha256']['native_video_api.py'] = file_sha(Path(native_video_api.__file__))
+        native_video_api.validate_config(config)
+    if all_frames:
+        config['frame_settings'] = native_video_api.FULL_FRAME_FIELDS
+        config['code_sha256']['native_video_api.py'] = file_sha(Path(native_video_api.__file__))
     path = out / 'config.json'
     if path.exists():
         release.require(json.loads(path.read_bytes()) == config,
@@ -128,15 +143,59 @@ def records(db):
     return rows
 
 
+def validate_frame_report(report, attempt, config):
+    indices = list(range(180))
+    release.require(
+        attempt['phase'] == 'pilot' and attempt.get('modality_admitted')
+        and report['endpoint'] == config['endpoint'] and report['model'] == attempt['returned_model']
+        and report['request_sha256'] == attempt['request_sha256']
+        and isinstance(report['deployment'], str) and bool(report['deployment'].strip())
+        and report['decoded_indices'] == report['processor_indices'] == indices,
+        'The server report must bind the successful pilot and show decoded and processor indices 0–179 in order')
+
+
+def attach_frame_reports(path, db, history, config):
+    reports = json.loads(path.read_bytes())
+    release.require(isinstance(reports, list) and bool(reports), 'Expected a nonempty list of server reports')
+    pilots = {a['request_sha256']: a for attempts in history.values() for a in attempts
+              if a['phase'] == 'pilot' and a.get('modality_admitted')}
+    staged = {}
+    deployments = {a['frame_report']['deployment'] for a in pilots.values() if 'frame_report' in a}
+    for report in reports:
+        release.require(isinstance(report, dict), 'Expected a server report object')
+        attempt = pilots.get(report['request_sha256'])
+        release.require(attempt is not None, 'Server report does not match a successful pilot in this run')
+        validate_frame_report(report, attempt, config)
+        evidence = {key: report[key] for key in ('endpoint', 'model', 'deployment', 'request_sha256',
+                                                'decoded_indices', 'processor_indices')}
+        prior = attempt.get('frame_report', staged.get(attempt['request_sha256'], evidence))
+        release.require(prior == evidence, 'Server frame evidence differs from the accepted report')
+        staged[attempt['request_sha256']] = evidence
+        deployments.add(evidence['deployment'])
+    release.require(len(deployments) == 1, 'Use a separate output directory for each server deployment')
+    with db:
+        for digest, report in staged.items():
+            attempt = pilots[digest]
+            attempt['frame_report'] = report
+            db.execute('UPDATE attempts SET details=? WHERE request_id=? AND attempt=?',
+                       (release.encoded(attempt), attempt['request_id'], attempt['attempt']))
+
+
 class NoRedirect(HTTPRedirectHandler):
     def redirect_request(self, *args, **kwargs):
         return None
 
 
-def transport(payload, credential):
-    request = Request(BASE_URL + '/chat/completions', data=payload, headers={
-        'Authorization': 'Bearer ' + credential, 'Content-Type': 'application/json',
-    }, method='POST')
+def transport(payload, credential, config=None):
+    endpoint = config['endpoint'] if config else BASE_URL
+    if config and config['provider'] == 'gemini':
+        endpoint += '/models/' + config['requested_model'] + ':generateContent'
+        auth = {'x-goog-api-key': credential}
+    else:
+        endpoint += '/chat/completions'
+        auth = {'Authorization': 'Bearer ' + credential}
+    request = Request(endpoint, data=payload,
+                      headers={**auth, 'Content-Type': 'application/json'}, method='POST')
     try:
         response = build_opener(NoRedirect).open(request, timeout=300)
     except HTTPError as response:
@@ -146,11 +205,13 @@ def transport(payload, credential):
         return response.status, response.headers, response.read()
 
 
-def response_fields(body, status, choices, expected_model):
+def response_fields(body, status, choices, expected_model, provider=PROVIDER):
     if not 200 <= status < 300:
         return {'status': 'HTTP_ERROR'}
     try:
         document = json.loads(body)
+        if provider == 'gemini':
+            document = native_video_api.gemini_completion(document)
         options = document['choices']
         if len(options) != 1:
             raise ValueError('Expected one completion choice')
@@ -180,9 +241,8 @@ def response_fields(body, status, choices, expected_model):
 
 
 def request_body(row, config, media_root, private):
-    body = parameters(PROVIDER, config['requested_model'], row['prompt'], '<media>',
-                      config['max_completion_tokens'])
-    parts = []
+    provider = config.get('provider', PROVIDER)
+    media = []
     verified = []
     for item in row['media']:
         local = media_root / item['path'] if media_root is not None else None
@@ -195,12 +255,24 @@ def request_body(row, config, media_root, private):
         else:
             raise ValueError('Authorized private media is missing')
         release.checked(data, item['sha256'], item['path'])
-        url = 'data:' + item['mime'] + ';base64,' + base64.b64encode(data).decode('ascii')
-        kind = 'image_url' if item['mime'] == 'image/png' else 'video_url'
-        parts.append({'type': kind, kind: {'url': url}})
+        media.append((item['mime'], base64.b64encode(data).decode('ascii')))
         verified.append({**item, 'bytes': len(data)})
-    body['messages'][0]['content'] = parts + [{'type': 'text', 'text': row['prompt']}]
-    return release.encoded(body), verified
+    if provider in native_video_api.HOSTED:
+        body = native_video_api.request(provider, config['requested_model'], row['prompt'], media,
+                                        config['max_completion_tokens'], config['video_fps'])
+    else:
+        body = parameters(PROVIDER, config['requested_model'], row['prompt'], '<media>',
+                          config['max_completion_tokens'])
+        parts = []
+        for mime, data in media:
+            kind = 'image_url' if mime == 'image/png' else 'video_url'
+            parts.append({'type': kind, kind: {'url': f'data:{mime};base64,{data}'}})
+        body['messages'][0]['content'] = parts + [{'type': 'text', 'text': row['prompt']}]
+        body.update(config.get('frame_settings', {}))
+    payload = release.encoded(body)
+    if provider == 'gemini':
+        release.require(len(payload) <= 20_000_000, 'Gemini inline request exceeds 20 MB')
+    return payload, verified
 
 
 def invoke(out, receipt, row, config, media_root, private, credential, expected_model):
@@ -220,18 +292,19 @@ def invoke(out, receipt, row, config, media_root, private, credential, expected_
         save(db, receipt)
         raw = None
         try:
-            http_status, headers, raw = transport(payload, credential)
+            http_status, headers, raw = transport(payload, credential, config)
             receipt.update(http_status=http_status, response_body_sha256=release.sha(raw),
                            response_bytes=len(raw))
             if credential.encode() in raw:
                 receipt.update(status='SENSITIVE_RESPONSE_WITHHELD', response_body_withheld='credential_echo')
                 raw = None
-            elif re.search(rb'data:(?:image|video)/[a-z0-9.-]+;base64,', raw, re.IGNORECASE):
+            elif re.search(rb'data:(?:image|video)/[a-z0-9.-]+;base64,', raw, re.IGNORECASE) or (
+                    config['provider'] == 'gemini' and re.search(rb'"inline_?data"\s*:', raw, re.IGNORECASE)):
                 receipt.update(status='SENSITIVE_RESPONSE_WITHHELD', response_body_withheld='media_echo')
             else:
                 receipt.update(provider_request_id=headers.get('x-request-id') or headers.get('request-id'),
                                retry_after=headers.get('retry-after'),
-                               **response_fields(raw, http_status, row['choices'], expected_model))
+                               **response_fields(raw, http_status, row['choices'], expected_model, config['provider']))
         except (OSError, HTTPException) as error:
             receipt.update(status='TRANSPORT_UNKNOWN', error_type=type(error).__name__)
         receipt.update(finished_unix=time.time(), elapsed_seconds=time.monotonic() - started)
@@ -249,6 +322,16 @@ def execution(out, plan, rows, args, private, pilot):
     selected = selected_requests(rows, args)
     release.require(bool(selected), 'The selection contains no callable trials')
     release.require(args.execute and args.max_requests > 0, 'Set --execute and a positive --max-requests')
+    hosted = native_video_api.HOSTED.get(args.provider)
+    if args.all_frames:
+        release.require(not hosted, 'This provider samples video. Choose a full-frame deployment or pass --sampled-video.')
+        release.require(all(r['input'] == 'video' and (r['source_video_format']['frames'],
+                            r['source_video_format']['fps']) == (180, 60) for r in selected.values()),
+                        'Select a 180-frame, 60 fps video task for the all-frame run')
+    if hosted:
+        release.require(all(r['source'] == 'public' and r['input'] == 'video' and len(r['media']) == 1
+                            and r['media'][0]['mime'] in hosted[2] for r in selected.values()),
+                        'Select supported public single-video scopes with --scope and --input video')
     if any(r['source'] == 'private' for r in selected.values()):
         release.require(args.allow_private_media_transfer and (args.media_root is not None or private is not None),
                         'Private inference requires authorized source access and --allow-private-media-transfer')
@@ -257,14 +340,18 @@ def execution(out, plan, rows, args, private, pilot):
         release.require(private.plan(public_rows) == sorted(
             (row for row in rows if row['source'] == 'private'), key=lambda r: (r['scope'], r['sample_id'])),
             'Private metadata no longer matches the run plan')
-    config = configured(out, plan, args.model, args.max_tokens)
+    config = configured(out, plan, args.model, args.max_tokens, args.provider, args.all_frames)
     with closing(open_db(out)) as db:
         history = records(db)
+        if args.frame_report and not pilot:
+            release.require(args.all_frames, '--frame-report requires an all-frame run')
+            attach_frame_reports(args.frame_report, db, history, config)
         profiles = defaultdict(list)
         for key, row in selected.items():
             profiles[row['profile']].append(key)
         admitted = {r['profile']: r['returned_model'] for attempts in history.values() for r in attempts
-                    if r['phase'] == 'pilot' and r.get('modality_admitted')}
+                    if r['phase'] == 'pilot' and r.get('modality_admitted')
+                    and (pilot or not args.all_frames or r.get('frame_report'))}
         models = set(admitted.values())
         release.require(len(models) <= 1, 'Pilots returned different model identities')
         expected_model = next(iter(models), None)
@@ -297,8 +384,9 @@ def execution(out, plan, rows, args, private, pilot):
         release.require(retry <= set(eligible), 'A requested retry is outside this pilot or admitted run')
         if not eligible:
             return dict(status='NO_NEW_REQUESTS', started=0, blocked_profiles=blocked)
-        credential = os.environ.get(KEY_ENV)
-        release.require(bool(credential), f'Set {KEY_ENV} in the operator shell')
+        key_env = hosted[0] if hosted else 'VLLM_API_KEY' if args.provider == 'vllm' else KEY_ENV
+        credential = os.environ.get(key_env)
+        release.require(bool(credential), f'Set {key_env} in the operator shell')
         queue = iter(eligible[:args.max_requests])
         started, recent_failures = 0, 0
         stop = None
@@ -350,8 +438,10 @@ def execution(out, plan, rows, args, private, pilot):
 
 
 def result_rows(rows, history, config):
+    all_frames = bool((config or {}).get('frame_settings'))
     admitted = {a['profile'] for attempts in history.values() for a in attempts
-                if a['phase'] == 'pilot' and a.get('modality_admitted')}
+                if a['phase'] == 'pilot' and a.get('modality_admitted')
+                and (not all_frames or a.get('frame_report'))}
     for row in rows:
         key = row['request_id']
         attempts = history.get(key, [])
@@ -359,6 +449,7 @@ def result_rows(rows, history, config):
         status = (final['status'] if attempts else 'INSPECTION_ONLY' if key is None else
                   'NOT_ATTEMPTED' if row['profile'] in admitted else 'PILOT_REQUIRED')
         answer = final.get('normalized_answer')
+        frame_verified = not all_frames or final.get('phase') != 'pilot' or bool(final.get('frame_report'))
         fields = {k: row[k] for k in (
             'scope', 'domain', 'task', 'input', 'sample_id', 'original_video_ID', 'legacy_sample_id',
             'source', 'source_manifest_sha256', 'protocol', 'source_version', 'condition_key',
@@ -371,7 +462,8 @@ def result_rows(rows, history, config):
                    attempt_sample_id=final.get('sample_id'), status=status,
                    finish_reason=final.get('finish_reason'), raw_answer=final.get('raw_answer'),
                    normalized_answer=answer, strict_format_valid=final.get('strict_format_valid', False),
-                   correct=(answer == row['truth']) if answer is not None and row['accuracy_eligible'] else None,
+                   correct=(answer == row['truth']) if answer is not None and row['accuracy_eligible']
+                   and frame_verified else None,
                    http_status=final.get('http_status'), response_body_sha256=final.get('response_body_sha256'))
 
 
@@ -462,12 +554,28 @@ def verify(archive):
                         and plan['profiles'] == release.counts(rows)
                         and plan['logical_rows'] == len(rows) and plan['unique_requests'] == len(selected),
                         'Archive plan does not reconcile')
-        release.require(config is None or (config['source_plan_sha256'] == plan['source_plan_sha256']
-                        and config['provider'] == PROVIDER and config['endpoint'] == BASE_URL),
-                        'Run configuration differs from plan or provider')
+        provider = PROVIDER
+        if config:
+            provider = config['provider']
+            release.require(config['source_plan_sha256'] == plan['source_plan_sha256'],
+                            'Run configuration differs from plan')
+            if provider in native_video_api.HOSTED:
+                native_video_api.validate_config(config)
+            elif provider == 'vllm':
+                native_video_api.vllm_endpoint(config['endpoint'])
+            else:
+                release.require(provider == PROVIDER and config['endpoint'] == BASE_URL,
+                                'Run configuration differs from provider')
+            if 'frame_settings' in config:
+                release.require(provider in (PROVIDER, 'vllm')
+                                and config['frame_settings'] == native_video_api.FULL_FRAME_FIELDS,
+                                'All-frame configuration differs')
         history = defaultdict(list)
         changed_models = set()
         admitted_models = set()
+        full_frame_profiles = set()
+        full_frame_runs = set()
+        frame_deployments = set()
         with bundle.open('attempts.jsonl') as stream:
             for line in stream:
                 entry = json.loads(line)
@@ -489,7 +597,7 @@ def verify(archive):
                     content = base64.b64decode(body, validate=True)
                     release.require(entry['response_body_sha256'] == release.sha(content)
                                     and entry['response_bytes'] == len(content), 'Raw response identity differs')
-                    parsed = response_fields(content, entry['http_status'], selected[key]['choices'], None)
+                    parsed = response_fields(content, entry['http_status'], selected[key]['choices'], None, provider)
                     if entry['status'] == 'MODEL_ID_CHANGED':
                         changed_models.add(parsed['returned_model'])
                         parsed.update(status='MODEL_ID_CHANGED', normalized_answer=None,
@@ -503,7 +611,16 @@ def verify(archive):
                         and withheld in {'credential_echo', 'media_echo'}), 'Original response body is missing')
                 if entry['phase'] == 'pilot' and entry.get('modality_admitted'):
                     admitted_models.add(entry['returned_model'])
+                if 'frame_report' in entry:
+                    release.require(bool((config or {}).get('frame_settings')), 'Unexpected server frame report')
+                    validate_frame_report(entry['frame_report'], entry, config)
+                    full_frame_profiles.add(entry['profile'])
+                    frame_deployments.add(entry['frame_report']['deployment'])
+                if entry['phase'] == 'run' and (config or {}).get('frame_settings'):
+                    full_frame_runs.add(entry['profile'])
                 history[key].append(entry)
+        release.require(full_frame_runs <= full_frame_profiles and len(frame_deployments) <= 1,
+                        'All-frame batch evidence does not reconcile')
         release.require((not changed_models or bool(admitted_models))
                         and not changed_models & admitted_models and len(admitted_models) <= 1,
                         'Provider model identities do not reconcile')
@@ -533,17 +650,28 @@ def main():
     parser.add_argument('--private-metadata-root', type=Path, help='Local copy of the pinned private index and T5 manifests')
     parser.add_argument('--allow-private-media-transfer', action='store_true')
     parser.add_argument('--model', default=os.environ.get('JINWEI_MODEL'))
+    parser.add_argument('--provider', default=PROVIDER, choices=(PROVIDER, 'vllm', *native_video_api.HOSTED))
     parser.add_argument('--max-tokens', type=int, default=4096)
     parser.add_argument('--max-requests', type=int, default=0, help='Maximum new attempts in this invocation, including pilots')
     parser.add_argument('--workers', type=int, default=2)
     parser.add_argument('--scope', action='append', choices=release.SCOPES)
+    parser.add_argument('--task', action='append', choices=TASK_SCOPES,
+                        help='Select a task and domain, e.g. t1-classic; defaults to all-frame video')
     parser.add_argument('--input', choices=('video', 'static'))
+    frames = parser.add_mutually_exclusive_group()
+    frames.add_argument('--all-frames', action='store_true', help='Request original frames and gate bulk on a server report')
+    frames.add_argument('--sampled-video', action='store_true', help='Use the provider sampling path as a separate comparison')
+    parser.add_argument('--frame-report', type=Path, help='Server decoder and processor evidence from the pilot')
     parser.add_argument('--retry', action='append', help='Explicit request ID to try once more; never re-asks a returned answer')
     parser.add_argument('--retry-uncertain', action='store_true', help='A previous request may already have reached the provider')
     parser.add_argument('--pilot-trial', action='append',
                         help='Choose another previously unasked request ID for a blocked profile')
     parser.add_argument('--execute', action='store_true', help='Authorize real calls from this shell')
     args = parser.parse_args()
+    if args.task:
+        args.scope = list(dict.fromkeys([*(args.scope or []), *(TASK_SCOPES[task] for task in args.task)]))
+        args.input = args.input or 'video'
+        args.all_frames = args.all_frames or (args.input == 'video' and not args.sampled_video)
     try:
         if args.command == 'verify':
             release.require(args.archive, 'Set --archive for verification')
@@ -581,7 +709,7 @@ def command(args):
         plan, rows = load_plan(args.out)
         release.require(not private or plan['private_index_sha256'], 'Use a new output directory for the private plan')
     if args.command == 'plan':
-        return {'status': 'PLANNED_NO_MODEL_CALLS', **plan}
+        return {'status': 'PLANNED_NO_MODEL_CALLS', **plan, 'selected_requests': len(selected_requests(rows, args))}
     if args.command in ('pilot', 'run'):
         return execution(args.out, plan, rows, args, private, pilot=args.command == 'pilot')
     pilot = execution(args.out, plan, rows, args, private, pilot=True)
@@ -595,7 +723,8 @@ def command(args):
     selected = selected_requests(rows, args)
     finished = sum(1 for key in selected if histories.get(key) and histories[key][-1]['status'] in {
         'ANSWERED', 'FORMAT_OR_TOOL_FAILURE', 'TRUNCATED',
-    })
+    } and (not args.all_frames or histories[key][-1]['phase'] != 'pilot'
+           or histories[key][-1].get('frame_report')))
     return {**packaged, 'status': 'COMPLETE' if finished == len(selected) else 'PARTIAL',
             'selected_requests': len(selected), 'finished_selected_requests': finished, 'pilot': pilot, 'run': run}
 

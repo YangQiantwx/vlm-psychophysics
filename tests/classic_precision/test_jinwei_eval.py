@@ -61,7 +61,8 @@ def _response(text, *, finish='stop'):
 def _args(root, **changes):
     values = dict(scope=None, input=None, execute=True, max_requests=20, allow_private_media_transfer=False,
                   media_root=root, model='provider/company/model-name', max_tokens=4096, workers=2,
-                  retry=None, retry_uncertain=False, pilot_trial=None)
+                  retry=None, retry_uncertain=False, pilot_trial=None, provider='nvidia-internal',
+                  all_frames=False, frame_report=None)
     return SimpleNamespace(**{**values, **changes})
 
 
@@ -99,6 +100,69 @@ def test_gateway_post_contains_only_frozen_prompt_and_inline_media(tmp_path, mon
         assert [item['path'] for item in evidence] == [item['path'] for item in row['media']]
 
 
+@pytest.mark.parametrize('provider,model,env', [
+    ('gemini', 'gemini-3.1-pro-preview', 'GEMINI_API_KEY'),
+    ('qwen', 'qwen3.8-max', 'DASHSCOPE_API_KEY'),
+])
+def test_hosted_native_video_request_and_return(tmp_path, monkeypatch, provider, model, env):
+    video = tmp_path / 'natural/t1/gt-canary-LEFT.mp4'
+    video.parent.mkdir(parents=True)
+    video.write_bytes(b'fixture video bytes')
+    source = dict(sample_id='sample-canary', domain='natural', task='T1', truth='LEFT',
+                  prompt='Frozen question.', parameters={'modulation': .5}, video_path=str(video.relative_to(tmp_path)),
+                  video_sha256=release.sha(video.read_bytes()), frames=180, fps=60, width=768, height=512)
+    row = release.trial('natural/t1', source, 'fixture', 'video-sha')
+    monkeypatch.setattr(release, 'public_plan', lambda _: [row])
+    monkeypatch.setenv(env, 'fixture-key')
+    monkeypatch.delenv('DASHSCOPE_BASE_URL', raising=False)
+
+    def open_request(request, timeout):
+        assert request.method == 'POST'
+        assert b'canary' not in request.data
+        assert b'fixture-key' not in request.data
+        encoded = base64.b64encode(video.read_bytes()).decode()
+        if provider == 'gemini':
+            assert request.full_url == f'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent'
+            assert request.get_header('X-goog-api-key') == 'fixture-key'
+            assert json.loads(request.data) == {
+                'contents': [{'role': 'user', 'parts': [
+                    {'inlineData': {'mimeType': 'video/mp4', 'data': encoded}, 'videoMetadata': {'fps': 24}},
+                    {'text': 'Frozen question.'},
+                ]}], 'generationConfig': {'maxOutputTokens': 4096},
+            }
+            raw = release.encoded({'modelVersion': 'returned-version', 'responseId': 'original-id',
+                                   'candidates': [{'finishReason': 'STOP', 'content': {'parts': [
+                                       {'thought': True, 'text': 'Reasoning content'}, {'text': 'LEFT'}]}}],
+                                   'usageMetadata': {'totalTokenCount': 12}})
+        else:
+            assert request.full_url == 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions'
+            assert request.get_header('Authorization') == 'Bearer fixture-key'
+            assert json.loads(request.data) == {
+                'model': model, 'stream': False, 'max_tokens': 4096,
+                'messages': [{'role': 'user', 'content': [
+                    {'type': 'video_url', 'video_url': {'url': 'data:video/mp4;base64,' + encoded}, 'fps': 10},
+                    {'type': 'text', 'text': 'Frozen question.'},
+                ]}],
+            }
+            raw = _response('LEFT')
+        response = BytesIO(raw)
+        response.status, response.headers = 200, {}
+        return response
+
+    monkeypatch.setattr(runner, 'build_opener', lambda *handlers: SimpleNamespace(open=open_request))
+    out = tmp_path / 'run'
+    out.mkdir()
+    options = dict(command='evaluate', out=out, archive=None, private_index=None,
+                   private_metadata_root=None, metadata_root=None, scope=['natural/t1'], input='video')
+    result = runner.command(_args(tmp_path, **options, provider=provider, model=model, max_requests=1))
+    assert result['status'] == 'COMPLETE'
+    assert runner.verify(out / 'return.zip')['request_attempts'] == 1
+    with ZipFile(out / 'return.zip') as package:
+        trial, = runner.load_rows(package.read('results.jsonl'))
+        assert trial['correct'] and trial['raw_answer'] == 'LEFT'
+        assert trial['returned_model'] == 'returned-version'
+
+
 def test_evaluate_reports_completion_for_selected_scope(tmp_path, monkeypatch):
     out = tmp_path / 'run'
     out.mkdir()
@@ -116,6 +180,49 @@ def test_evaluate_reports_completion_for_selected_scope(tmp_path, monkeypatch):
     assert runner.verify(out / 'return.zip')['unique_requests'] == 4
 
 
+def test_all_frame_batch_requires_server_evidence(tmp_path, monkeypatch):
+    out = tmp_path / 'run'
+    out.mkdir()
+    monkeypatch.setattr(release, 'public_plan', lambda _: _fixture(tmp_path))
+    monkeypatch.setenv('VLLM_BASE_URL', 'https://serve.example.test/v1')
+    monkeypatch.setenv('VLLM_API_KEY', 'fixture-key')
+
+    def transport(payload, credential, config):
+        assert credential == 'fixture-key'
+        assert config['endpoint'] == 'https://serve.example.test/v1'
+        body = json.loads(payload)
+        assert body['media_io_kwargs'] == {'video': {'num_frames': -1, 'fps': -1}}
+        assert body['mm_processor_kwargs'] == {'do_sample_frames': False}
+        return 200, {}, _response('LEFT')
+
+    monkeypatch.setattr(runner, 'transport', transport)
+    options = dict(command='evaluate', out=out, archive=None, private_index=None,
+                   private_metadata_root=None, metadata_root=None, scope=['classic/t2'], input='video',
+                   provider='vllm', all_frames=True)
+    first = runner.command(_args(tmp_path, **options))
+    assert first['status'] == 'PARTIAL' and first['request_attempts'] == 1
+    assert first['finished_selected_requests'] == 0
+    with ZipFile(out / 'return.zip') as package:
+        pilot, = runner.load_rows(package.read('attempts.jsonl'))
+        scores = json.loads(package.read('summary.json'))['profiles']['classic/t2/video']
+        assert scores['independent_requests']['observed_scorable'] == 0
+    report = dict(endpoint='https://serve.example.test/v1', model='returned-version',
+                  deployment='fixture-deployment', request_sha256=pilot['request_sha256'],
+                  decoded_indices=list(range(180)), processor_indices=list(range(179)))
+    path = tmp_path / 'server-report.json'
+    path.write_bytes(release.encoded([report]))
+    with pytest.raises(ValueError, match='processor indices 0–179'):
+        runner.command(_args(tmp_path, **options, frame_report=path))
+    report['processor_indices'].append(179)
+    path.write_bytes(release.encoded([report]))
+    done = runner.command(_args(tmp_path, **options, frame_report=path))
+    assert done['status'] == 'COMPLETE' and done['request_attempts'] == 2
+    assert runner.verify(out / 'return.zip')['status'] == 'VERIFIED'
+    with ZipFile(out / 'return.zip') as package:
+        attempts = runner.load_rows(package.read('attempts.jsonl'))
+        assert next(a for a in attempts if a['phase'] == 'pilot')['frame_report'] == report
+
+
 def test_fixture_end_to_end(tmp_path, monkeypatch):
     out = tmp_path / 'run'
     out.mkdir()
@@ -128,7 +235,7 @@ def test_fixture_end_to_end(tmp_path, monkeypatch):
     sent = []
     original = []
 
-    def fake_transport(payload, credential):
+    def fake_transport(payload, credential, config):
         assert credential == 'fixture-credential-unused'
         request = json.loads(payload)
         assert set(request) == {'model', 'messages', 'stream', 'max_completion_tokens'}

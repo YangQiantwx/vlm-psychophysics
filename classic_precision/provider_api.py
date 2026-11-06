@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import base64
 import hashlib
+from itertools import islice
 import json
 import os
 from pathlib import Path
@@ -25,7 +26,7 @@ ROUTES = {
 def validate(row: dict, root: Path) -> Path:
     assert row['sample_id'] and row['prompt']
     assert row.get('task') != 'T5', 'T5 reference-image plus video admission is not yet qualified for these provider routes.'
-    path = root / row['video_path']
+    path = root / (row.get('video_path') or row['path'])
     assert path.is_file(), path
     digest = hashlib.sha256(path.read_bytes()).hexdigest()
     assert digest == row['video_sha256'], f'Source SHA mismatch: {row["sample_id"]}'
@@ -59,7 +60,7 @@ def main() -> None:
     ap.add_argument('--out', type=Path, required=True)
     ap.add_argument('--limit', type=int, default=1)
     ap.add_argument('--max-tokens', type=int, default=4096)
-    ap.add_argument('--video-url', help='Required HTTPS URL for BigModel; must identify the validated input.')
+    ap.add_argument('--video-url', help='BigModel HTTPS object URL with the source SHA as its filename.')
     ap.add_argument('--execute', action='store_true')
     args = ap.parse_args()
     base_url, key_env, default_model = ROUTES[args.provider]
@@ -76,12 +77,24 @@ def main() -> None:
         return
     assert model, 'Internal gateway requires an exact model ID from account-models.json.'
     assert args.inputs and args.limit > 0
-    document = json.loads(args.inputs.read_text())
-    rows = (document['example_inputs'] if isinstance(document, dict) else document)[:args.limit]
+    if args.inputs.suffix == '.jsonl':
+        with args.inputs.open() as stream:
+            rows = [json.loads(line) for line in islice((line for line in stream if line.strip()), args.limit)]
+    else:
+        document = json.loads(args.inputs.read_text())
+        rows = (document['example_inputs'] if isinstance(document, dict) else document)[:args.limit]
     assert rows and len({r['sample_id'] for r in rows}) == len(rows)
     paths = [validate(r, args.root) for r in rows]
+    if args.provider == 'moonshot' and any(path.suffix.lower() != '.mp4' for path in paths):
+        ap.error('Select a published MP4 for the Moonshot video upload')
     if args.provider == 'bigmodel':
-        assert len(rows) == 1 and args.video_url and urlparse(args.video_url).scheme == 'https'
+        if len(rows) != 1 or not args.video_url:
+            ap.error('BigModel takes one SHA-named HTTPS video URL per invocation')
+        url = urlparse(args.video_url)
+        name = rows[0]['video_sha256'] + paths[0].suffix
+        if (url.scheme != 'https' or not url.hostname or url.username or url.fragment
+                or url.path not in (f'/{name}', f'/video/{name}', f'/videos/{name}')):
+            ap.error('Use a neutral host and a SHA-named object path for BigModel')
     preview = {'status': 'PREPARED_NO_MODEL_CALLS', 'provider': args.provider,
                'endpoint': base_url, 'model': model, 'tool_executor': False,
                'sampling_policy': 'provider defaults; seed/temperature not imposed',
@@ -117,8 +130,9 @@ def main() -> None:
                 # Admit the actual remote bytes, not merely a local namesake.
                 import requests
                 remote_sha, remote_bytes = hashlib.sha256(), 0
-                with requests.get(media_url, stream=True, timeout=60) as remote:
+                with requests.get(media_url, stream=True, timeout=60, allow_redirects=False) as remote:
                     remote.raise_for_status()
+                    assert remote.status_code == 200
                     for chunk in remote.iter_content(1 << 20):
                         remote_bytes += len(chunk)
                         assert remote_bytes <= path.stat().st_size
@@ -126,7 +140,8 @@ def main() -> None:
                 assert remote_bytes == path.stat().st_size and remote_sha.hexdigest() == row['video_sha256']
                 receipt['remote_media_source_sha256_verified'] = remote_sha.hexdigest()
             else:
-                media_url = 'data:video/mp4;base64,' + base64.b64encode(path.read_bytes()).decode()
+                mime = {'.mp4': 'video/mp4', '.mkv': 'video/x-matroska'}[path.suffix.lower()]
+                media_url = f'data:{mime};base64,' + base64.b64encode(path.read_bytes()).decode()
             body = parameters(args.provider, model, row['prompt'], media_url, args.max_tokens)
             response = client.chat.completions.create(**body)
             (target / 'raw-response.json').write_text(response.model_dump_json(indent=2) + '\n')

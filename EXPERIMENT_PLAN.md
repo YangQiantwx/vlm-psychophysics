@@ -57,16 +57,45 @@ python reproduction/render_new_stimuli.py t5-unmasked --snapshot HUB_SNAPSHOT \
 
 ## Run the Jinwei evaluation
 
-Start with strict T4 on the [pinned public release](https://huggingface.co/datasets/DrQY/vlm-psychophysics/tree/20baa977b183c8ecf56b5e4f7da569c5a93e9464). The ordered first/last-frame evaluation has 2,304 requests per model (768 Classic and 1,536 Natural), covering N=8 and N=16. Set `NVIDIA_API_KEY` and `JINWEI_MODEL` in your shell using the credentials and model ID from your account.
+Start with **T1 video** on the [pinned public release](https://huggingface.co/datasets/DrQY/vlm-psychophysics/tree/20baa977b183c8ecf56b5e4f7da569c5a93e9464). Use `--task t1-classic` for FFV1/MKV or `--task t1-natural` for RGB H.264/MP4. Each has 4,224 videos at 60 fps, including contrast 0.5.
+
+### All-frame run
+
+Use a deployment that accepts the original video and can report frame indices after preprocessing. Candidates for managed vLLM are [Qwen3.5-397B-A17B](https://huggingface.co/Qwen/Qwen3.5-397B-A17B#video-input) and [Qwen3-VL-235B-A22B-Instruct](https://github.com/QwenLM/Qwen3-VL#online-serving). The server must permit the [vLLM multimodal request arguments](https://docs.vllm.ai/en/latest/features/multimodal_inputs/) and have room for the full visual input. Set `VLLM_BASE_URL` and `VLLM_API_KEY`, then send one Classic pilot.
 
 ```bash
-python -m classic_precision.jinwei_eval evaluate --out jinwei-t4-static \
-  --scope classic/t4 --scope natural/t4 --input static --execute --max-requests 2304
-python -m classic_precision.jinwei_eval verify --archive jinwei-t4-static/return.zip
+python -m classic_precision.jinwei_eval evaluate --provider vllm \
+  --model Qwen/Qwen3.5-397B-A17B --task t1-classic \
+  --out qwen397b-t1-classic --max-requests 1 --execute
 ```
 
-The runner uses the NVIDIA gateway's OpenAI-compatible `POST /v1/chat/completions` with `max_completion_tokens`. It checks each file's SHA-256 and sends inline media in order followed by the frozen prompt. Filenames, paths, trial IDs and ground truth stay local for scoring and audit. Each task and input route starts with a pilot. Check image and video support on the account's actual model. A successful API response confirms acceptance of that request, and the serving frame count requires provider-side evidence.
+For the NVIDIA internal gateway use `--provider nvidia-internal`, its exact account model ID and `NVIDIA_API_KEY`. The request uses the screenshot's Chat Completions endpoint. Confirm that the gateway forwards the full-frame controls to a compatible serving backend.
 
-For T4 video, use `--input video` and a separate output directory. The 2,304 videos use Classic FFV1/MKV and Natural RGB H.264/MP4. For the full public run, omit the scope and input filters and use `--max-requests 34938` (20,256 video and 14,682 distinct static requests). T5 video includes its reference image.
+The runner asks the loader to keep original frames and disables processor sampling. To continue, rerun with `--frame-report server-report.json --max-requests 4224`. The JSON is a list of reports from the server logs. Each includes `endpoint`, the returned `model`, a pinned `deployment` ID, the pilot `request_sha256` from `attempts.jsonl`, and the arrays `decoded_indices` and `processor_indices`. Both arrays must contain every index from 0 to 179 in order. Use indices after the last sampling step and before the vision encoder. Each task and domain needs its own pilot. For Classic, record the effective bit depth and resize policy alongside the frame evidence. The script blocks the batch until its report is recorded.
 
-Return `return.zip` and `return.zip.sha256` from the output directory. The archive preserves original responses, failures and coverage. A partial run still writes both files. Repeat the command with the same output directory to resume. The request cap includes pilots. Use `--media-root` to read a local copy of the pinned release.
+Return `return.zip` and `return.zip.sha256`. Verify with `python -m classic_precision.jinwei_eval verify --archive qwen397b-t1-classic/return.zip`. Requests send verified video bytes and the frozen prompt. The original filename, trial ID and ground truth stay local.
+
+### Separate API comparisons
+
+| Model | Prepared route | Sampling or input limit |
+|---|---|---|
+| Gemini 3.1 Pro | `jinwei_eval --provider gemini --model gemini-3.1-pro-preview --task t1-natural --sampled-video` | Requests 24 fps. Set `GEMINI_API_KEY`. |
+| Qwen3.8-Max | `jinwei_eval --provider qwen --model qwen3.8-max --task t1-natural --sampled-video` | Requests 10 fps, the API limit and sampling boundary for the 5 Hz stimulus. Set `DASHSCOPE_API_KEY`. |
+| Kimi K3.1 Pro | [Moonshot pilot](#additional-video-pilots) | MP4 via file ID. Service selects keyframes. |
+| GLM-5V-Turbo | [BigModel pilot](#additional-video-pilots) | HTTPS video. Post-processor frame coverage unverified. |
+| Astra | [Frame-image control](classic_precision/astra_direct_eval.py) | Public [OpenAI API](https://developers.openai.com/api/docs/models/gpt-6-astra) accepts text and images. |
+
+### Additional video pilots
+
+Fetch one pinned Natural T1 MP4 and its manifest.
+
+```bash
+python -m pip install '.[download]' openai requests
+python -m classic_precision.current_release --scope natural/t1 --input video --limit 1 --output t1-data
+python -m classic_precision.provider_api --provider moonshot --model kimi-k3.1-pro \
+  --inputs t1-data/natural/t1/metadata.jsonl --root t1-data --out kimi-t1-pilot
+```
+
+Set `MOONSHOT_API_KEY` and add `--execute` for the live Kimi pilot. For GLM, use `--provider bigmodel --model glm-5v-turbo` and `ZHIPU_API_KEY`. Supply `--video-url` for an HTTPS copy named by its SHA-256. The helper checks the remote bytes before inference. Return the pilot output directory with its raw response and receipt.
+
+[Gemini video API](https://ai.google.dev/gemini-api/docs/video-understanding) · [Qwen video API](https://help.aliyun.com/en/model-studio/vision) · [Kimi video API](https://platform.kimi.ai/docs/guide/use-kimi-vision-model) · [GLM-5V-Turbo API](https://docs.bigmodel.cn/cn/guide/models/vlm/glm-5v-turbo)
