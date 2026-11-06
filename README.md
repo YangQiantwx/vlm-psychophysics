@@ -1,89 +1,39 @@
 # Visual Psychophysics
 
-Controlled motion, brightness and orientation tasks with classic and natural-content source videos. The current source release covers **22,944 T1–T3 videos**. Each source is 768×512, 180 frames at 60 fps (3 seconds).
+Five controlled visual judgments in Classic and Natural scenes. The [current Hugging Face release](https://huggingface.co/datasets/DrQY/vlm-psychophysics/tree/20baa977b183c8ecf56b5e4f7da569c5a93e9464) contains **20,256 videos and 20,256 ordered static records**. Explore the [stimulus library](https://vision-tasks.pages.dev/library/) and [model results](https://vision-tasks.pages.dev/experiments/).
 
-| Source | T1: motion | T2: brightness | T3: orientation | Encoding |
-|---|---:|---:|---:|---|
-| Classic | 3,840 | 5,760 | 2,928 | Lossless RGB16 FFV1/MKV |
-| Natural | 3,840 | 3,840 | 2,736 | Lossless RGB8 H.264/MP4 |
+| Task | Judgment | Classic | Natural |
+|---|---|---:|---:|
+| T1 | Horizontal stripe motion | 4,224 | 4,224 |
+| T2 | Side that briefly brightens | 2,880 | 960 |
+| T3 | Side with the vertical object | 2,736 | 2,736 |
+| T4 strict | Horizontal motion signal | 768 | 1,536 |
+| T5 unmasked | Orientation match to a reference | 96 | 96 |
 
-The classic 9,456-video primary selection retains all T1, 30-frame T2 exposures and T3 angles excluding 1.75°/2.25°. Auxiliary source conditions remain available.
+The table counts scientific trials. Identical PNGs can be shared. T5 static records contain the reference and event midpoint images for stimulus inspection.
 
-Current natural T3 uses `natural-t3-lr-paired-20261102-v1`: each of the 2,736 primary classic configurations has one natural counterpart. Its 1,368 left/right pairs fix background, object, onset, angle and physical tilt direction while exchanging sides. The four photo/generated background × object groups contain 684 videos each; all 40 objects and 200 backgrounds are used. Source allocation, decoded-frame QA and exact pair tables are included in the pinned Hugging Face release. The 90° condition has 24 pairs. Discrete condition balance does not assert equal brightness or texture across natural images. [The protocol](EXPERIMENT_PLAN.md) defines stimuli and scientific scope; [the research report](report.md) preserves earlier findings and negative results.
+## Download and inspect
 
-Download sources from Hugging Face:
-
-- [Classic T1–T3](https://huggingface.co/datasets/DrQY/vlm-psychophysics-classic-t1-t3)
-- [Natural T1](https://huggingface.co/datasets/DrQY/vlm-psychophysics-natural-t1), [T2](https://huggingface.co/datasets/DrQY/vlm-psychophysics-natural-t2), [T3](https://huggingface.co/datasets/DrQY/vlm-psychophysics-natural-t3)
-
-Each source repository includes its own downloader and reading example. From this checkout, install the optional download dependency in your existing Python environment, then select a complete folder at a fixed dataset commit:
+Use Python 3.11 or later in your existing environment. The example downloads the first Natural T2 video and static input, verifies each media SHA-256, and reports the fixed dataset commit.
 
 ```bash
 python -m pip install '.[download]'
-python -B -m classic_precision.download_dataset --domain classic --task T3 \
-  --revision COMMIT_SHA --output data --workers 8
-python -B -m classic_precision.read_dataset_example --root data/classic
+python -m classic_precision.current_release --scope natural/t2 --limit 1 --output data
 ```
 
-Use `--domain natural --task T1` for a natural source repository. Omit `--task` to download all tasks in a domain. `--folder T3` selects an entire classic folder; natural folder names start with the task, for example `--domain natural --folder T3`. Each download resolves the requested revision to an immutable commit, records a receipt and verifies the downloaded video SHA256 values.
+Omit `--limit` to fetch the full task. Repeat `--scope` to select more tasks, or omit it for all ten scopes. Use `--input video` or `--input static` for one input type. The T5 video option also fetches the required reference image. The dataset index specifies manifest paths, including the `strict-v1` video folders for T4.
 
-`catalog.jsonl` and `metadata.jsonl` provide source identities, paths, GT, parameters and condition keys. `metadata-demo.csv` contains a small source-only example. `aliases.csv` and [`IdentityRegistry`](classic_precision/dataset_identity.py) resolve canonical IDs, legacy IDs and exact old/new paths. Classic T1 now uses a versioned SHA-bound `t1_<20hex>` ID; the other IDs retain their existing identity. Filenames, directories and hosts do not enter the identity hash. Parent source IDs describe lineage, rather than aliases for replaced videos.
+Each row gives its ID, question, ground truth, conditions, relative paths and hashes. Send only media in manifest order and the exact question to the model. Filenames and metadata can reveal the answer.
 
-Readable filenames contain labels. Models and participants receive only the video and task question. T3 `verticalLeft_tiltRight` means that the left object is vertical and the right object's upper end leans right; 90° is `horizontal`. Natural source numbers remain fixed and retain their attribution and license evidence.
+## Reproduce
 
-[`dataset_release.py`](classic_precision/dataset_release.py) builds a source-only staging tree without uploading. Publishing requires complete SHA-bound, decoded-content validation for every video. Source QA, encoded pixels and actual model preprocessing are separate measurements.
+- [Stimulus and inference protocol](EXPERIMENT_PLAN.md) describes the accepted X routes, configuration inspection, and evidence scope.
+- [T1 m = 0.5 and strict Classic T4 source bundle](https://huggingface.co/datasets/DrQY/vlm-psychophysics/blob/20baa977b183c8ecf56b5e4f7da569c5a93e9464/reproduction/t1-m05-t4-strict-v1/README.md) contains the frozen generators and geometry checks.
+- The [Natural T2 renderer](reproduction/natural-t2-960/render.py) and [frozen allocation](reproduction/natural-t2-960/combinations.json) reproduce the 960-video panel with the [pinned source bundle and dependencies](https://huggingface.co/datasets/DrQY/vlm-psychophysics/blob/20baa977b183c8ecf56b5e4f7da569c5a93e9464/reproduction/natural-t2-960/README.md).
+- [Strict Natural T4 and unmasked T5 source bundle](https://huggingface.co/datasets/DrQY/vlm-psychophysics/blob/20baa977b183c8ecf56b5e4f7da569c5a93e9464/reproduction/current-t4-t5.md) reproduces the published videos from frozen combinations and prepared inputs.
 
-Current official **X** recipes for all four models are in [`current_x_protocols.json`](classic_precision/current_x_protocols.json), with exact source hashes, model/tokenizer revisions, actual runtime receipts, input adapters and generation arguments. They use vLLM 0.33 and official mixed NVFP4 checkpoints.
+The [Label preview](https://vision-tasks.pages.dev/label/) is in test mode. The [Label implementation](web_label/README.md) has separate operator instructions.
 
-| Model | FlashInfer autotune | KV cache | Context |
-|---|---|---|---|
-| Cosmos | ON | 17 GiB | 65,536 |
-| Qwen T1 | OFF | 8 GiB | 98,304 |
-| Qwen T2/T3 | OFF | 4 GiB | 65,536 |
-| Nemotron | OFF | 2 GiB | 65,536 |
-| Gemma | ON | 48 GiB | 65,536 |
+## Execution routes and runtime contracts
 
-Inspect a recipe without loading a model:
-
-```bash
-python -B -m classic_precision.reproduce show --model gemma --protocol current-x --task T1
-```
-
-All use the native 180-frame path. Gemma requires its pinned input adapter: its video budget is 280 soft tokens, yielding 176 effective tokens per frame with 16 bottom padding rows; the profile's image budget of 140 is a separate setting. Qwen requires its pinned QSA worker extension. The export preserves these distinctions and does not start inference. Execute through a finite sealed queue with the source catalog, exact task prompt, native input checks and physical GPU lease.
-
-The older `native-default`, `native-original` and `controlled-rgb16` exports remain historical protocols in `reproduction.json`; their framework/support notes do not describe current X. Running profiles and original scientific IDs remain frozen. A source download does not change a running experiment.
-
-## Run the Astra T1 API pilot
-
-Use Python 3.11+ and FFmpeg (`ffprobe` on `PATH`) on macOS or Linux. Install OpenCV in your existing Python environment:
-
-```bash
-python -m pip install opencv-python-headless
-```
-
-Save a video list as `videos.json`. Relative paths resolve next to the manifest. Give each video a unique `id`. The `truth` field is optional and used only to score the saved answer.
-
-```json
-[
-  {"id": "clip-01", "video": "videos/clip-01.mkv", "truth": "LEFT"},
-  {"id": "clip-02", "video": "videos/clip-02.mp4"}
-]
-```
-
-From the repository root, prepare the requests and inspect `astra-output/preflight.json`. This step is offline and costs nothing.
-
-```bash
-python -B -m classic_precision.astra_t1_pilot \
-  --manifest videos.json --output astra-output --budget-usd 3.00
-```
-
-To submit those same requests, run the command again with `--execute`. Use your own `OPENAI_API_KEY` or enter it at the hidden terminal prompt. Set `OPENAI_PROJECT_ID` only if you want to specify a project explicitly.
-
-```bash
-python -B -m classic_precision.astra_t1_pilot \
-  --manifest videos.json --output astra-output --budget-usd 3.00 --execute
-```
-
-Each clip must be 768×512 with 180 frames at 60 fps. The script sends one request per clip with all RGB8 frames as lossless PNG images in chronological order, the fixed T1 question, `detail=original` and `reasoning.effort=low`. Filenames, labels and timestamps stay local. Requests run in manifest order. The script reserves **$1.2048** per next request using [Astra Standard rates](https://developers.openai.com/api/docs/models/gpt-6-astra) and stops when the remaining budget cannot cover it. Its totals are usage-based estimates.
-
-The output keeps the exact request JSON (including the PNGs), frame hashes and timestamps, HTTP metadata, raw API responses and a `complete.json` summary. Reasoning summaries and opaque encrypted items are preserved when returned. After submission, the directory is sealed against reruns. Use a fresh output and a manifest containing only unattempted clips to continue.
+The [X execution table](EXPERIMENT_PLAN.md#execution-routes-and-runtime-contracts) links the video and static workers for Cosmos, Qwen, Nemotron and Gemma. The [profile extracts](reproduction/current-x-profiles.json) record settings from the executed extensions and identify their original sealed profiles by SHA-256. See the [Jinwei evaluation](EXPERIMENT_PLAN.md#run-the-jinwei-evaluation) for the account-backed API route and return archive.
