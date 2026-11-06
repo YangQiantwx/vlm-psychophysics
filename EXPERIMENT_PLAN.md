@@ -55,16 +55,16 @@ python reproduction/render_new_stimuli.py t5-unmasked --snapshot HUB_SNAPSHOT \
   --output T5_OUTPUT --sample-id c45_04398e2a95e9107049dbf1c5
 ```
 
-## Run the Jinwei evaluation
+## Model API
 
 Start with **T1 video** on the [pinned public release](https://huggingface.co/datasets/DrQY/vlm-psychophysics/tree/20baa977b183c8ecf56b5e4f7da569c5a93e9464). Use `--task t1-classic` for FFV1/MKV or `--task t1-natural` for RGB H.264/MP4. Each has 4,224 videos at 60 fps, including contrast 0.5.
 
 ### All-frame run
 
-Use a deployment that accepts the original video and can report frame indices after preprocessing. Candidates for managed vLLM are [Qwen3.5-397B-A17B](https://huggingface.co/Qwen/Qwen3.5-397B-A17B#video-input) and [Qwen3-VL-235B-A22B-Instruct](https://github.com/QwenLM/Qwen3-VL#online-serving). The server must permit the [vLLM multimodal request arguments](https://docs.vllm.ai/en/latest/features/multimodal_inputs/) and have room for the full visual input. Set `VLLM_BASE_URL` and `VLLM_API_KEY`, then send one Classic pilot.
+Use a deployment that accepts the original video and can report frame indices after preprocessing. Candidates for managed vLLM are [Qwen3.5-397B-A17B](https://huggingface.co/Qwen/Qwen3.5-397B-A17B#video-input) and [Qwen3-VL-235B-A22B-Instruct](https://github.com/QwenLM/Qwen3-VL#online-serving). The server must permit the [vLLM multimodal request arguments](https://docs.vllm.ai/en/latest/features/multimodal_inputs/) and have room for the full visual input. Install the CLI with `python -m pip install .`. Set `VLLM_BASE_URL` and `VLLM_API_KEY`, then send one Classic pilot.
 
 ```bash
-python -m classic_precision.jinwei_eval evaluate --provider vllm \
+model-api evaluate --provider vllm \
   --model Qwen/Qwen3.5-397B-A17B --task t1-classic \
   --out qwen397b-t1-classic --max-requests 1 --execute
 ```
@@ -73,14 +73,14 @@ For the NVIDIA internal gateway use `--provider nvidia-internal`, its exact acco
 
 The runner asks the loader to keep original frames and disables processor sampling. To continue, rerun with `--frame-report server-report.json --max-requests 4224`. The JSON is a list of reports from the server logs. Each includes `endpoint`, the returned `model`, a pinned `deployment` ID, the pilot `request_sha256` from `attempts.jsonl`, and the arrays `decoded_indices` and `processor_indices`. Both arrays must contain every index from 0 to 179 in order. Use indices after the last sampling step and before the vision encoder. Each task and domain needs its own pilot. For Classic, record the effective bit depth and resize policy alongside the frame evidence. The script blocks the batch until its report is recorded.
 
-Return `return.zip` and `return.zip.sha256`. Verify with `python -m classic_precision.jinwei_eval verify --archive qwen397b-t1-classic/return.zip`. Requests send verified video bytes and the frozen prompt. The original filename, trial ID and ground truth stay local.
+Return `return.zip` and `return.zip.sha256`. Verify with `model-api verify --archive qwen397b-t1-classic/return.zip`. Requests send verified video bytes and the frozen prompt. The original filename, trial ID and ground truth stay local.
 
 ### Separate API comparisons
 
 | Model | Prepared route | Sampling or input limit |
 |---|---|---|
-| Gemini 3.1 Pro | `jinwei_eval --provider gemini --model gemini-3.1-pro-preview --task t1-natural --sampled-video` | Requests 24 fps. Set `GEMINI_API_KEY`. |
-| Qwen3.8-Max | `jinwei_eval --provider qwen --model qwen3.8-max --task t1-natural --sampled-video` | Requests 10 fps, the API limit and sampling boundary for the 5 Hz stimulus. Set `DASHSCOPE_API_KEY`. |
+| Gemini 3.1 Pro | `model-api evaluate --provider gemini --model gemini-3.1-pro-preview --task t1-natural --sampled-video` | Requests 24 fps. Set `GEMINI_API_KEY`. |
+| Qwen3.8-Max | `model-api evaluate --provider qwen --model qwen3.8-max --task t1-natural --sampled-video` | Requests 10 fps, the API limit and sampling boundary for the 5 Hz stimulus. Set `DASHSCOPE_API_KEY`. |
 | Kimi K3.1 Pro | [Moonshot pilot](#additional-video-pilots) | MP4 via file ID. Service selects keyframes. |
 | GLM-5V-Turbo | [BigModel pilot](#additional-video-pilots) | HTTPS video. Post-processor frame coverage unverified. |
 | Astra | [Frame-image control](classic_precision/astra_direct_eval.py) | Public [OpenAI API](https://developers.openai.com/api/docs/models/gpt-6-astra) accepts text and images. |

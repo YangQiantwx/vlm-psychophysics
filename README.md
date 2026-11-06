@@ -2,7 +2,7 @@
 
 Five controlled visual judgments in Classic and Natural scenes. The [Hugging Face dataset](https://huggingface.co/datasets/DrQY/vlm-psychophysics) contains **20,256 videos and 20,256 static records**. Explore the [stimulus library](https://vision-tasks.pages.dev/library/) and [model results](https://vision-tasks.pages.dev/experiments/).
 
-[Run the Jinwei API evaluation](EXPERIMENT_PLAN.md#run-the-jinwei-evaluation).
+[Model API](EXPERIMENT_PLAN.md#model-api)
 
 | Task | Judgment | Classic | Natural |
 |---|---|---:|---:|

@@ -130,11 +130,11 @@
     "T5": "Reference-image plus video requests are not yet qualified on these provider routes and are not admitted by this runner."
   },
   "runner": {
-    "full_runner": "classic_precision.jinwei_eval",
+    "full_runner": "model-api",
     "pilot_runner": "classic_precision.provider_api",
     "first_input": "video",
     "inventory_command": "python -m classic_precision.provider_api --provider nvidia-internal --inventory --out runs/provider-api/inventory",
-    "guide": "EXPERIMENT_PLAN.md#run-the-jinwei-evaluation",
+    "guide": "EXPERIMENT_PLAN.md#model-api",
     "paid_call_status": "NO_CALLS_EXECUTED",
     "first_task": "t1-classic",
     "alternate_task": "t1-natural"
