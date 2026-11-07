@@ -15,8 +15,11 @@ from .current_release import REPO_ID as REPO, REVISION
 # The private supplement and existing return archives retain the original public pin.
 ORIGINAL_REVISION = '20baa977b183c8ecf56b5e4f7da569c5a93e9464'
 ORIGINAL_INDEX_SHA = '096a675cfce1beeede63fdd3c1fec0f49a3c5deeafe7956fb9de96ee45897731'
+# Keep the previous layout pin available for return archive verification.
+PREVIOUS_REVISION = '13e9cf67bb0b63be562ed7b7a48668fa7b7bca22'
+PREVIOUS_INDEX_SHA = '47611f9b112b406d7b585eade36ab260491fde2dce341ece13e3ad12b893c7f7'
 HF_URL = f'https://huggingface.co/datasets/{REPO}/resolve/{REVISION}/'
-INDEX_SHA = '47611f9b112b406d7b585eade36ab260491fde2dce341ece13e3ad12b893c7f7'
+INDEX_SHA = '7be5c91fa7b527640b1210a7fa39f65a39272fd70b138b318a8014cfb6e38fbe'
 PRIVATE_SHA = '8eb931fa5c8c0103a6c2efbf9b0f27717147a26632f034eaa8e9f06c29c3f964'
 PRIVATE_GENERATION = '1793982719470388'
 MIME = {'.png': 'image/png', '.mp4': 'video/mp4', '.mkv': 'video/x-matroska'}
@@ -24,8 +27,8 @@ MIME = {'.png': 'image/png', '.mp4': 'video/mp4', '.mkv': 'video/x-matroska'}
 SCOPES = {
     'classic/t1': (4224, 4224, 'e73b1158c0d05d2091ccb34c4d97a1ed314c2c47db8582f07ce2420de735d36d',
                    'd4861a54d4a9a621d166f5b922e5dcf56f446cd3910ccb1f1b275078903a0f6f'),
-    'classic/t2': (2880, 120, '31f649b4c294d290995567d14e6c02fb09aba12c8af0a43e016bde4b801d52fb',
-                   '8c1f6b6a68f67da9b0ffcb8412877feb8bca7250f78c5385a1a05a70822c8897'),
+    'classic/t2': (3840, 160, '08dd5864c593ebcc7cf187de55525d911cae682beb6b23b10b1283dcece1eae3',
+                   '0e3bfdfb47952a8d650841575f9d72d4832473ca4dbd042e03eacb19269a7319'),
     'classic/t3': (2736, 114, 'c6ee0c9d31629cba3840c004ffbb2d13ef571818832521dc1ff6a4e531fd4a96',
                    '7d2bebd9082e4c92654b6fcece52ab8f8865e9cda144a902e029a75c0995e2de'),
     'classic/t4': (768, 768, '78041f9ba97b9c603c1fc50c77cfdd3834dcb8ceaf0ef6a21704ad698e10c82a',
@@ -47,6 +50,7 @@ SCOPES = {
 
 def known_public_release(revision, index_sha):
     return (revision, index_sha) in ((REVISION, INDEX_SHA),
+                                     (PREVIOUS_REVISION, PREVIOUS_INDEX_SHA),
                                      (ORIGINAL_REVISION, ORIGINAL_INDEX_SHA))
 
 

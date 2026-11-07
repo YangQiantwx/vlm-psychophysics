@@ -1,13 +1,13 @@
 # Current stimulus and model protocol
 
-The fixed input release is [DrQY/vlm-psychophysics at `13e9cf67`](https://huggingface.co/datasets/DrQY/vlm-psychophysics/tree/13e9cf67bb0b63be562ed7b7a48668fa7b7bca22). The [dataset index](https://huggingface.co/datasets/DrQY/vlm-psychophysics/blob/13e9cf67bb0b63be562ed7b7a48668fa7b7bca22/dataset-index.json) binds the video and static manifests. Source lineage, released media hashes, exact prompts, ground truth and ordered input paths are recorded per trial. Historical configurations and results remain in the [prior protocol](https://github.com/YangQiantwx/vlm-psychophysics/blob/e9be5fd206cd7d0307528b94f5192375e687a1f3/EXPERIMENT_PLAN.md) and [historical experiment log](report.md).
+The fixed input release is [DrQY/vlm-psychophysics at `7b7beae8`](https://huggingface.co/datasets/DrQY/vlm-psychophysics/tree/7b7beae887c5d9f133744b95c85bc53a2b7fb860). The [dataset index](https://huggingface.co/datasets/DrQY/vlm-psychophysics/blob/7b7beae887c5d9f133744b95c85bc53a2b7fb860/dataset-index.json) binds the video and static manifests. Source lineage, released media hashes, exact prompts, ground truth and ordered input paths are recorded per trial. Historical configurations and results remain in the [prior protocol](https://github.com/YangQiantwx/vlm-psychophysics/blob/e9be5fd206cd7d0307528b94f5192375e687a1f3/EXPERIMENT_PLAN.md) and [historical experiment log](report.md).
 
 ## Stimuli
 
 All videos are 768 × 512, 180 frames at 60 fps. Classic T1–T4 use lossless sRGB16 FFV1/MKV. Natural T1–T5 and Classic T5 use lossless sRGB8 RGB H.264/MP4. Model decoder and processor receipts specify their own input dtype, spatial geometry, frame count and time grid.
 
 - **T1.** Eight spatial frequencies, 24 phases and balanced horizontal directions at each modulation depth. The 0.5 extension contributes 384 trials per domain. Natural uses multiplicative modulation in linear RGB.
-- **T2.** Local brightening during the 30-frame event. Natural uses a frozen 20-increment × 24-onset × two-side panel. Each of the 480 left/right pairs uses the same background and object. The four photo/generated background × object groups each contribute 240 trials, with 12 per increment and 10 per onset. All 200 backgrounds and 100 objects appear in each luminance-increment half. Use the [frozen combinations and renderer](https://huggingface.co/datasets/DrQY/vlm-psychophysics/blob/13e9cf67bb0b63be562ed7b7a48668fa7b7bca22/reproduction/README.md#natural-t2) and the [matched Classic pairs](https://huggingface.co/datasets/DrQY/vlm-psychophysics/blob/13e9cf67bb0b63be562ed7b7a48668fa7b7bca22/natural/t2/classic-natural-pairs.csv).
+- **T2.** Local brightening during the 30-frame event. Classic uses four flat backgrounds (linear Y = 0.05, 0.20, 0.30, 0.40), a fixed object pedestal of Y = 0.50, and the same 20 increments × 24 onsets × two sides at each background. The 3,840 video trials map to 160 independent static inputs. Natural uses a frozen 20-increment × 24-onset × two-side panel. Each of the 480 left/right pairs uses the same background and object. The four photo/generated background × object groups each contribute 240 trials, with 12 per increment and 10 per onset. All 200 backgrounds and 100 objects appear in each luminance-increment half. Use the [frozen combinations and renderer](https://huggingface.co/datasets/DrQY/vlm-psychophysics/blob/7b7beae887c5d9f133744b95c85bc53a2b7fb860/reproduction/README.md#natural-t2) and the [matched Classic pairs](https://huggingface.co/datasets/DrQY/vlm-psychophysics/blob/7b7beae887c5d9f133744b95c85bc53a2b7fb860/natural/t2/classic-natural-pairs.csv).
 - **T3.** The objects appear for 30 frames. The current Natural grid pairs with the 2,736 Classic configurations. Left/right pairs keep the background, object, onset, angle and physical tilt direction fixed.
 - **T4.** Classic crosses N = 8 or 16, eight nonzero coherence levels, 24 layouts and both directions. Each pair shares start positions. All trajectories stay contained and separated over the full motion interval. Natural crosses those same trajectories with same or distinct object appearances. Each appearance contributes 768 trials. The two appearances share a background and trajectory for every matched trial.
 - **T5.** An orientation reference image precedes the video. Public inputs cover 192 unmasked trials. The original Cosmos evaluation includes an additional masked condition with access-controlled sources.
@@ -46,11 +46,11 @@ Natural T4 video and static each completed 6,144 calls across four models and 51
 
 ## Reproduce the released stimuli
 
-Use the [stimulus reproduction guide](https://huggingface.co/datasets/DrQY/vlm-psychophysics/blob/13e9cf67bb0b63be562ed7b7a48668fa7b7bca22/reproduction/README.md) for download instructions, frozen inputs and replay commands.
+Use the [stimulus reproduction guide](https://huggingface.co/datasets/DrQY/vlm-psychophysics/blob/7b7beae887c5d9f133744b95c85bc53a2b7fb860/reproduction/README.md) for download instructions, frozen inputs and replay commands.
 
 ## Model API
 
-Start with **T1 video** on the [pinned public release](https://huggingface.co/datasets/DrQY/vlm-psychophysics/tree/13e9cf67bb0b63be562ed7b7a48668fa7b7bca22). Use `--task t1-classic` for FFV1/MKV or `--task t1-natural` for RGB H.264/MP4. Each has 4,224 videos at 60 fps, including contrast 0.5. To resume a run sealed against an earlier dataset revision, use its original checkout and output directory.
+Start with **T1 video** on the [pinned public release](https://huggingface.co/datasets/DrQY/vlm-psychophysics/tree/7b7beae887c5d9f133744b95c85bc53a2b7fb860). Use `--task t1-classic` for FFV1/MKV or `--task t1-natural` for RGB H.264/MP4. Each has 4,224 videos at 60 fps, including contrast 0.5. To resume a run sealed against an earlier dataset revision, use its original checkout and output directory.
 
 ### All-frame run
 
