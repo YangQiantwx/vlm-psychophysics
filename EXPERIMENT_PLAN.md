@@ -1,6 +1,6 @@
 # Current stimulus and model protocol
 
-The fixed input release is [DrQY/vlm-psychophysics at `13e9cf67`](https://huggingface.co/datasets/DrQY/vlm-psychophysics/tree/13e9cf67bb0b63be562ed7b7a48668fa7b7bca22). The [dataset index](https://huggingface.co/datasets/DrQY/vlm-psychophysics/blob/13e9cf67bb0b63be562ed7b7a48668fa7b7bca22/dataset-index.json) binds the video and static manifests. Source lineage, released media hashes, exact prompts, ground truth and ordered input paths are recorded per trial. Historical configurations and results remain in the [prior protocol](https://github.com/YangQiantwx/vlm-psychophysics/blob/e9be5fd206cd7d0307528b94f5192375e687a1f3/EXPERIMENT_PLAN.md) and [research report](report.md).
+The fixed input release is [DrQY/vlm-psychophysics at `13e9cf67`](https://huggingface.co/datasets/DrQY/vlm-psychophysics/tree/13e9cf67bb0b63be562ed7b7a48668fa7b7bca22). The [dataset index](https://huggingface.co/datasets/DrQY/vlm-psychophysics/blob/13e9cf67bb0b63be562ed7b7a48668fa7b7bca22/dataset-index.json) binds the video and static manifests. Source lineage, released media hashes, exact prompts, ground truth and ordered input paths are recorded per trial. Historical configurations and results remain in the [prior protocol](https://github.com/YangQiantwx/vlm-psychophysics/blob/e9be5fd206cd7d0307528b94f5192375e687a1f3/EXPERIMENT_PLAN.md) and [historical experiment log](report.md).
 
 ## Stimuli
 
@@ -62,7 +62,7 @@ model-api evaluate --provider vllm \
   --out qwen397b-t1-classic --max-requests 1 --execute
 ```
 
-For the NVIDIA internal gateway use `--provider nvidia-internal`, its exact account model ID and `NVIDIA_API_KEY`. The request uses the screenshot's Chat Completions endpoint. Confirm that the gateway forwards the full-frame controls to a compatible serving backend.
+For the NVIDIA internal gateway, set `NVIDIA_API_KEY`, choose `--provider nvidia-internal`, and pass your account's exact model ID with `--model`. The runner uses the Chat Completions endpoint configured for that provider. Confirm that the gateway forwards the full-frame controls to a compatible serving backend.
 
 The runner asks the loader to keep original frames and disables processor sampling. To continue, rerun with `--frame-report server-report.json --max-requests 4224`. The JSON is a list of reports from the server logs. Each includes `endpoint`, the returned `model`, a pinned `deployment` ID, the pilot `request_sha256` from `attempts.jsonl`, and the arrays `decoded_indices` and `processor_indices`. Both arrays must contain every index from 0 to 179 in order. Use indices after the last sampling step and before the vision encoder. Each task and domain needs its own pilot. For Classic, record the effective bit depth and resize policy alongside the frame evidence. The script blocks the batch until its report is recorded.
 

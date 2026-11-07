@@ -1,11 +1,15 @@
+# Historical experiment log
+
+This log preserves the October 2026 experiment notes. Queue states and file references describe the runs at the time. For current curves and trial counts, see the [model results](https://vision-tasks.pages.dev/experiments/). For released inputs and execution routes, see the [current protocol](EXPERIMENT_PLAN.md).
+
 <!-- gemma-x-full-current -->
 **Gemma X正式9456由Fourier双卡继续完成，原1031答案保留且不重跑。** Fourier四cold384条完整output/prompt全一致，每cold74/96；预选A同96题67/96。H原段与resume1、L接管2256构成正式选择，最终全量尚未验收交付。
 
 2026-10-31新授权的Radon resident原配置资格未通过：首轮96题完整输出/prompt全同；第二轮37题中1题`t3_3e7b9bdc97c721209478`答RIGHT，而Radon首轮及Fourier四cold均LEFT，GT RIGHT。两轮Radon完整prompt、源/帧/processor/生成记录、全部实际LLM设置与SDK相同；runtime除PID外相同。配置保持resident/offload0、无prefetch、KV48GiB BF16/ctx65536，首预算内输入验收均PASS。原答案全部保留，不挑选正确答案替换原结果。
 
-Radon两个worker真实wait0、owned退出、原lease释放；cold2 PAUSED37、outer真实wait1原样保留。R133原答中132全同、1差异；59未claim，不再派发。185文件32,721,488B全部SHA回传。当前选定资格517/576原答，三卡两cold未通过；有效Fourier双卡两cold资格和正式路线保持。见[失败证据](/Users/qianyang/Desktop/cvpr2027_benchmark/runs/reproducibility/gemma-x-full-20261030/radon-resident-reproduction-failure-summary.json)。旧UVA3/prefetch8及prefetch+KV44真实改答另存；旧11条不混入当前资格，也未用于正式。
+Radon两个worker真实wait0、owned退出、原lease释放；cold2 PAUSED37、outer真实wait1原样保留。R133原答中132全同、1差异；59未claim，不再派发。185文件32,721,488B全部SHA回传。当前选定资格517/576原答，三卡两cold未通过；有效Fourier双卡两cold资格和正式路线保持。见失败证据 `cvpr2027_benchmark/runs/reproducibility/gemma-x-full-20261030/radon-resident-reproduction-failure-summary.json`。旧UVA3/prefetch8及prefetch+KV44真实改答另存；旧11条不混入当前资格，也未用于正式。
 
-按人类明确继续授权，Qwen context48已在Radon独立启动；仅调整安全接续条件，科学配置和48次预算不变，Gemma不重跑。该smoke验收后统一汇总共享GPU、KV、context和Gemma三卡结果。Fourier继续，最终9456/169cell、A-X、四模型对照及交付以合并审计为准；动态入口见[LATEST](/Users/qianyang/Desktop/cvpr2027/LATEST.md)。
+按人类明确继续授权，Qwen context48已在Radon独立启动；仅调整安全接续条件，科学配置和48次预算不变，Gemma不重跑。该smoke验收后统一汇总共享GPU、KV、context和Gemma三卡结果。Fourier继续，最终9456/169cell、A-X、四模型对照及交付以合并审计为准；动态入口见LATEST `cvpr2027/LATEST.md`。
 <!-- /gemma-x-full-current -->
 
 <!-- qwen-x-remaining-t13-current -->
@@ -15,9 +19,9 @@ Radon两个worker真实wait0、owned退出、原lease释放；cold2 PAUSED37、o
 
 网站https://vision-tasks.pages.dev/experiments/已发布deployment0b7d1341，线上四资源SHA及实际A/X、选线UI验收通过。HF `DrQY/vlm-psychophysics-classic-t1-t3/results/qwen-X-20261031-complete` commit10900c9c00df32a00da6ea6310cbd116d0365d62：13文件公开读回SHA/bytes一致；T3 1.3°为93/96。旧partial prefix与manifest保留。回执`classic-analysis-complete-publication.json`和`hf-results-complete-publication.json`；代码classic-precision已推103e2d407821985e931c131bfd8ed2407d7acb09。临时HF上传包已清理，正式原记录和复现代码保留。
 
-配置复现按部署划分：4GiB/65536的三卡资格沿用于T2/T3及同配置自然T2，T1三卡正式均用8GiB/98304。Radon同一T1完整48题的8GiB与4GiB两轮对照现已完成：两轮context均98304，96条完整output/prompt逐值等于原答，每轮27/48；8GiB的47/48请求观测有其他账户实际计算，4GiB时未见其他账户计算。原T1无需重跑，9456正式答案与分母不变；见[独立smoke summary](/Users/qianyang/Desktop/cvpr2027_benchmark/runs/reproducibility/qwen-x-kv-shared-smoke-20261031/summary.json)。
+配置复现按部署划分：4GiB/65536的三卡资格沿用于T2/T3及同配置自然T2，T1三卡正式均用8GiB/98304。Radon同一T1完整48题的8GiB与4GiB两轮对照现已完成：两轮context均98304，96条完整output/prompt逐值等于原答，每轮27/48；8GiB的47/48请求观测有其他账户实际计算，4GiB时未见其他账户计算。原T1无需重跑，9456正式答案与分母不变；见独立smoke summary `cvpr2027_benchmark/runs/reproducibility/qwen-x-kv-shared-smoke-20261031/summary.json`。
 
-Qwen context smoke已于2026-10-31 14:06 HST独立启动：复用S的KV4GiB/context98304同一48题，仅context改65536，其余配置和输入固定。人类明确批准Gemma失败安全闭合后的接续，原科学adapter、48次预算不变；实际STARTING/0claim、outer LIVE，完整输出/prompt验收待完成。原9456与S96保持，Fourier全量继续。[Context入口](/Users/qianyang/Desktop/cvpr2027_benchmark/runs/reproducibility/qwen-x-context-smoke-20261031/preparation-current.json)。
+Qwen context smoke已于2026-10-31 14:06 HST独立启动：复用S的KV4GiB/context98304同一48题，仅context改65536，其余配置和输入固定。人类明确批准Gemma失败安全闭合后的接续，原科学adapter、48次预算不变；实际STARTING/0claim、outer LIVE，完整输出/prompt验收待完成。原9456与S96保持，Fourier全量继续。Context入口 `cvpr2027_benchmark/runs/reproducibility/qwen-x-context-smoke-20261031/preparation-current.json`。
 <!-- /qwen-x-remaining-t13-current -->
 
 <!-- five-task-research-cards-20261030 -->
