@@ -27,7 +27,7 @@ SCOPES = {
     for i in range(1, 6)
     for domain in ("classic", "natural")
 }
-MAIN_TASKS = tuple(task for task in SCOPES if not task.startswith("t5-"))
+ALL_TASKS = tuple(SCOPES)
 SOURCES = "sources"
 BASIS = f"{SOURCES}/classic/t1"
 T5 = f"{SOURCES}/t5"
@@ -256,7 +256,7 @@ def generate(task, sample_ids, output, data_root, revision=REVISION, workers=1):
     output = Path(output).resolve()
     if output.is_relative_to(data.root):
         raise ValueError("Choose an output directory outside the input data root")
-    tasks = MAIN_TASKS if task == "all" else (task,)
+    tasks = ALL_TASKS if task == "all" else (task,)
     wanted = set(sample_ids)
     seen = set()
     jobs = []
