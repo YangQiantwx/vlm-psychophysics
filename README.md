@@ -1,16 +1,18 @@
 # Visual Psychophysics
 
-Five controlled visual judgments in Classic and Natural scenes. The [Hugging Face dataset](https://huggingface.co/datasets/DrQY/vlm-psychophysics) contains **21,216 videos and 21,216 static records**. Explore the [stimulus library](https://vision-tasks.pages.dev/library/) and [model results](https://vision-tasks.pages.dev/experiments/).
+Five controlled visual judgments in Classic and Natural scenes. The [Hugging Face dataset](https://huggingface.co/datasets/DrQY/vlm-psychophysics) contains **24,096 videos and 24,096 static records**. Explore the [stimulus library](https://vision-tasks.pages.dev/library/) and [model results](https://vision-tasks.pages.dev/experiments/).
 
-[Model API](EXPERIMENT_PLAN.md#model-api)
+[Model API](EXPERIMENT_PLAN.md#model-api) · [Original answers, exact prompts and counts](https://huggingface.co/datasets/DrQY/vlm-psychophysics/tree/3ede52f068164d2db4889d6a84cb153037da1a45/results/current-x)
 
 | Task | Judgment | Classic | Natural |
 |---|---|---:|---:|
 | T1 | Horizontal stripe motion | 4,224 | 4,224 |
-| T2 | Side that briefly brightens | 3,840 | 960 |
+| T2 | Side that briefly brightens | 3,840 | 3,840 |
 | T3 | Side with the vertical object | 2,736 | 2,736 |
 | T4 | Horizontal motion signal | 768 | 1,536 |
 | T5 | Orientation match to a reference | 96 | 96 |
+
+Natural T2 includes four source groups of 960 trials each. Its separately frozen 960-trial comparison panel remains available.
 
 The table counts scientific trials. Identical PNGs can be shared. T5 static records contain the reference and event midpoint images for stimulus inspection.
 
@@ -29,9 +31,9 @@ Each row gives its ID, question, ground truth, conditions, relative paths and ha
 
 ## Reproduce
 
-The [stimulus reproduction guide](https://huggingface.co/datasets/DrQY/vlm-psychophysics/blob/7b7beae887c5d9f133744b95c85bc53a2b7fb860/reproduction/README.md) links the generators, frozen inputs and source attributions. The [experiment protocol](EXPERIMENT_PLAN.md) describes the stimulus design and model inputs.
+The [stimulus reproduction guide](https://huggingface.co/datasets/DrQY/vlm-psychophysics/blob/3ede52f068164d2db4889d6a84cb153037da1a45/reproduction/README.md) links the generators, frozen inputs and source attributions. The [experiment protocol](EXPERIMENT_PLAN.md) describes the stimulus design and model inputs.
 
-To rebuild a Classic T2 video, download the [Classic T2 metadata](https://huggingface.co/datasets/DrQY/vlm-psychophysics/resolve/7b7beae887c5d9f133744b95c85bc53a2b7fb860/classic/t2/metadata.jsonl?download=true) and save it as `data/classic/t2/metadata.jsonl`. The renderer checks all 180 decoded RGB16 frames against the published stream hash and reports the container SHA-256 match separately.
+To rebuild a Classic T2 video, download the [Classic T2 metadata](https://huggingface.co/datasets/DrQY/vlm-psychophysics/resolve/3ede52f068164d2db4889d6a84cb153037da1a45/classic/t2/metadata.jsonl?download=true) and save it as `data/classic/t2/metadata.jsonl`. The renderer checks all 180 decoded RGB16 frames against the published stream hash and reports the container SHA-256 match separately.
 
 ```bash
 python -m pip install .

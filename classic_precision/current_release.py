@@ -11,7 +11,7 @@ import re
 
 
 REPO_ID = 'DrQY/vlm-psychophysics'
-REVISION = '7b7beae887c5d9f133744b95c85bc53a2b7fb860'
+REVISION = '3ede52f068164d2db4889d6a84cb153037da1a45'
 SCOPES = tuple(f'{domain}/t{task}' for domain in ('classic', 'natural') for task in range(1, 6))
 
 

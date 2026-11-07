@@ -148,7 +148,10 @@ def main() -> None:
             message = response.choices[0].message
             label = (message.content or '').strip().upper().rstrip('.!')
             valid = label in row.get('choices', ['LEFT', 'RIGHT'])
-            receipt.update(status='COMPLETE' if valid and not message.tool_calls else 'FORMAT_OR_TOOL_CALL_FAILURE',
+            finish_reason = response.choices[0].finish_reason
+            status = ('TRUNCATED' if finish_reason == 'length' else 'INCOMPLETE' if finish_reason != 'stop'
+                      else 'COMPLETE' if valid and not message.tool_calls else 'FORMAT_OR_TOOL_CALL_FAILURE')
+            receipt.update(status=status,
                            answer=label if valid else None, returned_model=response.model,
                            finish_reason=response.choices[0].finish_reason,
                            tool_calls_returned=bool(message.tool_calls),

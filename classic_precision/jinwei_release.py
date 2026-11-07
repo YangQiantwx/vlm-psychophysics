@@ -19,7 +19,10 @@ ORIGINAL_INDEX_SHA = '096a675cfce1beeede63fdd3c1fec0f49a3c5deeafe7956fb9de96ee45
 PREVIOUS_REVISION = '13e9cf67bb0b63be562ed7b7a48668fa7b7bca22'
 PREVIOUS_INDEX_SHA = '47611f9b112b406d7b585eade36ab260491fde2dce341ece13e3ad12b893c7f7'
 HF_URL = f'https://huggingface.co/datasets/{REPO}/resolve/{REVISION}/'
-INDEX_SHA = '7be5c91fa7b527640b1210a7fa39f65a39272fd70b138b318a8014cfb6e38fbe'
+INDEX_SHA = '1fa80aa8c7e644566f7931d1940c38da196086e1e2671997a7dd4cfd616656a6'
+FULL_MEDIA_REVISION = '87670fa5101bd9fc9fe05edf3d97c936e832bbb6'
+T2_960_REVISION = '7b7beae887c5d9f133744b95c85bc53a2b7fb860'
+T2_960_INDEX_SHA = '7be5c91fa7b527640b1210a7fa39f65a39272fd70b138b318a8014cfb6e38fbe'
 PRIVATE_SHA = '8eb931fa5c8c0103a6c2efbf9b0f27717147a26632f034eaa8e9f06c29c3f964'
 PRIVATE_GENERATION = '1793982719470388'
 MIME = {'.png': 'image/png', '.mp4': 'video/mp4', '.mkv': 'video/x-matroska'}
@@ -37,8 +40,8 @@ SCOPES = {
                    '6ffb19e4882e4c20420e1b71517680467f67b140bf23ee4a11ed42bf2c95d5bd'),
     'natural/t1': (4224, 4224, '4a736ce7b4b6586c9abccb0b2d323ade9bdb51f069132346b51a431be850333b',
                    'a61e0bb411a4f4dff666027e889ccd7983a81fc0e5dd16ad5b6b0a2734b2dec2'),
-    'natural/t2': (960, 960, '687a16b83c42bdc08e85c4ac035607b47d987d574a578e55bf3740a947472a4b',
-                   'f77011d151c6da2f213fef42b679d46c4038c25b78cd07ea2391569bc84952f3'),
+    'natural/t2': (3840, 3840, 'af2d5854a9872574d511884b1eb2d9f483a28d821a6acafb9ecf1a8140953138',
+                   '237540dad127b13e73ee7c591df3cf6df192fad6d3cb13ffd90874d16c864fa8'),
     'natural/t3': (2736, 2736, '6f994ca8929368ea3a413c3436873da1e95431fc57a7f223f798293522598cef',
                    'e77db842d2914b6684bd57e14d487d5c7554c0bf42c58132dcbe171ab12e2632'),
     'natural/t4': (1536, 1536, '5f3359250ff3c437696a41e9592d820932192ea943d2657820367a00063443ae',
@@ -50,6 +53,8 @@ SCOPES = {
 
 def known_public_release(revision, index_sha):
     return (revision, index_sha) in ((REVISION, INDEX_SHA),
+                                     (FULL_MEDIA_REVISION, INDEX_SHA),
+                                     (T2_960_REVISION, T2_960_INDEX_SHA),
                                      (PREVIOUS_REVISION, PREVIOUS_INDEX_SHA),
                                      (ORIGINAL_REVISION, ORIGINAL_INDEX_SHA))
 
