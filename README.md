@@ -1,8 +1,6 @@
 # Visual Psychophysics
 
-Five controlled visual judgments in Classic and Natural scenes. The [Hugging Face dataset](https://huggingface.co/datasets/DrQY/vlm-psychophysics) contains **24,096 videos and 24,096 static records**. Explore the [stimulus library](https://vision-tasks.pages.dev/library/) and [model results](https://vision-tasks.pages.dev/experiments/).
-
-[Model API](EXPERIMENT_PLAN.md#model-api) · [Original answers, exact prompts and counts](https://huggingface.co/datasets/DrQY/vlm-psychophysics/tree/3ede52f068164d2db4889d6a84cb153037da1a45/results/current-x)
+Five controlled visual judgments in Classic and Natural scenes. The release contains 24,096 videos and 24,096 corresponding static records. [Dataset](https://huggingface.co/datasets/DrQY/vlm-psychophysics) · [Stimulus viewer](https://vision-tasks.pages.dev/library/) · [Model results](https://vision-tasks.pages.dev/experiments/)
 
 | Task | Judgment | Classic | Natural |
 |---|---|---:|---:|
@@ -12,41 +10,43 @@ Five controlled visual judgments in Classic and Natural scenes. The [Hugging Fac
 | T4 | Horizontal motion signal | 768 | 1,536 |
 | T5 | Orientation match to a reference | 96 | 96 |
 
-Natural T2 includes four source groups of 960 trials each. Its separately frozen 960-trial comparison panel remains available.
+The counts are trials. Static evaluation shares a call when ordered media, prompt and choices match. T5 static records are for stimulus inspection.
 
-The table counts scientific trials. Identical PNGs can be shared. T5 static records contain the reference and event midpoint images for stimulus inspection.
+## Run
 
-## Download and inspect
-
-Use Python 3.11 or later in your existing environment. The example downloads the first Natural T2 video and static input, verifies each media SHA-256, and reports the fixed dataset commit.
+Use Linux, Python 3.12, RTX PRO 6000 Blackwell GPUs and CUDA Toolkit 13.0.3. Install into your existing environment:
 
 ```bash
-python -m pip install '.[download]'
-python -m classic_precision.current_release --scope natural/t2 --limit 1 --output data
+python -m pip install -e ".[download,inference]"
+python run.py --task t1-classic --model qwen
 ```
 
-Omit `--limit` to fetch the full task. Repeat `--scope` to select more tasks, or omit it for all ten scopes. Use `--input video` or `--input static` for one input type. The T5 video option also fetches the required reference image. Each task directory contains `metadata.jsonl`, `videos/` and `static/`.
-
-Each row gives its ID, question, ground truth, conditions, relative paths and hashes. The Classic T2 `metadata.jsonl` covers all four background levels and includes the corresponding static input for each video. Send only media in manifest order and the exact question to the model. Filenames and metadata can reveal the answer.
-
-## Reproduce
-
-The [stimulus reproduction guide](https://huggingface.co/datasets/DrQY/vlm-psychophysics/blob/3ede52f068164d2db4889d6a84cb153037da1a45/reproduction/README.md) links the generators, frozen inputs and source attributions. The [experiment protocol](EXPERIMENT_PLAN.md) describes the stimulus design and model inputs.
-
-To rebuild a Classic T2 video, download the [Classic T2 metadata](https://huggingface.co/datasets/DrQY/vlm-psychophysics/resolve/3ede52f068164d2db4889d6a84cb153037da1a45/classic/t2/metadata.jsonl?download=true) and save it as `data/classic/t2/metadata.jsonl`. The renderer checks all 180 decoded RGB16 frames against the published stream hash and reports the container SHA-256 match separately.
+The runner selects writable SSD storage, downloads the pinned dataset and model, checks the runtime, and uses idle GPUs. Each GPU loads and finishes one model recipe at a time. Set `VLM_PSYCHOPHYSICS_CUDA_HOME` if the CUDA toolkit is outside the standard location. Authenticate with Hugging Face for gated models and set `NGC_API_KEY` for NVIDIA downloads.
 
 ```bash
-python -m pip install .
-python -m classic_precision.reproduce_classic_t2 \
-  --metadata data/classic/t2/metadata.jsonl \
-  --metadata-sha256 08dd5864c593ebcc7cf187de55525d911cae682beb6b23b10b1283dcece1eae3 \
-  --sample-id t2_6d10ce9755208fdb1b0a --output replay
+# All four models, T1–T4, both domains, video and static
+python run.py
+
+# One published video; a local video path also works
+python run.py --task t1-classic --model qwen --video T1_left_sf0.5_contrast0.05_trial01.mkv
+
+# Rebuild plots and verify a returned result
+python run.py report --out outputs/RUN
+python run.py verify outputs/RUN/return.zip
 ```
 
-Repeat `--sample-id` for multiple trials, or select a full background level with `--background-y 0.30`.
+Each output directory contains `results.csv`, `results.jsonl`, `summary.json`, `curves.png` and `return.zip`. The `evidence/` folder holds exact prompts, ground truth, resolved model settings, source and input hashes, and execution records. Return `return.zip` for verification and rescoring. Repeating a command with the same output resumes untouched inputs and preserves recorded attempts.
 
-The [Label preview](https://vision-tasks.pages.dev/label/) is in test mode. The [Label implementation](web_label/README.md) has separate operator instructions.
+Use `--input video` or `--input static` to select a modality, `--sample-id` for a scientific ID, or repeat `--task` for several scopes. `--config configs/current-x.json` selects the complete model recipe. Optional `--data-root`, `--model-root`, `--out` and `--gpus` select storage and GPU UUIDs. `run.py plan` shows the selection, `run.py download` fetches it, and `run.py doctor` checks the environment. Add `--media-only` to download data without weights, or `--offline` to use existing local files.
 
-## Execution routes and runtime contracts
+The repository is currently private; collaborators need GitHub access before cloning. [Protocol and hosted Model API](EXPERIMENT_PLAN.md)
 
-The [execution table](EXPERIMENT_PLAN.md#execution-routes-and-runtime-contracts) links the video and static workers for Cosmos, Qwen, Nemotron and Gemma. The [profile extracts](reproduction/current-x-profiles.json) record settings from the executed extensions and identify their original sealed profiles by SHA-256.
+## Regenerate a stimulus
+
+```bash
+python generate.py --task t2-classic --sample-id t2_000201cb3983b82df70a --out replay
+```
+
+Use `python generate.py --task all` to regenerate all released T1–T4 videos. Repeat `--sample-id` to select several trials. `--task all` covers Classic and Natural T1–T4. Select `t5-classic` or `t5-natural` to regenerate an unmasked video for inspection. The renderer uses the frozen source parameters and assets from the pinned dataset release, checks decoded pixels and timestamps, and reports encoded container equality separately. Set `--data-root` to reuse local sources. [Source files and attribution](https://huggingface.co/datasets/DrQY/vlm-psychophysics/tree/main/sources)
+
+The released input manifests contain the exact prompt, media order and hashes. Send only the prompt and media to a model. Filenames, labels and provenance stay in the evaluation record. [Per-trial answers, prompts and counts](https://huggingface.co/datasets/DrQY/vlm-psychophysics/tree/main/results/current-x)
