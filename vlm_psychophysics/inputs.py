@@ -184,12 +184,13 @@ def load_images(item, verify_video=False):
             "Video source decode/order differs",
         )
     for entry in image_entries(item):
+        width, height = (160, 160) if entry.get("frame_index") is None else (768, 512)
         require(
             file_sha256(entry["path"]) == entry["sha256"], "Source PNG bytes changed"
         )
         with Image.open(entry["path"]) as png:
             require(
-                png.mode == "RGB" and png.size == (768, 512) and not png.info,
+                png.mode == "RGB" and png.size == (width, height) and not png.info,
                 "PNG must be untagged RGB8 at native resolution",
             )
         image = ImageMediaIO().load_file(Path(entry["path"])).media
@@ -197,7 +198,7 @@ def load_images(item, verify_video=False):
         require(
             image.mode == "RGB"
             and pixels.dtype == np.uint8
-            and list(pixels.shape) == [512, 768, 3],
+            and list(pixels.shape) == [height, width, 3],
             "Official image reader changed mode/dtype/size",
         )
         checksum = sha(pixels.tobytes())
@@ -236,12 +237,12 @@ def chunks(value, model):
             value.dtype.__str__() == "torch.uint8"
             and len(shape) == 2
             and shape[1] == 1536
-            and shape[0] % 1536 == 0,
+            and (shape[0] == 100 or shape[0] % 1536 == 0),
             "Native raw image patch geometry differs",
         )
         return list(value.split(1536, dim=0))
     if model == "nemo":
-        if shape == [3, 512, 768]:
+        if shape in ([3, 512, 512], [3, 512, 768]):
             from vllm.transformers_utils.processors.nano_nemotron_vl import (
                 DynamicResolutionImageTiler,
             )
@@ -251,11 +252,11 @@ def chunks(value, model):
             len(shape) == 3
             and shape[0] == 1
             and shape[2] == 768
-            and shape[1] % 1536 == 0
+            and (shape[1] == 1024 or shape[1] % 1536 == 0)
         ):
             return list(value[0].split(1536, dim=0))
         require(
-            len(shape) == 4 and shape[1:] == [3, 512, 768],
+            len(shape) == 4 and shape[1:] in ([3, 512, 512], [3, 512, 768]),
             "Nemo native image tensor resized/cropped",
         )
         from vllm.transformers_utils.processors.nano_nemotron_vl import (
@@ -263,10 +264,11 @@ def chunks(value, model):
         )
 
         return [DynamicResolutionImageTiler.stack([image], 16)[0] for image in value]
-    if shape == [1584, 768]:
+    if shape in ([144, 768], [1260, 768], [1584, 768]):
         return [value]
     require(
-        len(shape) == 3 and shape[1:] == [1584, 768], "Gemma valid patch count differs"
+        len(shape) == 3 and shape[1:] in ([144, 768], [1260, 768], [1584, 768]),
+        "Gemma valid patch count differs",
     )
     return list(value.unbind(0))
 
@@ -287,21 +289,20 @@ def payload_description(value, model):
                 or (
                     model == "nemo"
                     and (
-                        shape == [3, 512, 768]
-                        or shape[-3:] == [3, 512, 768]
+                        shape[-3:] in ([3, 512, 512], [3, 512, 768])
                         or (
                             len(shape) == 3
                             and shape[0] == 1
                             and shape[-1] == 768
-                            and shape[1] % 1536 == 0
+                            and (shape[1] == 1024 or shape[1] % 1536 == 0)
                         )
                     )
                 )
-                or (model == "gemma" and shape[-2:] == [1584, 768])
+                or (model == "gemma" and shape[-2:] in ([144, 768], [1260, 768], [1584, 768]))
             )
             if is_pixels:
                 d["per_image_sha256"] = [tensor_sha(x) for x in chunks(value, model)]
-            if model == "gemma" and shape[-2:] == [1584, 2]:
+            if model == "gemma" and shape[-2:] in ([144, 2], [1260, 2], [1584, 2]):
                 d["per_image_position_sha256"] = [
                     tensor_sha(x)
                     for x in (value.unbind(0) if value.ndim == 3 else [value])
@@ -570,7 +571,16 @@ class GemmaAdapter:
         from vllm.multimodal.media.image import ImageMediaIO
         from vllm.multimodal.media.video import VideoMediaIO
 
-        padding = []
+        padding, content, media = [], [], {}
+        if case.get("images"):
+            images, _ = load_images(case_item(case))
+            padded_images = []
+            for image in images:
+                pixels, geometry = pad(np.asarray(image))
+                padded_images.append(Image.fromarray(pixels))
+                padding.append(geometry)
+            media["image"] = padded_images
+            content.extend({"type": "image"} for _ in images)
         if self.modality == "video":
             reader = VideoMediaIO(
                 ImageMediaIO(), video_backend="opencv", num_frames=180, fps=-1
@@ -584,17 +594,8 @@ class GemmaAdapter:
             )
             padded, geometry = pad(frames)
             padding.append(geometry)
-            media = {"video": [(padded, metadata)]}
-            content = [{"type": "video"}]
-        else:
-            images, _ = load_images(case_item(case))
-            padded_images = []
-            for image in images:
-                pixels, geometry = pad(np.asarray(image))
-                padded_images.append(Image.fromarray(pixels))
-                padding.append(geometry)
-            media = {"image": padded_images}
-            content = [{"type": "image"} for _ in images]
+            media["video"] = [(padded, metadata)]
+            content.append({"type": "video"})
         content.append({"type": "text", "text": case["prompt"]})
         text = self.processor.apply_chat_template(
             [{"role": "user", "content": content}],
@@ -621,7 +622,7 @@ class GemmaAdapter:
 
 def case_item(case):
     """Only prompt and ordered media enter the native request."""
-    content = []
+    content = [{"type": "image", **image} for image in case.get("images", [])]
     if case["modality"] == "video":
         content.append(
             {
@@ -630,8 +631,6 @@ def case_item(case):
                 "sha256": case["video_sha256"],
             }
         )
-    else:
-        content.extend({"type": "image", **image} for image in case["images"])
     content.append({"type": "text", "text": case["prompt"]})
     return {
         "sample_id": case["sample_id"],

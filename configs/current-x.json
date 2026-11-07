@@ -2,7 +2,7 @@
   "schema": "vlm-psychophysics-run-config-v1",
   "dataset": {
     "repo_id": "DrQY/vlm-psychophysics",
-    "revision": "6b7b66385e21d40aac0664628877b40d4d0ec3dd"
+    "revision": "343f6272cdcdd9beabe3d666ba829483ec742467"
   },
   "models": {
     "cosmos": {
@@ -16,7 +16,8 @@
         "static/T1": "cosmos-static-t1",
         "static/T2": "cosmos-static-t1",
         "static/T3": "cosmos-static-t1",
-        "static/T4": "cosmos-static-t1"
+        "static/T4": "cosmos-static-t1",
+        "video/T5": "cosmos-video-t5-paired"
       },
       "source_profiles": {
         "video/T1": {
@@ -50,6 +51,11 @@
         "static/T4": {
           "path": "plans/static-t4-strict-first-last/cosmos-fourier0-profile.json",
           "sha256": "db658d13abdac018f621f042682915298f8a42cb6a3effb03edec6f1164b9cc7"
+        },
+        "video/T5": {
+          "path": "plans/t5-paired-v1/execution/cosmos-radon0-both-profile.json",
+          "sha256": "e9c0028424ad577b69e35ac72b384d5a4588569a40e0b3fd6e2677cb406ea851",
+          "role": "sealed source run"
         }
       }
     },
@@ -64,7 +70,8 @@
         "static/T1": "nemo-static-t1",
         "static/T2": "nemo-static-t1",
         "static/T3": "nemo-static-t1",
-        "static/T4": "nemo-static-t1"
+        "static/T4": "nemo-static-t1",
+        "video/T5": "nemo-video-t5-paired"
       },
       "source_profiles": {
         "video/T1": {
@@ -98,6 +105,11 @@
         "static/T4": {
           "path": "plans/static-t4-strict-first-last/nemo-fourier0-profile.json",
           "sha256": "5d5701428d2e39515e63170765da7e5d34e944acfccd8f65ed4b7d7d56d847b2"
+        },
+        "video/T5": {
+          "path": "plans/t5-paired-v1/execution/nemo-fourier1-both-profile.json",
+          "sha256": "2399cb9b7a230aa25fbc94f46109366abbf3846efad14be0a71b9e621ec6a4f1",
+          "role": "sealed source run"
         }
       }
     },
@@ -112,7 +124,8 @@
         "static/T1": "qwen-static-t1",
         "static/T2": "qwen-static-t2",
         "static/T3": "qwen-static-t2",
-        "static/T4": "qwen-static-t2"
+        "static/T4": "qwen-static-t2",
+        "video/T5": "qwen-video-t5-paired"
       },
       "source_profiles": {
         "video/T1": {
@@ -146,6 +159,11 @@
         "static/T4": {
           "path": "plans/static-t4-strict-first-last/qwen-fourier0-profile.json",
           "sha256": "56300f545820809ba5febe850e7e5a40fb84cb6cc22ea4967f8565462d91f60f"
+        },
+        "video/T5": {
+          "path": "plans/t5-paired-v1/execution/qwen-fourier1-both-profile.json",
+          "sha256": "390fcf1ef3dd66944829dd4db868d191652ce55959214f9a4f55a9ea48bc27bd",
+          "role": "sealed source run"
         }
       }
     },
@@ -160,7 +178,8 @@
         "static/T1": "gemma-static-t1",
         "static/T2": "gemma-static-t1",
         "static/T3": "gemma-static-t1",
-        "static/T4": "gemma-static-t1"
+        "static/T4": "gemma-static-t1",
+        "video/T5": "gemma-video-t5-paired"
       },
       "source_profiles": {
         "video/T1": {
@@ -194,6 +213,11 @@
         "static/T4": {
           "path": "plans/static-t4-strict-first-last/gemma-fourier0-profile.json",
           "sha256": "c25f0f821e17930a081ce696c4d5058fe2b95411be0bd48ffde252aeba8df541"
+        },
+        "video/T5": {
+          "path": "plans/t5-paired-v1/execution/gemma-fourier0-both-profile.json",
+          "sha256": "5f4e173ccb017f4e6401a846ab85d15d42ef5ad75eb78eb05227707ca638051f",
+          "role": "sealed source run"
         }
       }
     }
@@ -421,7 +445,7 @@
             "hidden_size": 1280,
             "image_size": 224,
             "initializer_range": 0.02,
-            "layer_norm_eps": 1e-06,
+            "layer_norm_eps": 0.000001,
             "layerscale_value": 1.0,
             "max_img_size": 2048,
             "max_num_patches": 13312,
@@ -565,7 +589,7 @@
             "hidden_size": 1280,
             "image_size": 224,
             "initializer_range": 0.02,
-            "layer_norm_eps": 1e-06,
+            "layer_norm_eps": 0.000001,
             "layerscale_value": 1.0,
             "max_img_size": 2048,
             "max_num_patches": 13312,
@@ -1250,6 +1274,23 @@
         }
       },
       "input_adapter": "gemma-native-compact"
+    },
+    "cosmos-video-t5-paired": {
+      "base_recipe": "cosmos-video-t1",
+      "reference_images": 1,
+      "gpu_memory_utilization": 0.78
+    },
+    "gemma-video-t5-paired": {
+      "base_recipe": "gemma-video-t1",
+      "reference_images": 1
+    },
+    "nemo-video-t5-paired": {
+      "base_recipe": "nemo-video-t1",
+      "reference_images": 1
+    },
+    "qwen-video-t5-paired": {
+      "base_recipe": "qwen-video-t2",
+      "reference_images": 1
     }
   },
   "generation": {

@@ -363,7 +363,7 @@ class InputObserver(NativeObserver):
 
         def load(loader, path):
             result = owner.original_image_load(loader, path)
-            if owner.active and owner.case["modality"] == "static":
+            if owner.active:
                 key = str(Path(path))
                 require(key in owner.lookup, "Unexpected image reader path")
                 image = result.media
@@ -371,7 +371,9 @@ class InputObserver(NativeObserver):
                 require(
                     image.mode == "RGB"
                     and pixels.dtype == np.uint8
-                    and pixels.shape == (512, 768, 3),
+                    and pixels.shape == (
+                        (160, 160, 3) if owner.case["task"] == "T5" else (512, 768, 3)
+                    ),
                     "Image reader changed RGB8 geometry",
                 )
                 digest = hashlib.sha256(pixels.tobytes()).hexdigest()
@@ -479,6 +481,7 @@ def install_ingress(worker, spec, model):
         if model == "gemma":
             require(len(args) >= 3, "Gemma effective patch mask missing")
             receipt["mask_any_true"] = bool(args[2].any().item())
+            receipt["masked_patch_counts"] = args[2].sum(-1).tolist()
         state["ingress"].append(receipt)
 
     state["handles"].append(outer.register_forward_pre_hook(observed, with_kwargs=True))
@@ -500,8 +503,8 @@ def read_ingress(worker, model):
     return result
 
 
-def validate_ingress(model, modality, reference, applications, observations):
-    from .inputs import leaves, ordered_hashes, official_source
+def validate_ingress(model, modality, reference, applications, observations, *, mixed=False):
+    from .inputs import ordered_hashes, official_source
 
     require(applications, "Native processor application was not observed")
     require(
@@ -512,7 +515,8 @@ def validate_ingress(model, modality, reference, applications, observations):
         ),
         "Actual native prompt expansion or media placement differs from CPU",
     )
-    expected_hashes = ordered_hashes(reference["native_payload"])
+    payload = reference["native_payload"]
+    expected_hashes = ordered_hashes(payload)
     require(expected_hashes, "CPU input reference has no ordered patches")
     require(
         any(
@@ -523,6 +527,8 @@ def validate_ingress(model, modality, reference, applications, observations):
     )
     actual_hashes = []
     actual_positions = []
+    mixed_hashes = {"image": [], "video": []}
+    mixed_positions = {"image": [], "video": []}
     for observation in observations:
         require(
             not observation.get("runtime_error")
@@ -550,6 +556,7 @@ def validate_ingress(model, modality, reference, applications, observations):
             )
         for record in observation["ingress"]:
             tensor = record["tensor"]
+            shape = tensor["shape"]
             expected_dtype = (
                 "torch.uint8" if model in ("cosmos", "qwen") else "torch.bfloat16"
             )
@@ -560,6 +567,7 @@ def validate_ingress(model, modality, reference, applications, observations):
             )
             hashes = tensor.get("per_image_sha256", [])
             require(hashes, "GPU input is missing ordered patch identities")
+            image = False
             if model in ("cosmos", "qwen"):
                 grid = record["grid_thw"]
                 if grid and isinstance(grid[0], int):
@@ -569,26 +577,53 @@ def validate_ingress(model, modality, reference, applications, observations):
                     if modality == "video"
                     else [[1, 32, 48]] * len(hashes)
                 )
+                if mixed:
+                    image = grid == [[1, 10, 10]]
+                    require(
+                        image or grid == [[90, 32, 48]],
+                        "GPU reference or video grid differs",
+                    )
+                else:
+                    require(
+                        grid == expected_grid, "GPU video/image grid was sampled or resized"
+                    )
+            if model == "gemma":
+                image = mixed and shape[-2] == 1260
+                mask_counts = record["masked_patch_counts"]
+                expected_masks = [1116] if image else [0] * len(hashes)
+                require(mask_counts == expected_masks, "Gemma effective GPU patch mask differs")
+            if mixed and model == "nemo":
+                image = shape == [1, 1024, 768]
                 require(
-                    grid == expected_grid, "GPU video/image grid was sampled or resized"
+                    image or shape[-3:] == [3, 512, 768],
+                    "GPU reference or video geometry differs",
                 )
+            positions = ordered_hashes(record["arguments"], "per_image_position_sha256")
+            if mixed:
+                kind = "image" if image else "video"
+                mixed_hashes[kind].extend(hashes)
+                mixed_positions[kind].extend(positions)
+            actual_hashes.extend(hashes)
+            actual_positions.extend(positions)
+    if mixed:
+        for kind in ("image", "video"):
+            require(
+                mixed_hashes[kind] == ordered_hashes(payload[kind]),
+                f"GPU {kind} patch bytes differ from the CPU reference",
+            )
             if model == "gemma":
                 require(
-                    record["mask_any_true"] is False,
-                    "Gemma GPU mask removes effective patches",
+                    mixed_positions[kind] == ordered_hashes(payload[kind], "per_image_position_sha256"),
+                    f"Gemma GPU {kind} patch positions differ from the CPU reference",
                 )
-            actual_hashes.extend(hashes)
-            actual_positions.extend(
-                ordered_hashes(record["arguments"], "per_image_position_sha256")
-            )
     # vLLM may encode one copy of an identical static image, retaining logical placements.
     unique = list(dict.fromkeys(expected_hashes))
     require(
-        actual_hashes == expected_hashes
+        mixed or actual_hashes == expected_hashes
         or (modality == "static" and actual_hashes == unique),
         "GPU patch identity/order differs from the complete CPU input",
     )
-    if model == "gemma":
+    if model == "gemma" and not mixed:
         positions = ordered_hashes(
             reference["native_payload"], "per_image_position_sha256"
         )

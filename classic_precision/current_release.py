@@ -12,10 +12,11 @@ import re
 
 
 REPO_ID = "DrQY/vlm-psychophysics"
-REVISION = "6b7b66385e21d40aac0664628877b40d4d0ec3dd"
+REVISION = "343f6272cdcdd9beabe3d666ba829483ec742467"
 SCOPES = tuple(
     f"{domain}/t{task}" for domain in ("classic", "natural") for task in range(1, 6)
 )
+PAIRED_SCOPES = ("classic/t5/paired-v1", "natural/t5/paired-v1")
 
 
 def payload_path(scope, name):
@@ -54,7 +55,7 @@ def download(
     if (
         not scopes
         or len(set(scopes)) != len(scopes)
-        or any(scope not in SCOPES for scope in scopes)
+        or any(scope not in (*SCOPES, *PAIRED_SCOPES) for scope in scopes)
     ):
         raise ValueError("Choose one or more distinct Classic/Natural task scopes.")
     if modality not in ("video", "static", "both"):
@@ -142,8 +143,8 @@ def main(argv=None):
     parser.add_argument(
         "--scope",
         action="append",
-        choices=SCOPES,
-        help="Repeat to select multiple scopes. Default is all ten scopes.",
+        choices=(*SCOPES, *PAIRED_SCOPES),
+        help="Repeat to select scopes, including a paired T5 release.",
     )
     parser.add_argument("--input", choices=("video", "static", "both"), default="both")
     parser.add_argument("--revision", default=REVISION)

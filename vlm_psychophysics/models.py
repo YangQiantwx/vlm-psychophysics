@@ -67,8 +67,13 @@ def process_alive(identity):
 def resolved_profile(config, model, task, modality, data_root):
     model_config = config["models"][model]
     recipe_name = model_config["profiles"][f"{modality}/{task}"]
-    profile = copy.deepcopy(config["recipes"][recipe_name])
+    recipe = config["recipes"][recipe_name]
+    profile = copy.deepcopy(config["recipes"][recipe.get("base_recipe", recipe_name)])
     engine = profile["engine_kwargs"]
+    if "reference_images" in recipe:
+        engine["limit_mm_per_prompt"]["image"] = recipe["reference_images"]
+    if "gpu_memory_utilization" in recipe:
+        engine["gpu_memory_utilization"] = recipe["gpu_memory_utilization"]
     engine["model"] = str(Path(model_config["model_checkpoint"]).resolve())
     if "tokenizer" in engine:
         engine["tokenizer"] = str(Path(model_config["tokenizer_checkpoint"]).resolve())
@@ -217,7 +222,10 @@ class Session:
         )
         deep = reference_key not in self.references
         media = (
-            [{"path": case["video_path"], "sha256": case["video_sha256"]}]
+            [
+                *case.get("images", []),
+                {"path": case["video_path"], "sha256": case["video_sha256"]},
+            ]
             if self.modality == "video"
             else case["images"]
         )
@@ -339,26 +347,37 @@ class Session:
                     "Actual native image/video placements differ",
                 )
                 if self.modality == "video":
+                    videos = [row for row in observed.reads if row.get("kind") != "image"]
                     inputs.require(
-                        observed.reads
+                        videos
                         and all(
                             row["shape"] == [180, 512, 768, 3]
                             and row["dtype"] == "uint8"
                             and row["metadata"]["frames_indices"] == list(range(180))
-                            for row in observed.reads
+                            for row in videos
                         ),
                         "Actual reader did not deliver the original 180 frames in order",
                     )
-                else:
+                if case.get("images"):
                     expected = [
                         (str(Path(row["path"])), row["pixel_sha256"])
                         for row in case["images"]
                     ]
                     actual = [
-                        (row["path"], row["pixel_sha256"]) for row in observed.reads
+                        (row["path"], row["pixel_sha256"])
+                        for row in observed.reads
+                        if row.get("kind") == "image"
                     ]
                     inputs.require(
                         actual == expected, "Actual ordered PNG inputs differ"
+                    )
+                if case["task"] == "T5":
+                    placements = reference["mm_placeholders"]
+                    image, video = placements.get("image", []), placements.get("video", [])
+                    inputs.require(
+                        len(image) == len(video) == 1
+                        and image[0]["offset"] + image[0]["length"] <= video[0]["offset"],
+                        "Native placements must be one reference image before one video",
                     )
                 if self.adapter:
                     inputs.require(
@@ -367,7 +386,12 @@ class Session:
                     )
                 if deep:
                     proof = observers.validate_ingress(
-                        self.model, self.modality, reference, observed.applications, gpu
+                        self.model,
+                        self.modality,
+                        reference,
+                        observed.applications,
+                        gpu,
+                        mixed=case["task"] == "T5",
                     )
             except Exception as error:
                 technical_error = f"{type(error).__name__}: {error}"

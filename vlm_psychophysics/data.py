@@ -18,10 +18,19 @@ from classic_precision import current_release, jinwei_release
 
 REPO_ID = current_release.REPO_ID
 REVISION = current_release.REVISION
-SCOPES = tuple(scope for scope in current_release.SCOPES if not scope.endswith("/t5"))
+DEFAULT_SCOPES = tuple(
+    scope for scope in current_release.SCOPES if not scope.endswith("/t5")
+)
+PAIRED_SCOPES = current_release.PAIRED_SCOPES
+SCOPES = (*DEFAULT_SCOPES, *PAIRED_SCOPES)
+TASK_OPTIONS = {
+    **{f"{scope[-2:]}-{scope.split('/')[0]}": scope for scope in DEFAULT_SCOPES},
+    **{f"t5-{scope.split('/')[0]}-paired": scope for scope in PAIRED_SCOPES},
+}
 MODELS = ("qwen", "cosmos", "nemo", "gemma")
 MODALITIES = ("video", "static")
 CHOICES = ["LEFT", "RIGHT"]
+T5_CHOICES = ["YES", "NO"]
 IMAGE_COUNTS = {"T1": 4, "T2": 1, "T3": 1, "T4": 2}
 
 
@@ -77,7 +86,7 @@ def fetch_release_file(root, filename, expected_sha=None, *, offline=False):
 
 
 def read_manifest(root, scope, entry, mode, *, offline):
-    count, _, video_sha, static_sha = jinwei_release.SCOPES[scope]
+    count, _, video_sha, static_sha = jinwei_release.manifest_scope(scope)
     key = "metadata" if mode == "video" else "static_metadata"
     count_key = "media_count" if mode == "video" else "static_trial_count"
     sha = video_sha if mode == "video" else static_sha
@@ -88,7 +97,7 @@ def read_manifest(root, scope, entry, mode, *, offline):
     by_id = {row["sample_id"]: row for row in rows}
     if len(rows) != count or len(by_id) != count or entry[count_key] != count:
         raise ValueError(f"Unexpected row count or duplicate sample IDs in {name}")
-    domain, task = scope.split("/")
+    domain, task, *_ = scope.split("/")
     if any(row["task"] != task.upper() or row["domain"] != domain for row in rows):
         raise ValueError(f"Unexpected task/domain in {name}")
     return by_id, {"path": name, "sha256": sha, "rows": count}
@@ -126,7 +135,8 @@ def source_alias(row, video):
 
 def checked_labels(row, choices):
     truth = row["truth"]
-    if choices != CHOICES or truth not in (*CHOICES, None):
+    expected = T5_CHOICES if row["task"] == "T5" else CHOICES
+    if choices != expected or truth not in (*expected, None):
         raise ValueError(f"Unexpected choices or ground truth for {row['sample_id']}")
     eligible = row.get("accuracy_eligible", truth is not None)
     if type(eligible) is not bool or eligible != (truth is not None):
@@ -162,7 +172,18 @@ def make_case(row, scope, modality, canonical_id, input_sha, video, images, alia
 
 def video_case(scope, row):
     video = source_video(scope, row)
-    identity = digest([video["sha256"], row["prompt"], row.get("choices", CHOICES)])
+    images = []
+    if scope in PAIRED_SCOPES:
+        images.append(
+            {
+                "path": current_release.payload_path(scope, row["reference_path"]),
+                "sha256": require_sha(row["reference_sha256"]),
+                "pixel_sha256": require_sha(row["reference_pixel_sha256"]),
+                "frame_index": None,
+            }
+        )
+    identity = video_input_identity(video["sha256"], images)
+    identity = digest([identity, row["prompt"], row.get("choices", CHOICES)])
     return make_case(
         row,
         scope,
@@ -170,9 +191,13 @@ def video_case(scope, row):
         row["sample_id"],
         identity,
         video,
-        [],
+        images,
         [source_alias(row, video)],
     )
+
+
+def video_input_identity(video_sha, images):
+    return [images[0]["sha256"], video_sha] if images else video_sha
 
 
 def static_frame_indices(parent):
@@ -318,6 +343,8 @@ def custom_case(path, scopes, modalities, parents):
             "An unlisted local video requires a specific --task and --input video."
         )
     scope = scopes[0]
+    if scope in PAIRED_SCOPES:
+        raise ValueError("Paired T5 needs a published trial with its reference image.")
     rows = parents[scope].values()
     prompts = {(row["prompt"], tuple(row.get("choices", CHOICES))) for row in rows}
     if len(prompts) != 1:
@@ -387,7 +414,7 @@ def build_selection(
         provenance = [manifest]
         stills = None
         if "static" in modalities:
-            if entry["static_purpose"] != "model evaluation":
+            if scope in PAIRED_SCOPES or entry["static_purpose"] != "model evaluation":
                 raise ValueError(f"{scope} stills are for inspection")
             stills, manifest = read_manifest(
                 root, scope, entry, "static", offline=offline
@@ -455,7 +482,9 @@ def prepare_media(
     """Materialize only canonical media, hash each file, and stage local inputs on the data SSD."""
     media = {}
     for case in cases:
-        entries = [case["video"]] if case["modality"] == "video" else case["images"]
+        entries = case["images"]
+        if case["modality"] == "video":
+            entries = [*entries, case["video"]]
         for entry in entries:
             path, sha = entry["path"], entry["sha256"]
             if media.setdefault(path, sha) != sha:
@@ -521,7 +550,7 @@ def runtime_case(case, root):
         result.update(
             {key: case["video"][key] for key in ("fps", "frames", "width", "height")}
         )
-    else:
+    if case["images"]:
         result["images"] = [
             {**image, "path": str((root / image["path"]).resolve())}
             for image in case["images"]

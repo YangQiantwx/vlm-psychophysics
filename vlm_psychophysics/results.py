@@ -56,6 +56,7 @@ CONDITION_LABELS = {
     "T2": "Luminance increment",
     "T3": "Angle (degrees)",
     "T4": "Coherence",
+    "T5": "Event count",
 }
 
 
@@ -113,13 +114,15 @@ def condition_for(task, modality, parameters):
             )
     elif task == "T3":
         condition = {"value": parameters.get("angle_deg", parameters.get("angle"))}
-    else:
+    elif task == "T4":
         condition = {
             "value": parameters.get("coherence"),
             "element_count": parameters.get("N"),
         }
         if "appearance" in parameters:
             condition["appearance"] = parameters["appearance"]
+    else:
+        condition = {"value": len(parameters["events"])}
     if "group" in parameters:
         condition["stimulus_group"] = parameters["group"]
     return condition
@@ -340,6 +343,9 @@ def draw_curves(summary, output):
             )
         axis.set_title(title, fontsize=9)
         axis.set_xlabel(CONDITION_LABELS[task])
+        if task == "T5":
+            axis.set_xticks([1, 2])
+            axis.set_xlim(0.8, 2.2)
         axis.set_ylim(-0.02, 1.02)
         axis.set_ylabel("Accuracy")
     for axis in list(axes.flat)[len(panels) :]:
@@ -418,10 +424,12 @@ def validate_case(case):
     domain = case["domain"]
     modality = case["modality"]
     prompt = case["prompt"]
+    paired = task == "T5"
+    scope = f"{domain}/{task.lower()}" + ("/paired-v1" if paired else "")
     if (
-        f"{domain}/{task.lower()}" not in data.SCOPES
+        scope not in data.SCOPES
         or modality not in data.MODALITIES
-        or case["choices"] != data.CHOICES
+        or (paired and modality != "video")
         or not isinstance(prompt, str)
         or not prompt
     ):
@@ -441,10 +449,20 @@ def validate_case(case):
         for image in images:
             data.require_sha(image["sha256"])
     else:
-        media_identity = case["video_sha256"]
+        images = case["images"]
+        if len(images) != int(paired):
+            raise ValueError(f'Unexpected video reference for {case["sample_id"]}')
+        if paired:
+            reference = images[0]
+            data.current_release.payload_path(scope, reference["path"])
+            data.require_sha(reference["sha256"])
+            data.require_sha(reference["pixel_sha256"])
+            if reference["frame_index"] is not None or case["frame_indices"] != [None]:
+                raise ValueError(f'Unexpected reference frame for {case["sample_id"]}')
+        media_identity = data.video_input_identity(case["video_sha256"], images)
     identity = data.digest([media_identity, prompt, case["choices"]])
     case_key = data.digest(
-        [f"{domain}/{task.lower()}", modality, case["sample_id"], identity]
+        [scope, modality, case["sample_id"], identity]
     )
     if case["model_input_sha256"] != identity or case["case_id"] != case_key:
         raise ValueError(f'Model input identity differs for {case["sample_id"]}')
@@ -580,7 +598,10 @@ def verify_archive(path):
             raise ValueError("Unexpected release identity")
         known_manifests = {
             (f"{scope}/{suffix}", values[index], values[0])
-            for scope, values in data.jinwei_release.SCOPES.items()
+            for scope, values in {
+                **data.jinwei_release.SCOPES,
+                **data.jinwei_release.PAIRED_MANIFESTS,
+            }.items()
             for suffix, index in (("metadata.jsonl", 2), ("static/metadata.jsonl", 3))
         }
         if not run["manifests"] or any(

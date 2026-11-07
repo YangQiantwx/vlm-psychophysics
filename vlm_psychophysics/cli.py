@@ -30,20 +30,14 @@ def parse_arguments(argv):
     parser.add_argument(
         "--task",
         action="append",
-        choices=(
-            "all",
-            *(
-                f"{task}-{domain}"
-                for domain, task in (scope.split("/") for scope in data.SCOPES)
-            ),
-        ),
+        choices=("all", *data.TASK_OPTIONS),
         help="Repeat to select scopes. Default: classic and natural T1–T4.",
     )
     parser.add_argument("--model", choices=("all", *data.MODELS), default="all")
     parser.add_argument(
         "--input",
         choices=("video", "static", "both"),
-        help="Default: both, or video when using --video.",
+        help="Default: both, or video for paired T5 and --video.",
     )
     selector = parser.add_mutually_exclusive_group()
     selector.add_argument("--video", help="Published video name or a local video path.")
@@ -71,23 +65,30 @@ def parse_arguments(argv):
     parser.add_argument(
         "--media-only", action="store_true", help="For download, fetch only media."
     )
+    parser.add_argument(
+        "--paired-results", type=Path, help="Rescore a published paired T5 answer bundle."
+    )
     args = parser.parse_args(argv)
     if args.archive is not None and args.command != "verify":
         parser.error("An archive path is only valid with verify.")
     if args.media_only and args.command != "download":
         parser.error("--media-only is only valid with download.")
+    if args.paired_results and args.command != "report":
+        parser.error("--paired-results is only valid with report.")
     return args
 
 
 def selection_for(args):
-    scopes = data.SCOPES
-    if args.task and "all" not in args.task:
-        requested = {
-            f"{domain}/{task}"
-            for task, domain in (value.split("-") for value in args.task)
-        }
+    scopes = data.DEFAULT_SCOPES
+    if args.task:
+        requested = {data.TASK_OPTIONS[value] for value in args.task if value != "all"}
+        if "all" in args.task:
+            requested.update(data.DEFAULT_SCOPES)
         scopes = tuple(scope for scope in data.SCOPES if scope in requested)
-    mode = args.input or ("video" if args.video else "both")
+    paired = any(scope in data.PAIRED_SCOPES for scope in scopes)
+    mode = args.input or ("video" if paired or args.video else "both")
+    if paired and mode != "video":
+        raise ValueError("Paired T5 evaluates the reference and video together.")
     modalities = data.MODALITIES if mode == "both" else (mode,)
     models = data.MODELS if args.model == "all" else (args.model,)
     return {
@@ -138,6 +139,12 @@ def run_command(args):
     if args.command == "verify":
         return results.verify_archive(args.archive or out / "return.zip")
     if args.command == "report":
+        if args.paired_results:
+            from . import paired_results
+
+            root = runner.data_directory(args.data_root)
+            runner.check_storage(out, writable=True)
+            return paired_results.report(args.paired_results, root, out, offline=args.offline)
         if not (out / "evidence/run.json").is_file():
             raise ValueError(f"No plan found in {out}. Use --out for an existing run.")
         runner.check_storage(out, writable=True)

@@ -12,7 +12,9 @@ Every video contains 180 frames at 60 fps and 768 × 512 pixels. Classic T1–T4
 | T2 | Thirty-frame brightening. Classic crosses four background luminances with 20 increments, 24 onsets and two sides. Natural uses the same increment, onset and side grid in each of four photo/generated source groups. | One frame at onset + 15 |
 | T3 | Thirty-frame orientation comparison. The 2,736 Natural trials pair with the Classic grid. Left/right pairs hold the background, object, onset, angle and physical tilt direction fixed. | One frame at onset + 15 |
 | T4 | Classic crosses 8 or 16 elements, eight nonzero coherence levels, 24 layouts and both directions. Natural uses the same trajectories with same or distinct object appearance. Trajectories stay contained and separated. | Frames 0 and 179 |
-| T5 | An orientation reference precedes the video. The public release contains 192 unmasked trials. | Reference followed by the two event midpoints for inspection |
+| T5 | Paired-v1 contains 192 single-event and 192 dual-event videos per domain. Each event lasts 30 frames. Dual trials add a 90° nonmatch before or after the fixed probe at SOAs of 30, 45 or 60 frames. The response is YES or NO. | Reference followed by each event midpoint for inspection |
+
+Paired T5 model inputs use the original reference PNG, then all 180 video frames. The earlier 96 unmasked videos per domain retain their original manifests and reproduction entry points.
 
 The full Natural T2 panel contains 3,840 trials. The [frozen 960-trial selection](https://huggingface.co/datasets/DrQY/vlm-psychophysics/blob/main/natural/t2/selection.json) includes 240 trials per source group and retains its own Classic pairing table.
 

@@ -11,7 +11,7 @@ from pathlib import Path, PurePosixPath
 import re
 from urllib.request import urlopen
 
-from .current_release import REPO_ID as REPO, REVISION
+from .current_release import PAIRED_SCOPES, REPO_ID as REPO, REVISION
 
 # The private supplement and existing return archives retain the original public pin.
 ORIGINAL_REVISION = "20baa977b183c8ecf56b5e4f7da569c5a93e9464"
@@ -20,7 +20,9 @@ ORIGINAL_INDEX_SHA = "096a675cfce1beeede63fdd3c1fec0f49a3c5deeafe7956fb9de96ee45
 PREVIOUS_REVISION = "13e9cf67bb0b63be562ed7b7a48668fa7b7bca22"
 PREVIOUS_INDEX_SHA = "47611f9b112b406d7b585eade36ab260491fde2dce341ece13e3ad12b893c7f7"
 HF_URL = f"https://huggingface.co/datasets/{REPO}/resolve/{REVISION}/"
-INDEX_SHA = "7752daa71c3e1fa4bd39478d1fc204cf1e88929d574e35fa16aa20a54e728925"
+INDEX_SHA = "2b1a15160f2323d6bd7447e0a8631304291f99651d4070e40d09bf534032ffcd"
+LAYOUT_REVISION = "6b7b66385e21d40aac0664628877b40d4d0ec3dd"
+LAYOUT_INDEX_SHA = "7752daa71c3e1fa4bd39478d1fc204cf1e88929d574e35fa16aa20a54e728925"
 PRE_LAYOUT_REVISION = "3ede52f068164d2db4889d6a84cb153037da1a45"
 FULL_INDEX_SHA = "1fa80aa8c7e644566f7931d1940c38da196086e1e2671997a7dd4cfd616656a6"
 FULL_MEDIA_REVISION = "87670fa5101bd9fc9fe05edf3d97c936e832bbb6"
@@ -92,11 +94,30 @@ SCOPES = {
         "5dbd6d27b6dd0b6a1ed456979bcd5a1cac443561cfc25ac0ecf222f8729e45cb",
     ),
 }
+PAIRED_MANIFESTS = {
+    "classic/t5/paired-v1": (
+        384,
+        0,
+        "e725303bb8e9a558b0eff992333cecb7d6e26976d00aaee85d1fab53d4084811",
+        "76dd75322f7165d010b880cb87f2a0759e611eac61f18f752754660c9234d74d",
+    ),
+    "natural/t5/paired-v1": (
+        384,
+        0,
+        "0046739d27f802fdb7135755c0228b546d126d81ab99dba28eabb3adba3684a3",
+        "f78d514e203e0e8db50b520be8d43402ecb7f7df2a43750fa240fca104adab87",
+    ),
+}
+
+
+def manifest_scope(scope):
+    return PAIRED_MANIFESTS[scope] if scope in PAIRED_SCOPES else SCOPES[scope]
 
 
 def known_public_release(revision, index_sha):
     return (revision, index_sha) in (
         (REVISION, INDEX_SHA),
+        (LAYOUT_REVISION, LAYOUT_INDEX_SHA),
         (FULL_MEDIA_REVISION, FULL_INDEX_SHA),
         (PRE_LAYOUT_REVISION, FULL_INDEX_SHA),
         (T2_960_REVISION, T2_960_INDEX_SHA),
@@ -302,7 +323,11 @@ def public_plan(root=None):
         return checked(data, digest, path)
 
     index = json.loads(get("dataset-index.json", INDEX_SHA))
-    require(len(index["scopes"]) == len(SCOPES), "Unexpected public scope count")
+    require(
+        set(SCOPES).issubset(index["scopes"])
+        and set(index["scopes"]) - set(SCOPES) <= set(PAIRED_SCOPES),
+        "Unexpected public scope set",
+    )
 
     def scope_plan(entry):
         name, info = entry
@@ -353,7 +378,9 @@ def public_plan(root=None):
     with ThreadPoolExecutor(max_workers=4) as pool:
         rows = [
             row
-            for items in pool.map(scope_plan, sorted(index["scopes"].items()))
+            for items in pool.map(
+                scope_plan, ((scope, index["scopes"][scope]) for scope in sorted(SCOPES))
+            )
             for row in items
         ]
     return rows

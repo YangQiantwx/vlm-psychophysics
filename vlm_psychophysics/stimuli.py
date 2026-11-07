@@ -16,7 +16,7 @@ import numpy as np
 from classic_precision import stimuli as classic_t23
 from classic_precision import jinwei_release
 from classic_precision.current_release import REPO_ID, REVISION
-from src.stimuli import prepare_t45_final as t5
+from src.stimuli import prepare_t45_final as t5, t5_paired
 
 from .generators import _classic as classic
 from .generators import natural
@@ -27,6 +27,9 @@ SCOPES = {
     for i in range(1, 6)
     for domain in ("classic", "natural")
 }
+SCOPES.update(
+    {f"t5-{scope.split('/')[0]}-paired": scope for scope in jinwei_release.PAIRED_SCOPES}
+)
 ALL_TASKS = tuple(SCOPES)
 SOURCES = "sources"
 BASIS = f"{SOURCES}/classic/t1"
@@ -151,6 +154,20 @@ def render_t5(data, row, destination, work):
     Path(result["video"]).replace(destination)
 
 
+def render_paired_t5(data, row, destination, work):
+    for folder in ("qa", "videos", "inspection"):
+        (work / folder).mkdir()
+    trial = {**row, "video_path": str(work / "videos" / destination.name)}
+    trial["reference_path"] = str(data.file(row["reference_path"], row["reference_sha256"]))
+    if row["scene"] is not None:
+        scene = trial["scene"] = row["scene"].copy()
+        for key in ("background_prepared", "object_prepared"):
+            entry = scene[key]
+            scene[key] = {**entry, "path": str(data.file(entry["path"], entry["sha256"]))}
+    t5_paired.render_one((work, trial))
+    Path(trial["video_path"]).replace(destination)
+
+
 def decoded_video_sha(path, row):
     """Decode every frame with the published pixel format and sample timing."""
     rgb16 = path.suffix == ".mkv"
@@ -212,6 +229,9 @@ def verify_video(data, path, row):
 def render(job):
     data, row, output = job
     scope = f"{row['domain']}/{row['task'].lower()}"
+    paired = row.get("source_version") == t5_paired.PROTOCOL
+    if paired:
+        scope += "/paired-v1"
     name = Path(row.get("video_path") or row["path"]).name
     destination = output / scope / "videos" / name
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -231,6 +251,8 @@ def render(job):
             "natural/t4": lambda: natural.render_t4(data, row, video, work),
             "classic/t5": lambda: render_t5(data, row, video, work),
             "natural/t5": lambda: render_t5(data, row, video, work),
+            "classic/t5/paired-v1": lambda: render_paired_t5(data, row, video, work),
+            "natural/t5/paired-v1": lambda: render_paired_t5(data, row, video, work),
         }
         route[scope]()
         stream_sha = verify_video(data, video, row)
@@ -257,13 +279,16 @@ def generate(task, sample_ids, output, data_root, revision=REVISION, workers=1):
     if output.is_relative_to(data.root):
         raise ValueError("Choose an output directory outside the input data root")
     tasks = ALL_TASKS if task == "all" else (task,)
+    if task == "all" and revision != REVISION:
+        available = data.json("dataset-index.json")["scopes"]
+        tasks = tuple(name for name in tasks if SCOPES[name] in available)
     wanted = set(sample_ids)
     seen = set()
     jobs = []
     for task in tasks:
         scope = SCOPES[task]
         with data.file(
-            f"{scope}/metadata.jsonl", jinwei_release.SCOPES[scope][2]
+            f"{scope}/metadata.jsonl", jinwei_release.manifest_scope(scope)[2]
         ).open() as source:
             for row in map(json.loads, source):
                 matching = {row["sample_id"], row.get("legacy_sample_id")} & wanted
