@@ -11,7 +11,7 @@ import re
 
 
 REPO_ID = 'DrQY/vlm-psychophysics'
-REVISION = '20baa977b183c8ecf56b5e4f7da569c5a93e9464'
+REVISION = '13e9cf67bb0b63be562ed7b7a48668fa7b7bca22'
 SCOPES = tuple(f'{domain}/t{task}' for domain in ('classic', 'natural') for task in range(1, 6))
 
 
@@ -50,11 +50,14 @@ def download(output, scopes=SCOPES, modality='both', *, revision=REVISION, limit
     if 'local_dir_use_symlinks' in inspect.signature(hf_hub_download).parameters:
         hub['local_dir_use_symlinks'] = False
     index = json.loads(Path(hf_hub_download(filename='dataset-index.json', **hub)).read_text())
+    entries = index['scopes']
     refs = {}
     receipts = []
     for scope in scopes:
-        index_key = f'{scope}/strict-v1' if scope.endswith('/t4') else scope
-        entry = index['scopes'][index_key]
+        index_key = scope
+        if scope not in entries and scope.endswith('/t4'):
+            index_key = f'{scope}/strict-v1'
+        entry = entries[index_key]
         for source in ('video', 'static') if modality == 'both' else (modality,):
             manifest_key, count_key = ('metadata', 'media_count') if source == 'video' else (
                 'static_metadata', 'static_trial_count')

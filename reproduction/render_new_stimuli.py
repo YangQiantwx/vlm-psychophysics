@@ -34,7 +34,11 @@ def t5_job(job):
     return row["sample_id"]
 
 def prepare_t4(output, wanted):
-    source = BUNDLE/"natural-t4-strict-v1"
+    source = BUNDLE/"natural-t4"
+    metadata = BUNDLE.parent/"natural/t4/metadata.jsonl"
+    if not source.is_dir():
+        source = BUNDLE/"natural-t4-strict-v1"
+        metadata = BUNDLE.parent/"natural/t4/strict-v1/metadata.jsonl"
     sys.path.insert(0,str(source))
     from design import cases, sha
     path = source/"combinations.json"
@@ -42,13 +46,15 @@ def prepare_t4(output, wanted):
     digest = sha(path)
     for asset in plan["assets"].values():
         asset["path"] = str(source/"prepared"/Path(asset["path"]).name)
-    published = {r["sample_id"]:r for r in rows(BUNDLE.parent/"natural/t4/strict-v1/metadata.jsonl")}
+    published = {r["sample_id"]:r for r in rows(metadata)}
     assert len(published)==1536
     return t4_job, [((*case,plan["assets"],digest),output,published[case[0]])
                     for case in cases(plan) if not wanted or case[0] in wanted]
 
 def prepare_t5(output, wanted):
-    source = BUNDLE/"t5-unmasked"
+    source = BUNDLE/"t5"
+    if not source.is_dir():
+        source = BUNDLE/"t5-unmasked"
     sys.path.insert(0,str(source))
     from prepare_t45_final import paths
     published = {}

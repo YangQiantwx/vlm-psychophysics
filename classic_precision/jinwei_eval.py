@@ -53,8 +53,9 @@ def load_rows(raw):
 
 def load_plan(out):
     plan = json.loads((out / 'plan.json').read_bytes())
-    release.require(plan['schema'] == SCHEMA and plan['revision'] == release.REVISION
-                    and plan['index_sha256'] == release.INDEX_SHA, 'Unsupported run plan')
+    release.require(plan['schema'] == SCHEMA
+                    and release.known_public_release(plan['revision'], plan['index_sha256']),
+                    'Unsupported run plan')
     raw = (out / 'source-plan.jsonl').read_bytes()
     rows = load_rows(release.checked(raw, plan['source_plan_sha256'], 'source plan'))
     release.require(release.counts(rows) == plan['profiles'], 'Plan counts differ')
@@ -319,6 +320,8 @@ def selected_requests(rows, args):
 
 
 def execution(out, plan, rows, args, private, pilot):
+    release.require((plan['revision'], plan['index_sha256']) == (release.REVISION, release.INDEX_SHA),
+                    'Resume an earlier release with the checkout that created the run plan.')
     selected = selected_requests(rows, args)
     release.require(bool(selected), 'The selection contains no callable trials')
     release.require(args.execute and args.max_requests > 0, 'Set --execute and a positive --max-requests')
@@ -548,8 +551,8 @@ def verify(archive):
         config = json.loads(bundle.read('config.json'))
         rows = load_rows(bundle.read('source-plan.jsonl'))
         selected = release.unique_requests(rows)
-        release.require(plan['schema'] == SCHEMA and plan['revision'] == release.REVISION
-                        and plan['index_sha256'] == release.INDEX_SHA
+        release.require(plan['schema'] == SCHEMA
+                        and release.known_public_release(plan['revision'], plan['index_sha256'])
                         and plan['source_plan_sha256'] == checksums['source-plan.jsonl']
                         and plan['profiles'] == release.counts(rows)
                         and plan['logical_rows'] == len(rows) and plan['unique_requests'] == len(selected),

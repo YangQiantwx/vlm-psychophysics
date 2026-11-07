@@ -10,36 +10,44 @@ from pathlib import Path, PurePosixPath
 import re
 from urllib.request import urlopen
 
-REPO = 'DrQY/vlm-psychophysics'
-REVISION = '20baa977b183c8ecf56b5e4f7da569c5a93e9464'
+from .current_release import REPO_ID as REPO, REVISION
+
+# The private supplement and existing return archives retain the original public pin.
+ORIGINAL_REVISION = '20baa977b183c8ecf56b5e4f7da569c5a93e9464'
+ORIGINAL_INDEX_SHA = '096a675cfce1beeede63fdd3c1fec0f49a3c5deeafe7956fb9de96ee45897731'
 HF_URL = f'https://huggingface.co/datasets/{REPO}/resolve/{REVISION}/'
-INDEX_SHA = '096a675cfce1beeede63fdd3c1fec0f49a3c5deeafe7956fb9de96ee45897731'
+INDEX_SHA = '47611f9b112b406d7b585eade36ab260491fde2dce341ece13e3ad12b893c7f7'
 PRIVATE_SHA = '8eb931fa5c8c0103a6c2efbf9b0f27717147a26632f034eaa8e9f06c29c3f964'
 PRIVATE_GENERATION = '1793982719470388'
 MIME = {'.png': 'image/png', '.mp4': 'video/mp4', '.mkv': 'video/x-matroska'}
 # Logical video rows, independent static cases, video manifest SHA, static manifest SHA.
 SCOPES = {
-    'classic/t1': (4224, 4224, '0573885dca13d2de8b9c80e08bde6072cd1591b31a347a1ded27b96f7ff3675b',
-                   '7de354148944fbdef8d4097a71d33571f1dde30c63e884f6fe1044ef34941783'),
-    'classic/t2': (2880, 120, '4f558ed5de53722d8082ce5b061b22d160ccecdb50ca3e843510efbfe83fd50e',
-                   '777fd0bfa827ac3c3a3aa17552d6e1b5911b93a0eaa3236c95474d9ef76bd8b4'),
-    'classic/t3': (2736, 114, '8067cf3d1c61212dc986fa1a3b95200c41e19d10ba43f321f8c8fba889bfc761',
-                   '6123cbce7d69b8595eb47cbdca3ee660022bf28ae2101488a65de225ee5ca131'),
-    'classic/t4': (768, 768, 'c22f7c6e1139910c9b4c45e8b9dde9d44eec67a25e4a45386ad3d43b478195fa',
-                   'b5992e1a8cc65464caa59be7655cf514a9d61e465f29b57f3a7bf3cefd573926'),
-    'classic/t5': (96, 0, '27655bda3db6f2f96ffa2a075fc6e3a5fd8e2a8986cfe0d9b860de6c4b2bdc59',
-                   '7a0903b3e3de8372427f3cfaa0cc13da67661da926e1e3f3df687ac9f27c58fe'),
-    'natural/t1': (4224, 4224, 'fac90aa3a3fb4bef5fcd460df012f5c47aa546d72cc7990bfd7786d6f4308ee4',
-                   '5a09bc7961cdcbf2dc71d479837056a053e196a5185fa925c170df972d2557cb'),
-    'natural/t2': (960, 960, 'cca3ff95ba07e9cd3afb820c8035aa769cdbfef9c1697ba857e92ae5e97ff337',
-                   'e3abe55e58b069c691650277526079bb9defc48e361e5d12d73ee946c8a60d33'),
-    'natural/t3': (2736, 2736, 'e22b40af55214ce03cd0b78cb2af032e855b264977cb4645a4e0e00985be9eb9',
-                   '02a711cd6757c51d13eda01b3e763ba29d7b009a7def1bc3c230a9a99cc284de'),
-    'natural/t4': (1536, 1536, 'e35b96b874d2ce2efa97df89eacb29e644d77690f6137b4ba6565e8aae0583c1',
-                   'f37c891886819bf9804823b60a314a618959a696d3b0ef7ed3c76abe193fb412'),
-    'natural/t5': (96, 0, 'af0b8a6a53c6f40b427202f6a15653b483be2b978059498a8f44da103d269c9c',
-                   '8dab0b48dc501bcb48afa96c6255d3a39e014dff52aeab9ef8608d876a0e1bd9'),
+    'classic/t1': (4224, 4224, 'e73b1158c0d05d2091ccb34c4d97a1ed314c2c47db8582f07ce2420de735d36d',
+                   'd4861a54d4a9a621d166f5b922e5dcf56f446cd3910ccb1f1b275078903a0f6f'),
+    'classic/t2': (2880, 120, '31f649b4c294d290995567d14e6c02fb09aba12c8af0a43e016bde4b801d52fb',
+                   '8c1f6b6a68f67da9b0ffcb8412877feb8bca7250f78c5385a1a05a70822c8897'),
+    'classic/t3': (2736, 114, 'c6ee0c9d31629cba3840c004ffbb2d13ef571818832521dc1ff6a4e531fd4a96',
+                   '7d2bebd9082e4c92654b6fcece52ab8f8865e9cda144a902e029a75c0995e2de'),
+    'classic/t4': (768, 768, '78041f9ba97b9c603c1fc50c77cfdd3834dcb8ceaf0ef6a21704ad698e10c82a',
+                   '02356da18bf29ba361a2e5f5000a776e38d852ea30415b63356911a4aa3a1638'),
+    'classic/t5': (96, 0, 'f9e9e7ef363d4befeca738165b390a62c9cead779fabb49326538d38cb4a4912',
+                   '6ffb19e4882e4c20420e1b71517680467f67b140bf23ee4a11ed42bf2c95d5bd'),
+    'natural/t1': (4224, 4224, '4a736ce7b4b6586c9abccb0b2d323ade9bdb51f069132346b51a431be850333b',
+                   'a61e0bb411a4f4dff666027e889ccd7983a81fc0e5dd16ad5b6b0a2734b2dec2'),
+    'natural/t2': (960, 960, '687a16b83c42bdc08e85c4ac035607b47d987d574a578e55bf3740a947472a4b',
+                   'f77011d151c6da2f213fef42b679d46c4038c25b78cd07ea2391569bc84952f3'),
+    'natural/t3': (2736, 2736, '6f994ca8929368ea3a413c3436873da1e95431fc57a7f223f798293522598cef',
+                   'e77db842d2914b6684bd57e14d487d5c7554c0bf42c58132dcbe171ab12e2632'),
+    'natural/t4': (1536, 1536, '5f3359250ff3c437696a41e9592d820932192ea943d2657820367a00063443ae',
+                   '791e1aee2260c08626dcd3cd88aadbdc5ce19e7f16bb922864074d2a8460bd4f'),
+    'natural/t5': (96, 0, '32c17a6f607189d18ed0d48e77d9cf33b778bd81f235d87a5c1dee60dc652dac',
+                   '5dbd6d27b6dd0b6a1ed456979bcd5a1cac443561cfc25ac0ecf222f8729e45cb'),
 }
+
+
+def known_public_release(revision, index_sha):
+    return (revision, index_sha) in ((REVISION, INDEX_SHA),
+                                     (ORIGINAL_REVISION, ORIGINAL_INDEX_SHA))
 
 
 def require(condition, message):
@@ -159,7 +167,7 @@ def public_plan(root=None):
 
     def scope_plan(entry):
         name, info = entry
-        scope = '/'.join(name.split('/')[:2])
+        scope = name
         count, unique_static, video_sha, static_sha = SCOPES[scope]
         require(info['media_count'] == info['static_trial_count'] == count,
                 f'Scope count differs for {scope}')
@@ -209,7 +217,7 @@ class PrivateDelta:
         else:
             raw = (metadata_root / 'index.json').read_bytes()
         self.index = json.loads(checked(raw, PRIVATE_SHA, 'private index'))
-        require(self.index['hf_release_revision'] == REVISION
+        require(self.index['hf_release_revision'] == ORIGINAL_REVISION
                 and self.index['t5_private_masked_trials'] == 192, 'Unexpected private release')
         if self.bucket:
             require(self.index['bucket'] == self.bucket.name, 'Private bucket differs from pinned index')
