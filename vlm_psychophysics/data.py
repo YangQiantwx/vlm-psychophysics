@@ -14,6 +14,7 @@ from subprocess import check_output
 from tempfile import NamedTemporaryFile
 
 from classic_precision import current_release, jinwei_release
+from . import paired_inputs
 
 
 REPO_ID = current_release.REPO_ID
@@ -22,16 +23,20 @@ DEFAULT_SCOPES = tuple(
     scope for scope in current_release.SCOPES if not scope.endswith("/t5")
 )
 PAIRED_SCOPES = current_release.PAIRED_SCOPES
-SCOPES = (*DEFAULT_SCOPES, *PAIRED_SCOPES)
+SCOPES = (*DEFAULT_SCOPES, *PAIRED_SCOPES, *paired_inputs.SCOPES)
 TASK_OPTIONS = {
     **{f"{scope[-2:]}-{scope.split('/')[0]}": scope for scope in DEFAULT_SCOPES},
     **{f"t5-{scope.split('/')[0]}-paired": scope for scope in PAIRED_SCOPES},
+    **{
+        f"t5-{scope.split('/')[0]}-equal-canvas": scope
+        for scope in paired_inputs.SCOPES
+    },
 }
 MODELS = ("qwen", "cosmos", "nemo", "gemma")
 MODALITIES = ("video", "static")
 CHOICES = ["LEFT", "RIGHT"]
 T5_CHOICES = ["YES", "NO"]
-IMAGE_COUNTS = {"T1": 4, "T2": 1, "T3": 1, "T4": 2}
+FIXED_STATIC_FRAMES = {"T1": (0, 1, 2, 3), "T4": (0, 179)}
 
 
 def json_bytes(value):
@@ -63,7 +68,9 @@ def read_jsonl(stream):
     return [json.loads(line) for line in stream if line.strip()]
 
 
-def fetch_release_file(root, filename, expected_sha=None, *, offline=False):
+def fetch_release_file(
+    root, filename, expected_sha=None, *, offline=False, revision=REVISION
+):
     path = root / filename
     if not path.is_file():
         if offline:
@@ -73,7 +80,7 @@ def fetch_release_file(root, filename, expected_sha=None, *, offline=False):
         hf_hub_download(
             repo_id=REPO_ID,
             repo_type="dataset",
-            revision=REVISION,
+            revision=revision,
             filename=filename,
             local_dir=root,
             token=False,
@@ -110,7 +117,7 @@ def parameters(row):
 def source_video(scope, row):
     return {
         "path": current_release.payload_path(
-            scope, row.get("video_path") or row["path"]
+            paired_inputs.source_scope(scope), row.get("video_path") or row["path"]
         ),
         "sha256": require_sha(row["video_sha256"]),
         "frames": row["frames"],
@@ -118,6 +125,27 @@ def source_video(scope, row):
         "width": row["width"],
         "height": row["height"],
     }
+
+
+def source_reference(scope, row):
+    descriptor = {
+        "path": current_release.payload_path(scope, row["reference_path"]),
+        "sha256": require_sha(row["reference_sha256"]),
+        "pixel_sha256": require_sha(row["reference_pixel_sha256"]),
+        "frame_index": None,
+    }
+    if scope in paired_inputs.SCOPES:
+        descriptor["size_wh"] = [768, 512]
+    return descriptor
+
+
+def image_size(image):
+    if image["frame_index"] is not None:
+        return (768, 512)
+    size = tuple(image.get("size_wh", (160, 160)))
+    if size not in ((160, 160), (768, 512)):
+        raise ValueError("Unexpected independent reference geometry")
+    return size
 
 
 def source_alias(row, video):
@@ -150,7 +178,7 @@ def make_case(row, scope, modality, canonical_id, input_sha, video, images, alia
     prompt = row["prompt"]
     if not isinstance(prompt, str) or not prompt or prompt.isspace():
         raise ValueError(f"Empty prompt for {canonical_id}")
-    return {
+    case = {
         "case_id": digest([scope, modality, canonical_id, input_sha]),
         "sample_id": canonical_id,
         "task": row["task"],
@@ -168,27 +196,49 @@ def make_case(row, scope, modality, canonical_id, input_sha, video, images, alia
         "model_input_sha256": input_sha,
         "aliases": aliases,
     }
+    if scope in paired_inputs.SCOPES:
+        case["reference_version"] = paired_inputs.VERSION
+        case["cohort"] = (
+            "single" if len(aliases[0]["parameters"]["events"]) == 1 else "dual"
+        )
+    return case
+
+
+def case_scope(case):
+    task = case["task"].lower()
+    scope = f'{case["domain"]}/{task}'
+    if task == "t5":
+        scope += "/paired-v1"
+    version = case.get("reference_version")
+    if version is not None:
+        scope += f"/{version}"
+    return scope
+
+
+def profile_key(modality, scope):
+    task = scope.split("/")[1].upper()
+    key = f"{modality}/{task}"
+    return f"{key}/{paired_inputs.VERSION}" if scope in paired_inputs.SCOPES else key
+
+
+def recipe_name(name, cohort):
+    return f"{name}-{cohort}" if cohort is not None else name
 
 
 def video_case(scope, row):
     video = source_video(scope, row)
-    images = []
-    if scope in PAIRED_SCOPES:
-        images.append(
-            {
-                "path": current_release.payload_path(scope, row["reference_path"]),
-                "sha256": require_sha(row["reference_sha256"]),
-                "pixel_sha256": require_sha(row["reference_pixel_sha256"]),
-                "frame_index": None,
-            }
-        )
+    images = (
+        [source_reference(scope, row)]
+        if paired_inputs.source_scope(scope) in PAIRED_SCOPES
+        else []
+    )
     identity = video_input_identity(video["sha256"], images)
     identity = digest([identity, row["prompt"], row.get("choices", CHOICES)])
     return make_case(
         row,
         scope,
         "video",
-        row["sample_id"],
+        row.get("canonical_video_id", row["sample_id"]),
         identity,
         video,
         images,
@@ -202,11 +252,11 @@ def video_input_identity(video_sha, images):
 
 def static_frame_indices(parent):
     task = parent["task"]
-    if task == "T1":
-        return [0, 1, 2, 3]
-    if task == "T4":
-        return [0, 179]
+    if task in FIXED_STATIC_FRAMES:
+        return list(FIXED_STATIC_FRAMES[task])
     source = parameters(parent)
+    if task == "T5":
+        return sorted(event["onset_frame"] + 15 for event in source["events"])
     onset = source.get("onset_frame", source.get("onset"))
     if not isinstance(onset, int):
         raise ValueError(
@@ -215,7 +265,42 @@ def static_frame_indices(parent):
     return [onset + 15]
 
 
-def static_cases(scope, parents, static_rows):
+def static_identity(scope, task, images, frames, prompt, choices, sample_id):
+    """Check ordered stills and hash the exact model-visible input."""
+    if any(type(index) is not int or not 0 <= index < 180 for index in frames):
+        raise ValueError(f"Wrong ordered images for {sample_id}")
+    indices = [image["frame_index"] for image in images]
+    if task == "T5":
+        roles = [image.get("role") for image in images]
+        valid = (
+            len(frames) in (1, 2)
+            and roles == ["reference", *(["event_midpoint"] * len(frames))]
+            and indices == [None, *frames]
+            and frames == sorted(set(frames))
+        )
+    else:
+        expected = FIXED_STATIC_FRAMES.get(task)
+        valid = indices == frames and (
+            frames == list(expected) if expected is not None else len(frames) == 1
+        )
+    if not valid:
+        raise ValueError(f"Wrong ordered images for {sample_id}")
+    for image in images:
+        reference = image["frame_index"] is None
+        image_scope = scope if reference else paired_inputs.source_scope(scope)
+        current_release.payload_path(image_scope, image["path"])
+        if reference:
+            expected_size = (768, 512) if scope in paired_inputs.SCOPES else (160, 160)
+            if image_size(image) != expected_size:
+                raise ValueError(f"Wrong reference geometry for {sample_id}")
+        require_sha(image["sha256"])
+    pixels = [require_sha(image["pixel_sha256"]) for image in images]
+    return digest([pixels, prompt, choices])
+
+
+def static_cases(
+    scope, parents, static_rows, *, expected_count=None, canonical_sources=None
+):
     if parents.keys() != static_rows.keys():
         raise ValueError(f"Video and static sample IDs differ in {scope}")
     grouped = defaultdict(list)
@@ -230,27 +315,23 @@ def static_cases(scope, parents, static_rows):
             or static["truth"] != parent["truth"]
         ):
             raise ValueError(f"Wrong static parent or truth for {sample_id}")
-        images = []
-        for image in static["images"]:
-            images.append(
-                {
-                    **image,
-                    "path": current_release.payload_path(scope, image["path"]),
-                    "sha256": require_sha(image["sha256"]),
-                    "pixel_sha256": require_sha(image["pixel_sha256"]),
-                }
-            )
-        if [image["frame_index"] for image in images] != static[
-            "frame_indices"
-        ] or static["frame_indices"] != static_frame_indices(parent):
+        images = [image.copy() for image in static["images"]]
+        frames = static["frame_indices"]
+        if frames != static_frame_indices(parent):
             raise ValueError(f"Wrong ordered images for {sample_id}")
-        identity = digest(
-            [
-                [image["pixel_sha256"] for image in images],
-                static["prompt"],
-                static["choices"],
-            ]
+        identity = static_identity(
+            scope,
+            parent["task"],
+            images,
+            frames,
+            static["prompt"],
+            static["choices"],
+            sample_id,
         )
+        if parent["task"] == "T5":
+            reference = source_reference(scope, parent)
+            if any(images[0][key] != value for key, value in reference.items()):
+                raise ValueError(f"Wrong static reference for {sample_id}")
         case_name = static["static_case_id"]
         if (
             identity != static["model_input_sha256"]
@@ -270,7 +351,20 @@ def static_cases(scope, parents, static_rows):
                 f"Conflicting truth for identical static input {scope}/{identity}"
             )
         members.sort(key=lambda item: (item[0]["static_case_id"], item[0]["sample_id"]))
-        row, _, video, images = members[0]
+        if canonical_sources is None:
+            row, _, video, images = members[0]
+        else:
+            case_name = members[0][0]["static_case_id"]
+            canonical_sample = canonical_sources[case_name]
+            matches = [
+                member
+                for member in members
+                if member[0]["sample_id"] == canonical_sample
+                and member[0]["static_case_id"] == case_name
+            ]
+            if len(matches) != 1:
+                raise ValueError(f"Wrong canonical static source for {case_name}")
+            row, _, video, images = matches[0]
         cases.append(
             make_case(
                 row,
@@ -283,13 +377,15 @@ def static_cases(scope, parents, static_rows):
                 [item[1] for item in members],
             )
         )
-    if len(cases) != jinwei_release.SCOPES[scope][1]:
+    if expected_count is None:
+        expected_count = jinwei_release.manifest_scope(scope)[1]
+    if len(cases) != expected_count:
         raise ValueError(f"Independent static input count differs in {scope}")
     return cases
 
 
-def selected_static_cases(scope, parents, static_rows, selected_ids):
-    for case in static_cases(scope, parents, static_rows):
+def selected_static_cases(scope, parents, static_rows, selected_ids, **static_options):
+    for case in static_cases(scope, parents, static_rows, **static_options):
         aliases = [
             alias for alias in case["aliases"] if alias["sample_id"] in selected_ids
         ]
@@ -306,6 +402,7 @@ def published_selection(matches, sample_id, video_name):
             in (
                 row["sample_id"],
                 row.get("legacy_sample_id"),
+                row.get("canonical_video_id"),
                 (row.get("static") or {}).get("static_case_id"),
             )
         }
@@ -343,7 +440,7 @@ def custom_case(path, scopes, modalities, parents):
             "An unlisted local video requires a specific --task and --input video."
         )
     scope = scopes[0]
-    if scope in PAIRED_SCOPES:
+    if paired_inputs.source_scope(scope) in PAIRED_SCOPES:
         raise ValueError("Paired T5 needs a published trial with its reference image.")
     rows = parents[scope].values()
     prompts = {(row["prompt"], tuple(row.get("choices", CHOICES))) for row in rows}
@@ -407,19 +504,33 @@ def build_selection(
         root, "dataset-index.json", jinwei_release.INDEX_SHA, offline=offline
     )
     entries = json.loads(index_path.read_bytes())["scopes"]
+    overlay = (
+        paired_inputs.read_overlay(root, offline=offline)
+        if any(scope in paired_inputs.SCOPES for scope in scopes)
+        else None
+    )
 
     def load(scope):
-        entry = entries[scope]
-        parents, manifest = read_manifest(root, scope, entry, "video", offline=offline)
+        original = paired_inputs.source_scope(scope)
+        entry = entries[original]
+        parents, manifest = read_manifest(
+            root, original, entry, "video", offline=offline
+        )
         provenance = [manifest]
         stills = None
         if "static" in modalities:
-            if scope in PAIRED_SCOPES or entry["static_purpose"] != "model evaluation":
+            if original == scope and (
+                scope in PAIRED_SCOPES or entry["static_purpose"] != "model evaluation"
+            ):
                 raise ValueError(f"{scope} stills are for inspection")
             stills, manifest = read_manifest(
-                root, scope, entry, "static", offline=offline
+                root, original, entry, "static", offline=offline
             )
             provenance.append(manifest)
+        if scope in paired_inputs.SCOPES:
+            parents, stills = paired_inputs.selection_rows(
+                scope, overlay, parents, stills
+            )
         return scope, parents, stills, provenance
 
     with ThreadPoolExecutor(max_workers=min(4, len(scopes))) as pool:
@@ -451,7 +562,14 @@ def build_selection(
             if "video" in modalities:
                 cases.extend(video_case(scope, rows[sample]) for sample in sorted(ids))
             if stills is not None and ids:
-                cases.extend(selected_static_cases(scope, rows, stills, ids))
+                options = {}
+                if scope in paired_inputs.SCOPES:
+                    canonical = overlay["scopes"][scope]["static_sources"]
+                    options = {
+                        "expected_count": len(canonical),
+                        "canonical_sources": canonical,
+                    }
+                cases.extend(selected_static_cases(scope, rows, stills, ids, **options))
         if video_name and Path(video_name).is_file():
             scope, sample = next(iter(selected))
             files[source_video(scope, parents[scope][sample])["path"]] = Path(
@@ -471,7 +589,8 @@ def build_selection(
         "repo_id": REPO_ID,
         "revision": REVISION,
         "index_sha256": jinwei_release.INDEX_SHA,
-        "manifests": [item for _, _, _, provenance in inputs for item in provenance],
+        "manifests": [item for _, _, _, provenance in inputs for item in provenance]
+        + ([paired_inputs.manifest_record()] if overlay else []),
         "cases": cases,
     }, files
 
@@ -519,7 +638,14 @@ def prepare_media(
             if file_sha(destination) != expected_sha:
                 raise ValueError(f"SHA-256 mismatch for {destination}")
         else:
-            destination = fetch_release_file(root, path, expected_sha, offline=offline)
+            revision = (
+                paired_inputs.RELEASE_REVISION
+                if any(path.startswith(f"{scope}/") for scope in paired_inputs.SCOPES)
+                else REVISION
+            )
+            destination = fetch_release_file(
+                root, path, expected_sha, offline=offline, revision=revision
+            )
         if check_storage:
             check_storage(destination.resolve())
         return destination.stat().st_size
@@ -545,6 +671,9 @@ def runtime_case(case, root):
         "prompt_sha256",
     )
     result = {key: case[key] for key in keys}
+    if "reference_version" in case:
+        result["reference_version"] = case["reference_version"]
+        result["cohort"] = case["cohort"]
     if case["modality"] == "video":
         result["video_path"] = str((root / case["video"]["path"]).resolve())
         result.update(

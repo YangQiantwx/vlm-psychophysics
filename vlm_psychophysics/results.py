@@ -88,7 +88,10 @@ def job_id(case, model):
 
 
 def recipe_for(config, case, model):
-    return config["models"][model]["profiles"][f'{case["modality"]}/{case["task"]}']
+    key = data.profile_key(case["modality"], data.case_scope(case))
+    return data.recipe_name(
+        config["models"][model]["profiles"][key], case.get("cohort")
+    )
 
 
 def condition_for(task, modality, parameters):
@@ -179,9 +182,13 @@ def result_row(case, model, config, config_sha, attempt):
         "sample_id": case["sample_id"],
         "model": model,
         "recipe": recipe_for(config, case, model),
-        "recipe_source_sha256": config["models"][model]["source_profiles"][
-            f'{case["modality"]}/{case["task"]}'
-        ]["sha256"],
+        "recipe_source_sha256": (
+            config["models"][model]["equal_canvas_single_source_profile"]
+            if case.get("cohort") == "single"
+            else config["models"][model]["source_profiles"][
+                data.profile_key(case["modality"], data.case_scope(case))
+            ]
+        )["sha256"],
         "task": case["task"],
         "domain": case["domain"],
         "modality": case["modality"],
@@ -421,35 +428,55 @@ def make_archive(out):
 def validate_case(case):
     """Check request identity independently of scoring."""
     task = case["task"]
-    domain = case["domain"]
     modality = case["modality"]
     prompt = case["prompt"]
     paired = task == "T5"
-    scope = f"{domain}/{task.lower()}" + ("/paired-v1" if paired else "")
+    scope = data.case_scope(case)
     if (
         scope not in data.SCOPES
         or modality not in data.MODALITIES
-        or (paired and modality != "video")
         or not isinstance(prompt, str)
         or not prompt
     ):
         raise ValueError("Unexpected task, modality, choices or prompt")
+    if scope in data.paired_inputs.SCOPES:
+        counts = {len(alias["parameters"]["events"]) for alias in case["aliases"]}
+        expected = {"single": 1, "dual": 2}.get(case["cohort"])
+        if counts != {expected}:
+            raise ValueError(f'Unexpected T5 cohort for {case["sample_id"]}')
     if hashlib.sha256(prompt.encode("utf-8")).hexdigest() != case["prompt_sha256"]:
         raise ValueError(f'Prompt SHA-256 differs for {case["sample_id"]}')
     if case["video_sha256"] != data.require_sha(case["video"]["sha256"]):
         raise ValueError(f'Source video SHA-256 differs for {case["sample_id"]}')
+    images = case["images"]
     if modality == "static":
-        images = case["images"]
-        if (
-            len(images) != data.IMAGE_COUNTS[task]
-            or [image["frame_index"] for image in images] != case["frame_indices"]
-        ):
+        indices = [image["frame_index"] for image in images]
+        if indices != case["frame_indices"]:
             raise ValueError(f'Static image order differs for {case["sample_id"]}')
-        media_identity = [data.require_sha(image["pixel_sha256"]) for image in images]
-        for image in images:
-            data.require_sha(image["sha256"])
+        frames = indices[1:] if paired else indices
+        identity = data.static_identity(
+            scope, task, images, frames, prompt, case["choices"], case["sample_id"]
+        )
+        if paired and case["prompt_sha256"] != data.paired_inputs.STATIC_PROMPT_SHA256:
+            raise ValueError(f'Unexpected T5 static prompt for {case["sample_id"]}')
+        for alias in case["aliases"]:
+            frames = alias["frame_indices"]
+            expected = data.static_frame_indices({**alias, "task": task})
+            if (
+                frames != expected
+                or data.static_identity(
+                    scope,
+                    task,
+                    alias["images"],
+                    frames,
+                    prompt,
+                    case["choices"],
+                    alias["sample_id"],
+                )
+                != identity
+            ):
+                raise ValueError(f'Static alias input differs for {alias["sample_id"]}')
     else:
-        images = case["images"]
         if len(images) != int(paired):
             raise ValueError(f'Unexpected video reference for {case["sample_id"]}')
         if paired:
@@ -457,10 +484,17 @@ def validate_case(case):
             data.current_release.payload_path(scope, reference["path"])
             data.require_sha(reference["sha256"])
             data.require_sha(reference["pixel_sha256"])
-            if reference["frame_index"] is not None or case["frame_indices"] != [None]:
+            expected_size = (
+                (768, 512) if scope in data.paired_inputs.SCOPES else (160, 160)
+            )
+            if (
+                reference["frame_index"] is not None
+                or case["frame_indices"] != [None]
+                or data.image_size(reference) != expected_size
+            ):
                 raise ValueError(f'Unexpected reference frame for {case["sample_id"]}')
         media_identity = data.video_input_identity(case["video_sha256"], images)
-    identity = data.digest([media_identity, prompt, case["choices"]])
+        identity = data.digest([media_identity, prompt, case["choices"]])
     case_key = data.digest(
         [scope, modality, case["sample_id"], identity]
     )
@@ -604,8 +638,10 @@ def verify_archive(path):
             }.items()
             for suffix, index in (("metadata.jsonl", 2), ("static/metadata.jsonl", 3))
         }
+        overlay = data.paired_inputs.manifest_record()
         if not run["manifests"] or any(
-            (entry["path"], entry["sha256"], entry["rows"]) not in known_manifests
+            entry != overlay
+            and (entry["path"], entry["sha256"], entry["rows"]) not in known_manifests
             for entry in run["manifests"]
         ):
             raise ValueError("Unexpected published manifest identity")
@@ -615,6 +651,19 @@ def verify_archive(path):
             data.require_sha(sha)
         with archive.open("evidence/input-manifest.jsonl") as stream:
             cases = data.read_jsonl(stream)
+        scopes = {data.case_scope(case) for case in cases}
+        if any(
+            scope in scopes
+            and (
+                not overlay["revision"]
+                or overlay not in run["manifests"]
+                or data.paired_inputs.source_scope(scope) in scopes
+            )
+            for scope in data.paired_inputs.SCOPES
+        ):
+            raise ValueError(
+                "Equal-canvas case provenance or reference version differs"
+            )
         by_job = {}
         static_keys = set()
         if (
@@ -627,7 +676,7 @@ def verify_archive(path):
         for case in cases:
             validate_case(case)
             if case["modality"] == "static":
-                key = (case["task"], case["domain"], case["model_input_sha256"])
+                key = (data.case_scope(case), case["model_input_sha256"])
                 if key in static_keys:
                     raise ValueError(f"Duplicate static input {key}")
                 static_keys.add(key)

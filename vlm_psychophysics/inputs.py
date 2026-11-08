@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 import time
 
-from . import observers as base
+from . import data, observers as base
 
 
 def require(condition, message):
@@ -184,7 +184,8 @@ def load_images(item, verify_video=False):
             "Video source decode/order differs",
         )
     for entry in image_entries(item):
-        width, height = (160, 160) if entry.get("frame_index") is None else (768, 512)
+        width, height = data.image_size(entry)
+        index = entry["frame_index"]
         require(
             file_sha256(entry["path"]) == entry["sha256"], "Source PNG bytes changed"
         )
@@ -203,26 +204,27 @@ def load_images(item, verify_video=False):
         )
         checksum = sha(pixels.tobytes())
         require(checksum == entry["pixel_sha256"], "PNG reader pixels changed")
-        if frames is not None:
+        matches_video = frames is not None and index is not None
+        if matches_video:
             require(
                 np.array_equal(pixels[0, 0], frames[0, 0, 0]),
                 "Image corner padding color differs from video frame-zero padding",
             )
             require(
-                np.array_equal(pixels, frames[entry["frame_index"]]),
+                np.array_equal(pixels, frames[index]),
                 "PNG pixels differ from corresponding official video RGB8 frame",
             )
         images.append(image)
         receipts.append(
             {
                 "path": entry["path"],
-                "frame_index": entry["frame_index"],
+                "frame_index": index,
                 "shape": list(pixels.shape),
                 "dtype": str(pixels.dtype),
                 "pixel_sha256": checksum,
-                "matches_original_video_RGB8": frames is not None,
+                "matches_original_video_RGB8": matches_video,
                 "video_padding_RGB": (
-                    frames[0, 0, 0].tolist() if frames is not None else None
+                    frames[0, 0, 0].tolist() if matches_video else None
                 ),
             }
         )
@@ -264,10 +266,11 @@ def chunks(value, model):
         )
 
         return [DynamicResolutionImageTiler.stack([image], 16)[0] for image in value]
-    if shape in ([144, 768], [1260, 768], [1584, 768]):
+    if shape in ([144, 768], [1260, 768], [1584, 768], [2520, 768]):
         return [value]
     require(
-        len(shape) == 3 and shape[1:] in ([144, 768], [1260, 768], [1584, 768]),
+        len(shape) == 3
+        and shape[1:] in ([144, 768], [1260, 768], [1584, 768], [2520, 768]),
         "Gemma valid patch count differs",
     )
     return list(value.unbind(0))
@@ -298,11 +301,20 @@ def payload_description(value, model):
                         )
                     )
                 )
-                or (model == "gemma" and shape[-2:] in ([144, 768], [1260, 768], [1584, 768]))
+                or (
+                    model == "gemma"
+                    and shape[-2:]
+                    in ([144, 768], [1260, 768], [1584, 768], [2520, 768])
+                )
             )
             if is_pixels:
                 d["per_image_sha256"] = [tensor_sha(x) for x in chunks(value, model)]
-            if model == "gemma" and shape[-2:] in ([144, 2], [1260, 2], [1584, 2]):
+            if model == "gemma" and shape[-2:] in (
+                [144, 2],
+                [1260, 2],
+                [1584, 2],
+                [2520, 2],
+            ):
                 d["per_image_position_sha256"] = [
                     tensor_sha(x)
                     for x in (value.unbind(0) if value.ndim == 3 else [value])
@@ -610,7 +622,11 @@ class GemmaAdapter:
             "mm_processor_kwargs": {
                 "do_resize": False,
                 "do_sample_frames": False,
-                "max_soft_tokens": 140 if self.modality == "video" else 280,
+                "max_soft_tokens": (
+                    140
+                    if self.modality == "video" and "reference_version" not in case
+                    else 280
+                ),
             },
         }, padding
 

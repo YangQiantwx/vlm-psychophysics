@@ -10,6 +10,8 @@ import os
 from pathlib import Path
 import time
 
+from .data import image_size
+
 
 def require(condition, message):
     if not condition:
@@ -368,12 +370,11 @@ class InputObserver(NativeObserver):
                 require(key in owner.lookup, "Unexpected image reader path")
                 image = result.media
                 pixels = np.asarray(image)
+                width, height = image_size(owner.lookup[key])
                 require(
                     image.mode == "RGB"
                     and pixels.dtype == np.uint8
-                    and pixels.shape == (
-                        (160, 160, 3) if owner.case["task"] == "T5" else (512, 768, 3)
-                    ),
+                    and pixels.shape == (height, width, 3),
                     "Image reader changed RGB8 geometry",
                 )
                 digest = hashlib.sha256(pixels.tobytes()).hexdigest()
@@ -503,7 +504,16 @@ def read_ingress(worker, model):
     return result
 
 
-def validate_ingress(model, modality, reference, applications, observations, *, mixed=False):
+def validate_ingress(
+    model,
+    modality,
+    reference,
+    applications,
+    observations,
+    *,
+    mixed=False,
+    equal_reference=False,
+):
     from .inputs import ordered_hashes, official_source
 
     require(applications, "Native processor application was not observed")
@@ -578,7 +588,8 @@ def validate_ingress(model, modality, reference, applications, observations, *, 
                     else [[1, 32, 48]] * len(hashes)
                 )
                 if mixed:
-                    image = grid == [[1, 10, 10]]
+                    image_grid = [[1, 32, 48]] if equal_reference else [[1, 10, 10]]
+                    image = grid == image_grid
                     require(
                         image or grid == [[90, 32, 48]],
                         "GPU reference or video grid differs",
@@ -588,12 +599,16 @@ def validate_ingress(model, modality, reference, applications, observations, *, 
                         grid == expected_grid, "GPU video/image grid was sampled or resized"
                     )
             if model == "gemma":
-                image = mixed and shape[-2] == 1260
+                reference_slots, reference_masks = (
+                    (2520, 936) if equal_reference else (1260, 1116)
+                )
+                image = mixed and shape[-2] == reference_slots
                 mask_counts = record["masked_patch_counts"]
-                expected_masks = [1116] if image else [0] * len(hashes)
+                expected_masks = [reference_masks] if image else [0] * len(hashes)
                 require(mask_counts == expected_masks, "Gemma effective GPU patch mask differs")
             if mixed and model == "nemo":
-                image = shape == [1, 1024, 768]
+                reference_patches = 1536 if equal_reference else 1024
+                image = shape == [1, reference_patches, 768]
                 require(
                     image or shape[-3:] == [3, 512, 768],
                     "GPU reference or video geometry differs",

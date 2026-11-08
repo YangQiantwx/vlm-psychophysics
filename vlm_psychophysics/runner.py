@@ -543,6 +543,8 @@ def run_recipe(out, data_root, runtime_config_path, uuid, model, recipe):
         data_root,
         session_directory(out, uuid, recipe, owner),
         uuid,
+        scope=data.case_scope(first),
+        cohort=first.get("cohort"),
     )
     try:
         with closing(init_ledger(out)) as ledger:

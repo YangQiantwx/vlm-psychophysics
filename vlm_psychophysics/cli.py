@@ -37,7 +37,7 @@ def parse_arguments(argv):
     parser.add_argument(
         "--input",
         choices=("video", "static", "both"),
-        help="Default: both, or video for paired T5 and --video.",
+        help="Default: both, or video for the original paired T5 and --video.",
     )
     selector = parser.add_mutually_exclusive_group()
     selector.add_argument("--video", help="Published video name or a local video path.")
@@ -86,6 +86,11 @@ def selection_for(args):
             requested.update(data.DEFAULT_SCOPES)
         scopes = tuple(scope for scope in data.SCOPES if scope in requested)
     paired = any(scope in data.PAIRED_SCOPES for scope in scopes)
+    if any(
+        scope in scopes and data.paired_inputs.source_scope(scope) in scopes
+        for scope in data.paired_inputs.SCOPES
+    ):
+        raise ValueError("Select one T5 reference version per domain and run.")
     mode = args.input or ("video" if paired or args.video else "both")
     if paired and mode != "video":
         raise ValueError("Paired T5 evaluates the reference and video together.")
@@ -127,7 +132,7 @@ def load_config(path, models, modalities, scopes):
             raise ValueError(f"Missing a positive resource threshold for {model}")
         for modality in modalities:
             for scope in scopes:
-                profile = entry["profiles"][f"{modality}/{scope.split('/')[1].upper()}"]
+                profile = entry["profiles"][data.profile_key(modality, scope)]
                 if profile not in config["recipes"]:
                     raise ValueError(f"Missing recipe {profile} for {model}")
     return config

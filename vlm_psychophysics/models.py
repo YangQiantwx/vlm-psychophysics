@@ -12,7 +12,7 @@ import socket
 import sys
 import time
 
-from . import inputs, observers
+from . import data, inputs, observers
 
 
 def canonical(value):
@@ -64,22 +64,39 @@ def process_alive(identity):
     return fields[19] == str(identity["startticks"]) and fields[0] != "Z"
 
 
-def resolved_profile(config, model, task, modality, data_root):
+def resolved_profile(
+    config, model, task, modality, data_root, *, scope=None, cohort=None
+):
     model_config = config["models"][model]
-    recipe_name = model_config["profiles"][f"{modality}/{task}"]
+    key = data.profile_key(modality, scope) if scope else f"{modality}/{task}"
+    recipe_name = model_config["profiles"][key]
     recipe = config["recipes"][recipe_name]
     profile = copy.deepcopy(config["recipes"][recipe.get("base_recipe", recipe_name)])
     engine = profile["engine_kwargs"]
     if "reference_images" in recipe:
         engine["limit_mm_per_prompt"]["image"] = recipe["reference_images"]
+    if cohort == "single":
+        engine["limit_mm_per_prompt"]["image"] = recipe["single_reference_images"]
+    if "video_inputs" in recipe:
+        engine["limit_mm_per_prompt"]["video"] = recipe["video_inputs"]
     if "gpu_memory_utilization" in recipe:
         engine["gpu_memory_utilization"] = recipe["gpu_memory_utilization"]
+    if "max_soft_tokens" in recipe:
+        engine["mm_processor_kwargs"]["max_soft_tokens"] = recipe["max_soft_tokens"]
+        profile["request_mm_processor_kwargs"]["max_soft_tokens"] = recipe[
+            "max_soft_tokens"
+        ]
     engine["model"] = str(Path(model_config["model_checkpoint"]).resolve())
     if "tokenizer" in engine:
         engine["tokenizer"] = str(Path(model_config["tokenizer_checkpoint"]).resolve())
     engine["allowed_local_media_path"] = str(Path(data_root).resolve())
     engine["media_io_kwargs"] = profile["media_io_kwargs"]
-    profile.update(model=model, task=task, modality=modality, recipe=recipe_name)
+    profile.update(
+        model=model,
+        task=task,
+        modality=modality,
+        recipe=data.recipe_name(recipe_name, cohort),
+    )
     return profile
 
 
@@ -103,11 +120,25 @@ def worker_environment(profile, gpu_uuid):
 class Session:
     """Load one recipe; compatible tasks/domains share that loaded model."""
 
-    def __init__(self, model, task, modality, config, data_root, output_dir, gpu_uuid):
+    def __init__(
+        self,
+        model,
+        task,
+        modality,
+        config,
+        data_root,
+        output_dir,
+        gpu_uuid,
+        *,
+        scope=None,
+        cohort=None,
+    ):
         self.model = model
         self.modality = modality
         self.config = config
-        self.profile = resolved_profile(config, model, task, modality, data_root)
+        self.profile = resolved_profile(
+            config, model, task, modality, data_root, scope=scope, cohort=cohort
+        )
         self.output = Path(output_dir)
         self.output.mkdir(parents=True, exist_ok=True)
         self.profile_sha256 = checksum(self.profile)
@@ -202,9 +233,10 @@ class Session:
         return self.sampling[key]
 
     def predict(self, case):
-        recipe = self.config["models"][self.model]["profiles"][
-            f"{case['modality']}/{case['task']}"
-        ]
+        key = data.profile_key(case["modality"], data.case_scope(case))
+        recipe = data.recipe_name(
+            self.config["models"][self.model]["profiles"][key], case.get("cohort")
+        )
         inputs.require(
             recipe == self.profile["recipe"], "Case needs a different loaded recipe"
         )
@@ -371,13 +403,26 @@ class Session:
                     inputs.require(
                         actual == expected, "Actual ordered PNG inputs differ"
                     )
-                if case["task"] == "T5":
+                mixed_video = self.modality == "video" and case["task"] == "T5"
+                if mixed_video:
                     placements = reference["mm_placeholders"]
                     image, video = placements.get("image", []), placements.get("video", [])
                     inputs.require(
                         len(image) == len(video) == 1
                         and image[0]["offset"] + image[0]["length"] <= video[0]["offset"],
                         "Native placements must be one reference image before one video",
+                    )
+                elif self.modality == "static":
+                    placements = reference["mm_placeholders"]
+                    images = placements.get("image", [])
+                    inputs.require(
+                        set(placements) == {"image"}
+                        and len(images) == len(case["images"])
+                        and all(
+                            left["offset"] + left["length"] <= right["offset"]
+                            for left, right in zip(images, images[1:])
+                        ),
+                        "Native image placements must preserve the static input order",
                     )
                 if self.adapter:
                     inputs.require(
@@ -391,7 +436,8 @@ class Session:
                         reference,
                         observed.applications,
                         gpu,
-                        mixed=case["task"] == "T5",
+                        mixed=mixed_video,
+                        equal_reference=mixed_video and "reference_version" in case,
                     )
             except Exception as error:
                 technical_error = f"{type(error).__name__}: {error}"

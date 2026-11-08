@@ -10,9 +10,9 @@ Five controlled visual judgments in Classic and Natural scenes. The release cont
 | T4 | Horizontal motion signal | 768 | 1,536 |
 | T5 | Orientation match to a reference | 384 paired + 96 earlier | 384 paired + 96 earlier |
 
-The counts are trials. Static evaluation shares a call when ordered media, prompt and choices match. T5 static records are for stimulus inspection.
+The counts are trials. Static evaluation shares a call when ordered media, prompt and choices match. T5 equal-canvas evaluation uses the original paired videos with centered 768 × 512 reference images, preserving the object's pixel size. Its 768 videos correspond to 425 unique static inputs. The earlier T5 inspection records retain their original reference format.
 
-The additional 768 Classic T4 videos are under evaluation. The extension will bring Classic T4 to 1,536 videos when released.
+Evaluation of the additional 768 Classic T4 videos is complete; publication of the extension will bring Classic T4 to 1,536 videos.
 
 ## Run
 
@@ -23,7 +23,7 @@ python -m pip install -e ".[download,inference]"
 python run.py --task t1-classic --model qwen
 ```
 
-The runner selects writable SSD storage, downloads the pinned dataset and model, checks the runtime, and uses idle GPUs. Each GPU loads and finishes one model recipe at a time. Set `VLM_PSYCHOPHYSICS_CUDA_HOME` if the CUDA toolkit is outside the standard location. Authenticate with Hugging Face for gated models and set `NGC_API_KEY` for NVIDIA downloads.
+The runner selects writable SSD storage, downloads the pinned dataset and model, checks the runtime, and assigns work by available GPU memory. Each GPU loads and finishes one model recipe at a time. Set `VLM_PSYCHOPHYSICS_CUDA_HOME` if the CUDA toolkit is outside the standard location. Authenticate with Hugging Face for gated models and set `NGC_API_KEY` for NVIDIA downloads.
 
 ```bash
 # All four models, T1–T4, both domains, video and static
@@ -32,7 +32,10 @@ python run.py
 # One published video; a local video path also works
 python run.py --task t1-classic --model qwen --video T1_left_sf0.5_contrast0.05_trial01.mkv
 
-# Paired T5 uses one reference image followed by the full video
+# Same-size T5 reference, both domains, all four models, video and static
+python run.py --task t5-classic-equal-canvas --task t5-natural-equal-canvas
+
+# Replay the original 160 × 160 reference-image T5 video version
 python run.py --task t5-classic-paired --model qwen
 
 # Rebuild plots and verify a returned result
@@ -41,6 +44,8 @@ python run.py verify outputs/RUN/return.zip
 ```
 
 Each output directory contains `results.csv`, `results.jsonl`, `summary.json`, `curves.png` and `return.zip`. The `evidence/` folder holds exact prompts, ground truth, resolved model settings, source and input hashes, and execution records. Return `return.zip` for verification and rescoring. Repeating a command with the same output resumes untouched inputs and preserves recorded attempts.
+
+Static inputs use one shared ordered-image path: T1 has frames 0–3; T2/T3 use the event midpoint (`onset + 15`); T4 uses frames 0 and 179. T5 places the reference first, followed by one or two event midpoint images in chronological order. All T5 equal-canvas images are 768 × 512. Video input is the reference followed by all 180 frames. The frozen video and static prompts are preserved byte for byte. Four models evaluate 4,772 independent inputs across both T5 domains; single and dual cohorts retain their respective image limits of 2 and 3.
 
 To rescore a paired T5 answer bundle, run `python run.py report --paired-results BUNDLE --out REPORT`. This writes the planned trial scores, paired single-to-dual changes and cohort counts.
 
