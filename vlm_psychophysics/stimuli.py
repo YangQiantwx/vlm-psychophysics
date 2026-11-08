@@ -13,10 +13,10 @@ from tempfile import TemporaryDirectory
 import av
 import numpy as np
 
-from classic_precision import stimuli as classic_t23
-from classic_precision import jinwei_release
-from classic_precision.current_release import REPO_ID, REVISION
-from src.stimuli import prepare_t45_final as t5, t5_paired
+from .generators import classic_events as classic_t23
+from . import catalog as jinwei_release
+from .release import REPO_ID, REVISION
+from .generators import events as t5_paired
 
 from .generators import _classic as classic
 from .generators import natural
@@ -127,36 +127,6 @@ def render_classic_t4(data, row, destination):
         classic.encode_strict(destination, track)
 
 
-def index_t5(rows):
-    return {row["sample_id"]: row for row in rows}
-
-
-def render_t5(data, row, destination, work):
-    trial = data.index(f"{T5}/rows.json", index_t5)[row["sample_id"]]
-    _, stage, _ = t5.paths(work)
-    for folder in ("qa", "videos", "prepared", "references"):
-        (stage / folder).mkdir(parents=True, exist_ok=True)
-    if trial["domain"] == "classic":
-        reference = "T5-classic.png"
-    else:
-        object_id = trial["object_id"]
-        reference = object_id + ".png"
-        obj_name = object_id + "-T5.npy"
-        expected = trial["source_parameters"]["object_preparation"]["prepared_sha256"]
-        obj = data.file(f"{T5}/objects/{obj_name}", expected)
-        natural.link_verified(stage / "prepared" / obj_name, obj)
-        bg = trial["background_id"]
-        natural.link_verified(
-            stage / "prepared" / f"{bg}.npy", natural.background_path(data, bg)
-        )
-    natural.link_verified(
-        stage / "references" / reference,
-        data.file(row["reference_path"], row["reference_sha256"]),
-    )
-    result = t5.render_one((work, trial))
-    Path(result["video"]).replace(destination)
-
-
 def render_paired_t5(data, row, destination, work):
     for folder in ("qa", "videos", "inspection"):
         (work / folder).mkdir()
@@ -257,12 +227,8 @@ def render(job):
             "natural/t2": lambda: natural.render_t2(data, row, video),
             "natural/t3": lambda: natural.render_t3(data, row, video, work),
             "natural/t4": lambda: natural.render_t4(data, row, video, work),
-            "classic/t5": lambda: (render_paired_t5 if paired else render_t5)(
-                data, row, video, work
-            ),
-            "natural/t5": lambda: (render_paired_t5 if paired else render_t5)(
-                data, row, video, work
-            ),
+            "classic/t5": lambda: render_paired_t5(data, row, video, work),
+            "natural/t5": lambda: render_paired_t5(data, row, video, work),
             "classic/t5/paired-v1": lambda: render_paired_t5(data, row, video, work),
             "natural/t5/paired-v1": lambda: render_paired_t5(data, row, video, work),
         }

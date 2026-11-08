@@ -13,7 +13,7 @@ import shutil
 from subprocess import check_output
 from tempfile import NamedTemporaryFile
 
-from classic_precision import current_release, jinwei_release
+from . import release as current_release, catalog as jinwei_release
 from . import paired_inputs
 
 

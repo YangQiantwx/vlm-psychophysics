@@ -6,8 +6,8 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from classic_precision import natural_t1_rgb as t1
-from classic_precision import natural_t3_classic_paired as t3
+from . import natural_motion as t1
+from . import natural_orientation as t3
 
 from . import _natural_t2 as t2
 from . import _natural_t4 as t4

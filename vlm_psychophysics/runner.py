@@ -344,18 +344,11 @@ def record_error(ledger, job, error):
 
 
 def source_fingerprint():
-    names = {
-        "run.py",
-        "pyproject.toml",
-        "classic_precision/current_release.py",
-        "classic_precision/jinwei_release.py",
-        "classic_precision/official_x_qsa_selector.py",
-    }
-    for package in ("vlm_psychophysics", "runtime_compat"):
-        names.update(
-            path.relative_to(PROJECT).as_posix()
-            for path in (PROJECT / package).glob("*.py")
-        )
+    names = {"run.py", "generate.py", "pyproject.toml"}
+    names.update(
+        path.relative_to(PROJECT).as_posix()
+        for path in (PROJECT / "vlm_psychophysics").rglob("*.py")
+    )
     return {name: data.file_sha(PROJECT / name) for name in sorted(names)}
 
 

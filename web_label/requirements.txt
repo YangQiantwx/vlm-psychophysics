@@ -1,4 +1,0 @@
--r backend/label/requirements.txt
-Pillow>=10,<13
-requests>=2.32,<3
-playwright==1.64.1  # Browser QA uses the existing installed Chrome.

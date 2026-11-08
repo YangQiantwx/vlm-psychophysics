@@ -14,7 +14,7 @@ The counts are trials. Static evaluation shares a call when ordered media, promp
 
 ## Run
 
-Use Linux, Python 3.12, RTX PRO 6000 Blackwell GPUs and CUDA Toolkit 13.0.3. Install into your existing environment:
+Clone this repository and run the commands from its root. Use Linux, Python 3.12, RTX PRO 6000 Blackwell GPUs and CUDA Toolkit 13.0.3. Install into your existing environment:
 
 ```bash
 python -m pip install -e ".[download,inference]"
@@ -49,9 +49,31 @@ Use `--input video` or `--input static` to select a modality, `--sample-id` for 
 ## Regenerate a stimulus
 
 ```bash
-python generate.py --task t2-classic --sample-id t2_000201cb3983b82df70a --out replay
+python run.py generate --task t2-classic --sample-id t2_000201cb3983b82df70a --out replay
 ```
 
-Use `python generate.py --task all` to regenerate all released T1–T5 videos. Repeat `--sample-id` to select several trials. The renderer uses the frozen source parameters and assets from the pinned dataset release, checks decoded pixels and timestamps, and reports encoded container equality separately. Set `--data-root` to reuse local sources. [Source files and attribution](https://huggingface.co/datasets/DrQY/vlm-psychophysics/tree/main/sources)
+Use `python run.py generate --task all` to regenerate all released T1–T5 videos. Repeat `--sample-id` to select several trials. The renderer uses the frozen source parameters and assets from the pinned dataset release, checks decoded pixels and timestamps, and reports encoded container equality separately. Set `--data-root` to reuse local sources. [Source files and attribution](https://huggingface.co/datasets/DrQY/vlm-psychophysics/tree/main/sources)
 
 The released input manifests contain the exact prompt, media order and hashes. Send only the prompt and media to a model. Filenames, labels and provenance stay in the evaluation record. [Per-trial answers, prompts and counts](https://huggingface.co/datasets/DrQY/vlm-psychophysics/tree/main/results)
+
+## Code layout
+
+`run.py` is the entry for evaluation, generation, hosted APIs and result verification. `python -m vlm_psychophysics` uses the same dispatcher. `generate.py` and the installed `model-api` command remain small compatibility entries.
+
+| Location | Responsibility |
+|---|---|
+| `configs/` | Pinned model settings, runtime versions and download hashes |
+| `vlm_psychophysics/release.py`, `catalog.py`, `data.py` | Dataset revision, manifest validation, IDs and call deduplication |
+| `vlm_psychophysics/generators/`, `stimuli.py` | Source rendering, pixel checks and video reconstruction |
+| `vlm_psychophysics/inputs.py`, `models.py`, `observers.py`, `runtime/` | Ordered media, model loading and actual-input checks |
+| `vlm_psychophysics/assets.py`, `runner.py` | SSD selection, downloads, GPU assignment and durable resume |
+| `vlm_psychophysics/results.py`, `api/` | Exact-label scoring, plots, return packages and hosted endpoints |
+| `tests/` | Input, resume, API, scoring and numerical regressions |
+
+```bash
+python run.py generate --task t1-classic --sample-id SAMPLE_ID
+python run.py api evaluate --provider vllm --model MODEL --task t1-classic --out api-run --max-requests 1 --execute
+python -m pytest -q
+```
+
+Scientific render functions are retained from the execution source; the portable runner supplies storage, scheduling and return packaging. Each run records the source it actually used. Original workstation scripts and sealed execution identities remain at the [historical source revision](https://github.com/YangQiantwx/vlm-psychophysics/tree/8dcff9eac165ca9c36ca19fed72470ce26cda96c). Website and annotation code are maintained separately in [Vision Tasks](https://github.com/YangQiantwx/vision-tasks).

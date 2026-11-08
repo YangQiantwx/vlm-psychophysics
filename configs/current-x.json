@@ -802,7 +802,7 @@
         "seed": 0,
         "tensor_parallel_size": 1,
         "trust_remote_code": true,
-        "worker_extension_cls": "classic_precision.official_x_qsa_selector.XQSAWorkerExtension"
+        "worker_extension_cls": "vlm_psychophysics.runtime.qsa.XQSAWorkerExtension"
       },
       "request_mm_processor_kwargs": {
         "do_resize": false,
@@ -903,7 +903,7 @@
         "seed": 0,
         "tensor_parallel_size": 1,
         "trust_remote_code": true,
-        "worker_extension_cls": "classic_precision.official_x_qsa_selector.XQSAWorkerExtension"
+        "worker_extension_cls": "vlm_psychophysics.runtime.qsa.XQSAWorkerExtension"
       },
       "request_mm_processor_kwargs": {
         "do_resize": false,
@@ -1004,7 +1004,7 @@
         "seed": 0,
         "tensor_parallel_size": 1,
         "trust_remote_code": true,
-        "worker_extension_cls": "classic_precision.official_x_qsa_selector.XQSAWorkerExtension"
+        "worker_extension_cls": "vlm_psychophysics.runtime.qsa.XQSAWorkerExtension"
       },
       "request_mm_processor_kwargs": {
         "do_resize": false,
@@ -1105,7 +1105,7 @@
         "seed": 0,
         "tensor_parallel_size": 1,
         "trust_remote_code": true,
-        "worker_extension_cls": "classic_precision.official_x_qsa_selector.XQSAWorkerExtension"
+        "worker_extension_cls": "vlm_psychophysics.runtime.qsa.XQSAWorkerExtension"
       },
       "request_mm_processor_kwargs": {
         "do_resize": false,

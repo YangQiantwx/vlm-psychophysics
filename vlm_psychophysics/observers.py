@@ -134,7 +134,7 @@ def worker_identity(worker, model):
         "mm_device_do_normalize": config.model_config.get_multimodal_config().mm_device_do_normalize,
     }
     if model == "qwen":
-        from classic_precision.official_x_qsa_selector import evidence
+        from vlm_psychophysics.runtime.qsa import evidence
 
         result["custom_qsa_selector"] = evidence()
     return result
@@ -487,7 +487,7 @@ def install_ingress(worker, spec, model):
 
     state["handles"].append(outer.register_forward_pre_hook(observed, with_kwargs=True))
     if model == "qwen":
-        from classic_precision.official_x_qsa_selector import evidence
+        from vlm_psychophysics.runtime.qsa import evidence
 
         state["selector_calls_before"] = evidence()["actual_calls"]
     return result
@@ -496,7 +496,7 @@ def install_ingress(worker, spec, model):
 def read_ingress(worker, model):
     result = read_probe(worker, model)
     if model == "qwen":
-        from classic_precision.official_x_qsa_selector import evidence
+        from vlm_psychophysics.runtime.qsa import evidence
 
         result["selector_calls_during_request"] = (
             evidence()["actual_calls"] - result["selector_calls_before"]

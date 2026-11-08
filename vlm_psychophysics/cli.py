@@ -16,7 +16,7 @@ from . import data, results, runner
 def parse_arguments(argv):
     parser = argparse.ArgumentParser(
         description="Run or verify the pinned VLM psychophysics evaluation.",
-        epilog="Example: python run.py --task t1-classic --model qwen --input video --sample-id SAMPLE_ID",
+        epilog="Also: run.py generate --help; run.py api --help. Example: python run.py --task t1-classic --model qwen --input video --sample-id SAMPLE_ID",
     )
     parser.add_argument(
         "command",
@@ -31,13 +31,13 @@ def parse_arguments(argv):
         "--task",
         action="append",
         choices=("all", *data.TASK_OPTIONS),
-        help="Repeat to select scopes. Default: classic and natural T1–T4.",
+        help="Repeat to select scopes. Default: classic and natural T1–T5.",
     )
     parser.add_argument("--model", choices=("all", *data.MODELS), default="all")
     parser.add_argument(
         "--input",
         choices=("video", "static", "both"),
-        help="Default: both, or video for the original paired T5 and --video.",
+        help="Default: both, or video with --video.",
     )
     selector = parser.add_mutually_exclusive_group()
     selector.add_argument("--video", help="Published video name or a local video path.")
@@ -66,7 +66,9 @@ def parse_arguments(argv):
         "--media-only", action="store_true", help="For download, fetch only media."
     )
     parser.add_argument(
-        "--paired-results", type=Path, help="Rescore a historical original-reference T5 answer bundle."
+        "--paired-results",
+        type=Path,
+        help="Rescore a historical original-reference T5 answer bundle.",
     )
     args = parser.parse_args(argv)
     if args.archive is not None and args.command != "verify":
@@ -141,7 +143,9 @@ def run_command(args):
 
             root = runner.data_directory(args.data_root)
             runner.check_storage(out, writable=True)
-            return paired_results.report(args.paired_results, root, out, offline=args.offline)
+            return paired_results.report(
+                args.paired_results, root, out, offline=args.offline
+            )
         if not (out / "evidence/run.json").is_file():
             raise ValueError(f"No plan found in {out}. Use --out for an existing run.")
         runner.check_storage(out, writable=True)
@@ -278,6 +282,15 @@ def run_command(args):
 
 
 def main(argv=None):
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] == "generate":
+        from .generation import main as generate
+
+        return generate(argv[1:])
+    if argv and argv[0] == "api":
+        from .api.cli import main as api
+
+        return api(argv[1:])
     args = parse_arguments(argv)
     try:
         response = run_command(args)

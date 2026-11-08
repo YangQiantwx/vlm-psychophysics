@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from classic_precision import current_release
+from . import release as current_release
 
 
 VERSION = "equal-canvas-v1"

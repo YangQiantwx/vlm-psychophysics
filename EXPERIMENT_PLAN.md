@@ -31,7 +31,7 @@ Use the commands in the [repository README](README.md) for a bounded run. The ru
 Use an endpoint that accepts the original video and can report post-processor frame indices. Set `VLLM_BASE_URL` and `VLLM_API_KEY`, then send one pilot.
 
 ```bash
-model-api evaluate --provider vllm \
+python run.py api evaluate --provider vllm \
   --model Qwen/Qwen3.5-397B-A17B --task t1-classic \
   --out qwen397b-t1-classic --max-requests 1 --execute
 ```
@@ -40,4 +40,4 @@ The NVIDIA internal gateway uses `--provider nvidia-internal`, `NVIDIA_API_KEY` 
 
 For an all-frame batch, pass `--frame-report server-report.json` and the authorized `--max-requests`. Each report identifies the endpoint, returned model, pinned deployment and pilot `request_sha256` from `attempts.jsonl`, and gives `decoded_indices` and `processor_indices` containing every index from 0 to 179 in order. Use indices after the last sampling step. Record effective bit depth and resize policy for Classic. The runner checks the task-specific pilot before proceeding.
 
-Return `return.zip` and `return.zip.sha256`. Run `model-api verify --archive PATH/return.zip` to verify the package. The [previous Model API protocol](https://github.com/YangQiantwx/vlm-psychophysics/blob/8dcff9eac165ca9c36ca19fed72470ce26cda96c/EXPERIMENT_PLAN.md#model-api) records the separate sampled-video and frame-image comparisons.
+Return `return.zip` and `return.zip.sha256`. Run `python run.py api verify --archive PATH/return.zip` to verify the package. The [previous Model API protocol](https://github.com/YangQiantwx/vlm-psychophysics/blob/8dcff9eac165ca9c36ca19fed72470ce26cda96c/EXPERIMENT_PLAN.md#model-api) records the separate sampled-video and frame-image comparisons.
