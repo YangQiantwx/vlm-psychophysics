@@ -4,7 +4,7 @@ The runner pins the [dataset revision and model recipes](configs/current-x.json)
 
 ## Stimuli
 
-Every released video contains 180 frames at 60 fps and 768 × 512 pixels in lossless RGB8 H.264/MP4. Classic T1–T4 evaluation files store the exact RGB8 frames read from the original RGB16 FFV1/MKV masters by the Protocol X loader. The [master archive](https://huggingface.co/datasets/DrQY/vlm-psychophysics-rgb16-masters/tree/acd03f1772e4ee61fd3dcd180ab6cbfb580c9ce7) preserves the original sample IDs and file hashes. The [equivalence report](https://huggingface.co/datasets/DrQY/vlm-psychophysics/blob/main/media-equivalence.json) binds the evaluation files to those masters.
+Every released video contains 180 frames at 60 fps and 768 × 512 pixels in lossless RGB8 H.264/MP4. Classic T1–T4 evaluation files store the exact RGB8 frames read from the original RGB16 FFV1/MKV masters by the Protocol X loader. The [master archive](https://huggingface.co/datasets/DrQY/vlm-psychophysics-rgb16-masters/tree/c01a232fa55fac3e1ccf3e20ba833baf81a0f0b8) preserves the original sample IDs, file hashes and execution records. The [equivalence report](https://huggingface.co/datasets/DrQY/vlm-psychophysics/blob/main/media-equivalence.json) binds the evaluation files to those masters.
 
 | Task | Conditions | Ordered static input |
 |---|---|---|
@@ -28,7 +28,7 @@ Use the commands in the [repository README](README.md) for a bounded run. The ru
 
 ## Model API
 
-Install the client with `python -m pip install -e ".[download]"`. Download one published video from the pinned release and reuse the same `--data-root` for the API pilot. Omit `--sample-id` from both commands to select the whole task. `--max-requests` caps new attempts in each invocation, including pilots.
+Install the client with `python -m pip install -e '.[download]'`. Public manifests and media download on demand through the Hugging Face cache. Use `--data-root` for a dataset already downloaded with `run.py download`. Keys come from the provider's environment variable. Hub authentication uses `hf auth login` or `HF_TOKEN`. [Hugging Face authentication](https://huggingface.co/docs/huggingface_hub/quick-start#authentication)
 
 ```bash
 sample=t1_db543a401163261ed5b4
@@ -45,6 +45,21 @@ python run.py api evaluate --provider astra --model gpt-6-astra \
   --task t1-classic --input video --sample-id "$sample" --data-root benchmark-data \
   --out api-astra-t1 --max-requests 1 --reasoning-effort medium --execute
 ```
+
+To evaluate trial indices 20 through 39, preview the exact selection and then run a pilot. For a full task, use the same commands without the two index flags.
+
+```bash
+selection=(--task t1-classic --input video --from-index 20 --to-index 40 --out outputs/t1-range)
+python run.py api plan "${selection[@]}"
+
+# Set VLLM_BASE_URL and VLLM_API_KEY for the serving endpoint.
+provider=(--provider vllm --model YOUR_SERVED_MODEL --temperature 0 --seed 0 --disable-thinking)
+python run.py api evaluate "${selection[@]}" "${provider[@]}" --max-requests 1 --execute
+python run.py api evaluate "${selection[@]}" "${provider[@]}" \
+  --all-requests --concurrency 4 --frame-report server-report.json --execute
+```
+
+Indices use zero-based sorted `sample_id` order for one task and modality. The range is `[from-index, to-index)`. A missing start means zero and a missing stop means the task size. Static ranges select linked trials before deduplicating matching inputs. `--concurrency` accepts 1–16 and applies after admission. Pilots run serially. `--max-requests` caps new attempts including pilots, and `--all-requests` uses the selected unique-request count as its budget. The output directory pins the selection and records completed attempts for resume.
 
 The client verifies the media SHA and uses the exact published prompt. Both frame-list adapters decode the 180 RGB frames in order, check the 60 fps source timestamps and submit lossless PNGs. When the manifest supplies the Protocol X reader's RGB hash, the client checks it before submitting. T5 places its reference image first. Select `--input static` for the published ordered stills and download that modality first.
 

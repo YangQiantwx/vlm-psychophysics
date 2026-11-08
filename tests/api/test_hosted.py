@@ -185,6 +185,53 @@ def test_evaluate_reports_completion_for_selected_scope(tmp_path, monkeypatch):
     assert runner.verify(out / 'return.zip')['unique_requests'] == 4
 
 
+def test_index_range_is_sorted_and_slices_before_static_dedup(tmp_path, monkeypatch, capsys):
+    source = _fixture(tmp_path)
+
+    def public_plan(_root, scopes, modality):
+        return [r for r in reversed(source) if r['scope'] in scopes and r['input'] == modality]
+
+    monkeypatch.setattr(release, 'public_plan', public_plan)
+    out = tmp_path / 'static-range'
+    command = ['plan', '--task', 't2-classic', '--input', 'static', '--out', str(out)]
+    runner.main([*command, '--from-index', '1', '--to-index', '2'])
+    plan, rows = runner.load_plan(out)
+    assert [row['sample_id'] for row in rows] == ['source-b']
+    assert plan['index_selection'] == {
+        'scope': 'classic/t2', 'input': 'static',
+        'from_index': 1, 'to_index': 2, 'total_trials': 2,
+    }
+    assert json.loads(capsys.readouterr().out)['selected_requests'] == 1
+    with pytest.raises(SystemExit, match='2'):
+        runner.main([*command, '--from-index', '0', '--to-index', '2'])
+    assert runner.load_plan(out) == (plan, rows)
+
+
+def test_all_requests_uses_full_task_and_preserves_resume(tmp_path, monkeypatch, capsys):
+    source = _fixture(tmp_path)
+
+    def public_plan(_root, scopes, modality):
+        return [r for r in source if r['scope'] in scopes and r['input'] == modality]
+
+    monkeypatch.setattr(release, 'public_plan', public_plan)
+    monkeypatch.setenv('NVIDIA_API_KEY', 'fixture-credential-unused')
+    monkeypatch.setattr(runner, 'transport', lambda *_: (200, {}, _response('LEFT')))
+    out = tmp_path / 'complete-task'
+    argv = [
+        'evaluate', '--task', 't2-classic', '--sampled-video',
+        '--model', 'example/model', '--out', str(out), '--media-root', str(tmp_path),
+        '--all-requests', '--concurrency', '2', '--execute',
+    ]
+    runner.main(argv)
+    report = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert report['status'] == 'COMPLETE' and report['selected_requests'] == 2
+    assert report['pilot']['started'] == report['run']['started'] == 1
+    runner.main(argv)
+    resumed = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert resumed['request_attempts'] == 2 and resumed['run']['started'] == 0
+    assert runner.verify(out / 'return.zip')['unique_requests'] == 2
+
+
 def test_all_frame_batch_requires_server_evidence(tmp_path, monkeypatch):
     out = tmp_path / 'run'
     out.mkdir()

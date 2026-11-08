@@ -2,6 +2,53 @@
 
 Five controlled visual judgments in Classic and Natural scenes. The release contains 25,440 MP4 videos and 25,440 corresponding static evaluation records. [Dataset](https://huggingface.co/datasets/DrQY/vlm-psychophysics) · [Stimulus viewer](https://vision-tasks.pages.dev/library/) · [Model results](https://vision-tasks.pages.dev/experiments/)
 
+## Model API quickstart
+
+Clone this repository and run the commands from its root. Start with one Classic T1 video. The client downloads the pinned public media as needed and checks its SHA-256.
+
+```bash
+python -m pip install -e '.[download]'
+```
+
+Load the provider key into your shell:
+
+```bash
+printf 'DashScope API key: '
+read -r -s DASHSCOPE_API_KEY
+printf '\n'
+export DASHSCOPE_API_KEY
+```
+
+```bash
+python run.py api evaluate --provider qwen-frames --model qwen3.8-max-0902 \
+  --task t1-classic --input video --sample-id t1_db543a401163261ed5b4 \
+  --out outputs/t1-qwen-one --max-requests 1 --temperature 0 --seed 0 \
+  --disable-thinking --execute
+```
+
+| Scope | Arguments |
+|---|---|
+| One trial | `--sample-id ID --max-requests 1` |
+| Index range | `--from-index 20 --to-index 40 --all-requests` |
+| Entire task | `--task t1-classic --all-requests` |
+| Parallel calls | `--concurrency 4` |
+
+Indices are zero-based in sorted `sample_id` order within one task and modality. `--to-index` is exclusive. `api plan` previews the selection without calling the model. Static ranges select video associations first, then share identical image requests. Use a separate `--out` per selection. The same output directory resumes the same selection.
+
+Use `OPENAI_API_KEY` for Astra, `DASHSCOPE_API_KEY` for Qwen or `VLLM_API_KEY` for your vLLM endpoint. Set these in the shell or your CI secret store. Public dataset access works anonymously. Use `hf auth login` for interactive Hub authentication or inject `HF_TOKEN` as a CI or Space secret.
+
+An all-frame video batch starts after its pilot's server frame report is supplied. The run directory contains `results.csv`, `results.jsonl`, `config.json`, `summary.json` and a verifiable `return.zip`. [Range and batch examples](EXPERIMENT_PLAN.md#model-api) · [Hugging Face authentication](https://huggingface.co/docs/huggingface_hub/quick-start#authentication)
+
+To cache a whole task before evaluating, run:
+
+```bash
+python run.py download --task t1-classic --input video --media-only --data-root ./dataset
+```
+
+Pass the same `--data-root ./dataset` to the API client to use that cache. Omit `--task` and `--input` from the download command for the complete dataset.
+
+## Tasks
+
 | Task | Judgment | Classic | Natural |
 |---|---|---:|---:|
 | T1 | Horizontal stripe motion | 4,224 | 4,224 |
@@ -12,7 +59,7 @@ Five controlled visual judgments in Classic and Natural scenes. The release cont
 
 The counts are trials. Static evaluation shares a call when ordered media, prompt and choices match. T5 has 192 single-event and 192 dual-event trials per domain, using centered 768 × 512 reference images that preserve the object's pixel size. Its 768 videos correspond to 425 unique static inputs.
 
-## Run
+## Run the local Protocol X models
 
 Clone this repository and run the commands from its root. Use Linux, Python 3.12, RTX PRO 6000 Blackwell GPUs and CUDA Toolkit 13.0.3. Install into your existing environment:
 
@@ -44,35 +91,17 @@ Static inputs use one shared ordered-image path: T1 has frames 0–3; T2/T3 use 
 
 Use `--input video` or `--input static` to select a modality, `--sample-id` for a scientific ID, or repeat `--task` for several scopes. `--config configs/current-x.json` selects the complete model recipe. Optional `--data-root`, `--model-root`, `--out` and `--gpus` select storage and GPU UUIDs. `run.py plan` shows the selection, `run.py download` fetches it, and `run.py doctor` checks the environment. Add `--media-only` to download data without weights, or `--offline` to use existing local files.
 
-## Download and use a Model API
-
-Install the download tools in an existing Python environment. A hosted evaluation does not need local model weights.
-
-```bash
-python -m pip install -e ".[download]"
-python run.py download --media-only --data-root ./dataset
-```
-
-To start with a single published video, add `--task t1-classic --input video --sample-id t1_db543a401163261ed5b4` to the download command. Use the same selection when you prepare the API run.
-
-```bash
-python run.py api plan --task t1-classic --input video \
-  --sample-id t1_db543a401163261ed5b4 --data-root ./dataset --out api-run
-```
-
-[Hosted commands and return packages](EXPERIMENT_PLAN.md#model-api) cover model selection, the Qwen ordered-frame video route, Astra, vLLM and the service-side frame check. Results, attempts and resolved parameters are saved in the run directory.
-
 ## RGB16 masters and MP4 equivalence
 
-Each Classic T1–T4 trial keeps its `sample_id` and filename stem. The task metadata points to its current MP4 and contains a separate `master_video` descriptor. Download the [RGB16 FFV1 masters](https://huggingface.co/datasets/DrQY/vlm-psychophysics-rgb16-masters/tree/acd03f1772e4ee61fd3dcd180ab6cbfb580c9ce7) for source precision analysis. Original answer records retain their execution-time media SHA-256.
+Each Classic T1–T4 trial keeps its `sample_id` and filename stem. Task metadata and the [per-trial result tables](https://huggingface.co/datasets/DrQY/vlm-psychophysics/tree/main/results) provide the current MP4 path and SHA-256. The [RGB16 FFV1 archive](https://huggingface.co/datasets/DrQY/vlm-psychophysics-rgb16-masters/tree/c01a232fa55fac3e1ccf3e20ba833baf81a0f0b8) preserves the masters and original execution records.
 
 The [verification index](https://huggingface.co/datasets/DrQY/vlm-psychophysics/blob/main/media-equivalence.json) binds the two encoded files for each of 12,336 Classic trials. It records exact equality of all 2,220,480 frames at the Protocol X RGB8 reader boundary, including frame order and reader metadata. The archive retains the original 16-bit values.
 
 ```bash
 hf download DrQY/vlm-psychophysics-rgb16-masters --repo-type dataset \
-  --revision acd03f1772e4ee61fd3dcd180ab6cbfb580c9ce7 --local-dir ./masters
+  --revision c01a232fa55fac3e1ccf3e20ba833baf81a0f0b8 --include 'classic/*/videos/*.mkv' --local-dir ./masters
 hf download DrQY/vlm-psychophysics media-equivalence.jsonl --repo-type dataset \
-  --revision d5ca80fade6bcc12386c10b187daca24ee6a41dd --local-dir ./dataset
+  --revision 1a1f9921d6428b9d4b2a95c77f7ba4255ed13ac3 --local-dir ./dataset
 python run.py verify-media --master-root ./masters --data-root ./dataset --workers 8
 ```
 

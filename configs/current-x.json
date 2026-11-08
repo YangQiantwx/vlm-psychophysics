@@ -2,7 +2,7 @@
   "schema": "vlm-psychophysics-run-config-v1",
   "dataset": {
     "repo_id": "DrQY/vlm-psychophysics",
-    "revision": "d5ca80fade6bcc12386c10b187daca24ee6a41dd"
+    "revision": "1a1f9921d6428b9d4b2a95c77f7ba4255ed13ac3"
   },
   "models": {
     "cosmos": {

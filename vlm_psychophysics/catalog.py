@@ -9,7 +9,6 @@ import hashlib
 import json
 from pathlib import Path, PurePosixPath
 import re
-from urllib.request import urlopen
 
 from .release import PAIRED_SCOPES, REPO_ID as REPO, REVISION
 
@@ -19,8 +18,8 @@ ORIGINAL_INDEX_SHA = "096a675cfce1beeede63fdd3c1fec0f49a3c5deeafe7956fb9de96ee45
 # Keep the previous layout pin available for return archive verification.
 PREVIOUS_REVISION = "13e9cf67bb0b63be562ed7b7a48668fa7b7bca22"
 PREVIOUS_INDEX_SHA = "47611f9b112b406d7b585eade36ab260491fde2dce341ece13e3ad12b893c7f7"
-HF_URL = f"https://huggingface.co/datasets/{REPO}/resolve/{REVISION}/"
 INDEX_SHA = "212533d0d0e71b0fbbb55311a12e58aa9569f691441de8797420d69a236ee2c2"
+MP4_MEDIA_REVISION = "d5ca80fade6bcc12386c10b187daca24ee6a41dd"
 PAIRED_RELEASE_REVISION = "343f6272cdcdd9beabe3d666ba829483ec742467"
 PAIRED_INDEX_SHA = "2b1a15160f2323d6bd7447e0a8631304291f99651d4070e40d09bf534032ffcd"
 LAYOUT_REVISION = "6b7b66385e21d40aac0664628877b40d4d0ec3dd"
@@ -170,6 +169,7 @@ def manifest_scope(scope, revision=REVISION):
 def known_public_release(revision, index_sha):
     return (revision, index_sha) in (
         (REVISION, INDEX_SHA),
+        (MP4_MEDIA_REVISION, INDEX_SHA),
         (RGB16_REVISION, RGB16_INDEX_SHA),
         (RESULTS_REVISION, RESULTS_INDEX_SHA),
         (PAIRED_RELEASE_REVISION, PAIRED_INDEX_SHA),
@@ -381,12 +381,8 @@ def row_map(raw, count):
 def public_plan(root=None, scopes=None, modality=None):
     require(modality in (None, "video", "static"), "Unexpected input modality")
     def get(path, digest):
-        if root is not None:
-            data = (root / path).read_bytes()
-        else:
-            with urlopen(HF_URL + path, timeout=120) as response:
-                data = response.read()
-        return checked(data, digest, path)
+        local = root / path if root is not None else public_file(path)
+        return checked(local.read_bytes(), digest, path)
 
     index = json.loads(get("dataset-index.json", INDEX_SHA))
     require(
@@ -590,17 +586,19 @@ class PrivateDelta:
         return raw
 
 
-def public_media(item):
+def public_file(filename):
     from huggingface_hub import hf_hub_download
 
-    path = hf_hub_download(
+    return Path(hf_hub_download(
         repo_id=REPO,
         repo_type="dataset",
         revision=REVISION,
-        filename=item["path"],
-        token=False,
-    )
-    return Path(path).read_bytes()
+        filename=filename,
+    ))
+
+
+def public_media(item):
+    return public_file(item["path"]).read_bytes()
 
 
 def unique_requests(rows):

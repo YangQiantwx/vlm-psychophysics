@@ -99,7 +99,8 @@ def load_plan(out):
 
 
 def build_plan(
-    out, metadata_root=None, private=None, *, scopes=None, modality=None, samples=None
+    out, metadata_root=None, private=None, *, scopes=None, modality=None,
+    samples=None, index_bounds=None,
 ):
     rows = (
         release.public_plan(metadata_root, scopes, modality)
@@ -110,6 +111,14 @@ def build_plan(
         rows.extend(private.plan(rows))
     rows = filter_samples(rows, samples)
     rows.sort(key=lambda r: (r["scope"], r["input"], r["sample_id"]))
+    selection = None
+    if index_bounds is not None:
+        release.require(
+            not private and not samples and scopes and len(scopes) == 1 and modality,
+            "Index selection requires one public task and modality",
+        )
+        selection = index_selection(index_bounds, scopes[0], modality, len(rows))
+        rows = rows[selection["from_index"]:selection["to_index"]]
     raw = b"".join(map(release.encoded, rows))
     plan = dict(
         schema=SCHEMA,
@@ -124,6 +133,8 @@ def build_plan(
         static_policy="one provider call per frozen static_case_id; project to matching video IDs",
         t5_static_policy="reference first, then event midpoints in chronological order",
     )
+    if selection is not None:
+        plan["index_selection"] = selection
     if (out / "plan.json").exists():
         release.require(
             load_plan(out)[0] == plan, "This output directory already has another plan"
@@ -583,6 +594,19 @@ def filter_samples(rows, samples):
             selected.append(row)
     release.require(wanted == found, f"Unknown sample IDs: {', '.join(sorted(wanted - found))}")
     return selected
+
+
+def index_selection(bounds, scope, modality, total):
+    first, stop = bounds
+    first = 0 if first is None else first
+    stop = total if stop is None else stop
+    release.require(
+        0 <= first < stop <= total,
+        f"Expected 0 <= from-index < to-index <= {total}, got [{first}, {stop})",
+    )
+    return dict(
+        scope=scope, input=modality, from_index=first, to_index=stop, total_trials=total,
+    )
 
 
 def selected_requests(rows, args):
@@ -1250,13 +1274,21 @@ def main(argv=None):
     parser.add_argument("--disable-thinking", action="store_true")
     parser.add_argument("--reasoning-effort", choices=("low", "medium", "high", "xhigh", "max"))
     parser.add_argument("--reasoning-mode", choices=("standard", "pro"))
-    parser.add_argument(
+    budget = parser.add_mutually_exclusive_group()
+    budget.add_argument(
         "--max-requests",
         type=int,
         default=0,
         help="Maximum new attempts in this invocation, including pilots",
     )
-    parser.add_argument("--workers", type=int, default=2)
+    budget.add_argument(
+        "--all-requests", action="store_true",
+        help="Authorize every unique request in the selected task or range",
+    )
+    parser.add_argument(
+        "--concurrency", "--workers", dest="workers", type=int, default=2,
+        help="Maximum parallel API calls after the pilot, from 1 to 16 (default: 2)",
+    )
     parser.add_argument("--scope", action="append", choices=release.SCOPES)
     parser.add_argument(
         "--task",
@@ -1266,6 +1298,8 @@ def main(argv=None):
     )
     parser.add_argument("--input", choices=("video", "static"))
     parser.add_argument("--sample-id", action="append", help="Select a published sample ID")
+    parser.add_argument("--from-index", type=int, help="First trial index, inclusive (zero-based)")
+    parser.add_argument("--to-index", type=int, help="Stop before this trial index")
     frames = parser.add_mutually_exclusive_group()
     frames.add_argument(
         "--all-frames",
@@ -1336,6 +1370,14 @@ def main(argv=None):
         )
     if args.task or args.data_root:
         args.input = args.input or "video"
+    args.index_bounds = None
+    if args.from_index is not None or args.to_index is not None:
+        if (
+            len(args.scope or []) != 1 or not args.input or args.sample_id
+            or args.private_index or args.private_metadata_root
+        ):
+            parser.error("Index selection requires one public --task and one modality, without --sample-id")
+        args.index_bounds = (args.from_index, args.to_index)
     if args.task or args.data_root or args.provider in native_video_api.FRAME_LISTS:
         args.all_frames = args.all_frames or (
             args.input == "video" and not args.sampled_video
@@ -1365,10 +1407,11 @@ def command(args):
     archive = args.archive or args.out / "return.zip"
     if args.command == "export":
         return export(args.out, archive)
+    all_requests = getattr(args, "all_requests", False)
     if args.command != "plan":
         release.require(
-            args.execute and args.max_requests > 0,
-            "Set --execute and a positive --max-requests",
+            args.execute and (all_requests or args.max_requests > 0),
+            "Set --execute and either --all-requests or a positive --max-requests",
         )
     if args.command == "evaluate":
         release.require(not args.retry, "Use pilot or run for an explicit retry")
@@ -1377,15 +1420,19 @@ def command(args):
     private = None
     if args.private_index or args.private_metadata_root:
         private = release.PrivateDelta(args.private_index, args.private_metadata_root)
+    index_bounds = getattr(args, "index_bounds", None)
     if args.command == "plan" or (
         args.command == "evaluate" and not (args.out / "plan.json").exists()
     ):
-        local_selection = getattr(args, "task", None) or getattr(args, "data_root", None)
+        local_selection = (
+            getattr(args, "task", None) or getattr(args, "data_root", None) or index_bounds
+        )
         plan, rows = build_plan(
             args.out, args.metadata_root, private,
             scopes=args.scope if local_selection and not private else None,
             modality=args.input if local_selection and not private else None,
             samples=getattr(args, "sample_id", None),
+            index_bounds=index_bounds,
         )
     else:
         plan, rows = load_plan(args.out)
@@ -1393,12 +1440,22 @@ def command(args):
             not private or plan["private_index_sha256"],
             "Use a new output directory for the private plan",
         )
+        if index_bounds is not None:
+            selection = plan.get("index_selection")
+            release.require(
+                selection and selection == index_selection(
+                    index_bounds, args.scope[0], args.input, selection["total_trials"],
+                ),
+                "This output directory has a different index selection. Use a new --out.",
+            )
     if args.command == "plan":
         return {
             "status": "PLANNED_NO_MODEL_CALLS",
             **plan,
             "selected_requests": len(selected_requests(rows, args)),
         }
+    if all_requests:
+        args.max_requests = len(selected_requests(rows, args))
     if args.command in ("pilot", "run"):
         return execution(
             args.out, plan, rows, args, private, pilot=args.command == "pilot"
