@@ -20,7 +20,7 @@ ORIGINAL_INDEX_SHA = "096a675cfce1beeede63fdd3c1fec0f49a3c5deeafe7956fb9de96ee45
 PREVIOUS_REVISION = "13e9cf67bb0b63be562ed7b7a48668fa7b7bca22"
 PREVIOUS_INDEX_SHA = "47611f9b112b406d7b585eade36ab260491fde2dce341ece13e3ad12b893c7f7"
 HF_URL = f"https://huggingface.co/datasets/{REPO}/resolve/{REVISION}/"
-INDEX_SHA = "1fc0fff6cc0e724ab083876cac1257e3d79bc1727c4bdec23ee26c82acd4e3ee"
+INDEX_SHA = "212533d0d0e71b0fbbb55311a12e58aa9569f691441de8797420d69a236ee2c2"
 PAIRED_RELEASE_REVISION = "343f6272cdcdd9beabe3d666ba829483ec742467"
 PAIRED_INDEX_SHA = "2b1a15160f2323d6bd7447e0a8631304291f99651d4070e40d09bf534032ffcd"
 LAYOUT_REVISION = "6b7b66385e21d40aac0664628877b40d4d0ec3dd"
@@ -34,7 +34,11 @@ PRIVATE_SHA = "8eb931fa5c8c0103a6c2efbf9b0f27717147a26632f034eaa8e9f06c29c3f964"
 PRIVATE_GENERATION = "1793982719470388"
 MIME = {".png": "image/png", ".mp4": "video/mp4", ".mkv": "video/x-matroska"}
 # Logical video rows, independent static cases, video manifest SHA, static manifest SHA.
-SCOPES = {
+RGB16_REVISION = "8a63496a8c59d72c1a0cb28f56c4b57325694f27"
+RGB16_INDEX_SHA = "1fc0fff6cc0e724ab083876cac1257e3d79bc1727c4bdec23ee26c82acd4e3ee"
+RESULTS_REVISION = "74f86f3c0ec956c3f5b93dd9d8b5f1b2a1c66ae4"
+RESULTS_INDEX_SHA = "7df5cd2d21ed34d0ea555a4eeb0de881a6d5dca13aab1045bcc47abab1f7f9d4"
+RGB16_SCOPES = {
     "classic/t1": (
         4224,
         4224,
@@ -96,6 +100,29 @@ SCOPES = {
         "a9226cc417f835aa154ac6d073c3a2203e603c0cd4fbc9b7ede973fd6f67862b",
     ),
 }
+SCOPES = {
+    **RGB16_SCOPES,
+    "classic/t1": (
+        *RGB16_SCOPES["classic/t1"][:2],
+        "51bc62bdf78b7345f1aa2b508726293a4fd176075cb620bde23b4f3bc53a3464",
+        "9ff0453dc6977f19718355fa4213b71a132a80efb126d0442d9ca563ac5b3060",
+    ),
+    "classic/t2": (
+        *RGB16_SCOPES["classic/t2"][:2],
+        "721acea1a56e99be37e1889b60c710e9dd0dd9da9a3e675f098eac89614790d1",
+        "6f525ea0de9996e9fbe16919ec9f3ffac4b3e626a49d56c2fa32ba8c2a2eda1d",
+    ),
+    "classic/t3": (
+        *RGB16_SCOPES["classic/t3"][:2],
+        "f7bff95076dbd44dfdcfaba9add35450162a9afbeb810c4ce7fb700c3b96c6cd",
+        "52a4d962aefe00fa7d0f1badade083dc92caae2052b9c471d97d923dc0ec3818",
+    ),
+    "classic/t4": (
+        *RGB16_SCOPES["classic/t4"][:2],
+        "713754825be488010c6900514dececa433da38a4db7305f84f27bce8c93212a8",
+        "66b8c8c4d6d2ec0bf6f0a48f49b2fc77685a7059f09168395db016afe6b18ab2",
+    ),
+}
 PREVIOUS_MANIFESTS = {
     "classic/t4": (
         768,
@@ -132,13 +159,19 @@ PAIRED_MANIFESTS = {
 }
 
 
-def manifest_scope(scope):
-    return PAIRED_MANIFESTS[scope] if scope in PAIRED_SCOPES else SCOPES[scope]
+def manifest_scope(scope, revision=REVISION):
+    if scope in PAIRED_SCOPES:
+        return PAIRED_MANIFESTS[scope]
+    if revision != REVISION and revision in (RGB16_REVISION, RESULTS_REVISION):
+        return RGB16_SCOPES[scope]
+    return SCOPES[scope]
 
 
 def known_public_release(revision, index_sha):
     return (revision, index_sha) in (
         (REVISION, INDEX_SHA),
+        (RGB16_REVISION, RGB16_INDEX_SHA),
+        (RESULTS_REVISION, RESULTS_INDEX_SHA),
         (PAIRED_RELEASE_REVISION, PAIRED_INDEX_SHA),
         (LAYOUT_REVISION, LAYOUT_INDEX_SHA),
         (FULL_MEDIA_REVISION, FULL_INDEX_SHA),
@@ -224,6 +257,8 @@ def trial(scope, video, protocol, manifest_sha, static=None, private=False):
     require(isinstance(parameters, dict), f"Missing parameters for {sid}")
     mask = video.get("mask", parameters.get("mask")) if task == "T5" else None
     original = media(path, video["video_sha256"], scope, role="video")
+    if "processor_input_rgb_sha256" in video:
+        original["processor_input_rgb_sha256"] = video["processor_input_rgb_sha256"]
     source = "private" if private else "public"
     mode = "static" if static is not None else "video"
     inspection = (
@@ -343,7 +378,8 @@ def row_map(raw, count):
     return by_id
 
 
-def public_plan(root=None):
+def public_plan(root=None, scopes=None, modality=None):
+    require(modality in (None, "video", "static"), "Unexpected input modality")
     def get(path, digest):
         if root is not None:
             data = (root / path).read_bytes()
@@ -368,13 +404,14 @@ def public_plan(root=None):
             f"Scope count differs for {scope}",
         )
         video = row_map(get(relative(info["metadata"], scope), video_sha), count)
-        static = row_map(
-            get(relative(info["static_metadata"], scope), static_sha), count
-        )
-        require(
-            video.keys() == static.keys(),
-            f"Public video and static IDs differ for {scope}",
-        )
+        if modality != "video":
+            static = row_map(
+                get(relative(info["static_metadata"], scope), static_sha), count
+            )
+            require(
+                video.keys() == static.keys(),
+                f"Public video and static IDs differ for {scope}",
+            )
         protocol = (
             info.get("protocol")
             or {
@@ -388,21 +425,20 @@ def public_plan(root=None):
         )
         items = []
         for sid in sorted(video):
-            items.append(trial(scope, video[sid], protocol, video_sha))
-            items.append(
-                trial(scope, video[sid], protocol + "/static", static_sha, static[sid])
-            )
-        require(
-            len(
-                {
-                    r["request_id"]
-                    for r in items
+            if modality != "static":
+                items.append(trial(scope, video[sid], protocol, video_sha))
+            if modality != "video":
+                items.append(
+                    trial(scope, video[sid], protocol + "/static", static_sha, static[sid])
+                )
+        if modality != "video":
+            require(
+                len({
+                    r["request_id"] for r in items
                     if r["input"] == "static" and r["request_id"]
-                }
+                }) == unique_static,
+                f"Independent static count differs for {scope}",
             )
-            == unique_static,
-            f"Independent static count differs for {scope}",
-        )
         return items
 
     with ThreadPoolExecutor(max_workers=4) as pool:
@@ -410,7 +446,7 @@ def public_plan(root=None):
             row
             for items in pool.map(
                 scope_plan,
-                ((scope, index["scopes"][scope]) for scope in sorted(SCOPES)),
+                ((scope, index["scopes"][scope]) for scope in sorted(scopes or SCOPES)),
             )
             for row in items
         ]

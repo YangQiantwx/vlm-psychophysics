@@ -1,7 +1,11 @@
 import base64
+from hashlib import sha256
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from io import BytesIO
 import json
 from pathlib import Path
+import re
+from threading import Thread
 from types import SimpleNamespace
 from urllib.error import URLError
 from zipfile import ZipFile
@@ -9,6 +13,7 @@ from zipfile import ZipFile
 import pytest
 
 from vlm_psychophysics.api import cli as runner
+from vlm_psychophysics.api import native_video_api
 from vlm_psychophysics import catalog as release
 
 
@@ -221,6 +226,153 @@ def test_all_frame_batch_requires_server_evidence(tmp_path, monkeypatch):
     with ZipFile(out / 'return.zip') as package:
         attempts = runner.load_rows(package.read('attempts.jsonl'))
         assert next(a for a in attempts if a['phase'] == 'pilot')['frame_report'] == report
+
+
+@pytest.mark.parametrize('provider,model,key_env', [
+    ('qwen-frames', 'qwen3.8-max-0902', 'DASHSCOPE_API_KEY'),
+    ('astra', 'gpt-6-astra', 'OPENAI_API_KEY'),
+])
+def test_frame_list_cli_and_raw_return_over_http(tmp_path, monkeypatch, provider, model, key_env):
+    import numpy as np
+    from PIL import Image
+    from vlm_psychophysics import media
+    from vlm_psychophysics.cli import main
+
+    digest = sha256()
+
+    def pixels(i):
+        return bytes((i, 255 - i, i ^ 45)) * (768 * 512)
+
+    def frames():
+        for i in range(180):
+            rgb = pixels(i)
+            digest.update(rgb)
+            yield np.frombuffer(rgb, dtype=np.uint8).reshape(512, 768, 3)
+
+    video = tmp_path / 'natural/t5/videos/GT_YES.mp4'
+    video.parent.mkdir(parents=True)
+    media.write_rgb_mp4(video, frames())
+    ref = tmp_path / 'natural/t5/reference.png'
+    Image.new('RGB', (768, 512), (241, 0, 30)).save(ref)
+    ref_bytes = ref.read_bytes()
+    prompt = 'Frozen prompt with trailing whitespace.\n'
+    sample_id = 'sample-canary'
+    row = release.trial('natural/t5', dict(
+        sample_id=sample_id, domain='natural', task='T5', truth='YES', prompt=prompt,
+        parameters={'mask': 'none'}, video_path=str(video.relative_to(tmp_path)),
+        video_sha256=release.sha(video.read_bytes()), frames=180, fps=60, width=768, height=512,
+        processor_input_rgb_sha256=digest.hexdigest(), reference_path=str(ref.relative_to(tmp_path)),
+        reference_sha256=release.sha(ref_bytes),
+    ), 'fixture', 'video-sha')
+    monkeypatch.setattr(release, 'public_plan', lambda *args: [row] if args == (
+        tmp_path, ['natural/t5'], 'video'
+    ) else pytest.fail(f'Unexpected download selection {args}'))
+    monkeypatch.setenv(key_env, 'fixture-credential')
+    monkeypatch.delenv('OPENAI_PROJECT_ID', raising=False)
+    if provider == 'astra':
+        raw = release.encoded({
+            'id': 'fixture-id', 'model': model, 'status': 'completed',
+            'output': [{'type': 'reasoning'}, {'type': 'message', 'content': [
+                {'type': 'output_text', 'text': ' YES! '}
+            ]}],
+        })
+        options = ['--reasoning-effort', 'xhigh']
+    else:
+        raw = _response(' YES! ')
+        options = ['--temperature', '0', '--seed', '0', '--disable-thinking']
+    received = []
+
+    class Server(BaseHTTPRequestHandler):
+        def do_POST(self):
+            data = self.rfile.read(int(self.headers['Content-Length']))
+            received.append((self.path, self.headers['Authorization'], data))
+            self.send_response(200)
+            self.send_header('Content-Length', str(len(raw)))
+            self.end_headers()
+            self.wfile.write(raw)
+
+    with ThreadingHTTPServer(('127.0.0.1', 0), Server) as server:
+        base = f'http://127.0.0.1:{server.server_port}/v1'
+        if provider == 'astra':
+            monkeypatch.setattr(native_video_api, 'ASTRA', base)
+        else:
+            monkeypatch.setattr(native_video_api, 'QWEN_ENDPOINT', re.compile(re.escape(base)))
+            monkeypatch.setenv('DASHSCOPE_BASE_URL', base)
+        thread = Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        out = tmp_path / 'run'
+        args = ['api', 'evaluate', '--data-root', str(tmp_path), '--task', 't5-natural',
+                '--sample-id', sample_id, '--provider', provider, '--model', model,
+                '--out', str(out), '--max-requests', '1', '--execute', *options]
+        try:
+            with pytest.raises(SystemExit) as e:
+                main(args)
+            assert e.value.code == 2
+            trial, = runner.load_rows((out / 'results.jsonl').read_bytes())
+            assert trial['normalized_answer'] == 'YES' and trial['correct'] is None
+            assert runner.verify(out / 'return.zip')['request_attempts'] == 1
+            receipt, = runner.load_rows((out / 'attempts.jsonl').read_bytes())
+            report = tmp_path / 'mock-server-frame-report.json'
+            report.write_bytes(release.encoded([dict(
+                endpoint=base, model=receipt['returned_model'], deployment='offline HTTP fixture',
+                request_sha256=receipt['request_sha256'], decoded_indices=list(range(180)),
+                processor_indices=list(range(180)),
+            )]))
+            main([*args, '--frame-report', str(report)])
+        finally:
+            server.shutdown()
+            thread.join()
+
+    (path, auth, data), = received
+    assert auth == 'Bearer fixture-credential'
+    assert sample_id.encode() not in data and b'GT_YES' not in data and b'fixture-credential' not in data
+    assert release.sha(data) == receipt['request_sha256'] and len(data) == receipt['request_bytes']
+    body = json.loads(data)
+    config = json.loads((out / 'config.json').read_bytes())
+    assert config['dataset_revision'] == release.REVISION
+    if provider == 'qwen-frames':
+        assert path == '/v1/chat/completions'
+        reference, sequence, question = body['messages'][0]['content']
+        assert reference['type'] == 'image_url' and sequence['type'] == 'video'
+        assert question == {'type': 'text', 'text': prompt} and sequence['fps'] == 10
+        assert all(body[k] == v for k, v in config['generation_parameters'].items())
+        assert config['generation_parameters'] == {'temperature': 0, 'seed': 0, 'enable_thinking': False}
+        images = [reference['image_url']['url'], *sequence['video']]
+    else:
+        assert path == '/v1/responses'
+        *sequence, question = body['input'][0]['content']
+        assert question == {'type': 'input_text', 'text': prompt}
+        assert all(p['type'] == 'input_image' and p['detail'] == 'original' for p in sequence)
+        assert body['reasoning'] == config['generation_parameters']['reasoning'] == {'effort': 'xhigh'}
+        assert body['tools'] == [] and body['truncation'] == 'disabled'
+        assert 'temperature' not in body and 'seed' not in body
+        images = [p['image_url'] for p in sequence]
+    assert len(images) == 181 and base64.b64decode(images[0].split(',')[1]) == ref_bytes
+    for i, url in enumerate(images[1:]):
+        header, encoded = url.split(',', 1)
+        assert header == 'data:image/png;base64'
+        with Image.open(BytesIO(base64.b64decode(encoded, validate=True))) as png:
+            assert png.mode == 'RGB' and png.size == (768, 512)
+            assert png.tobytes() == pixels(i)
+    evidence = receipt['verified_media'][1]['ordered_frames']
+    assert evidence == {'count': 180, 'fps': 60, 'rgb_sha256': digest.hexdigest()}
+    assert base64.b64decode(receipt['response_body_b64']) == raw
+    with ZipFile(out / 'return.zip') as package:
+        trial, = runner.load_rows(package.read('results.jsonl'))
+        assert trial['correct'] is True and trial['raw_answer'] == ' YES! '
+        assert not trial['strict_format_valid']
+        assert package.read('results.csv') == (out / 'results.csv').read_bytes()
+    assert runner.verify(out / 'return.zip')['request_attempts'] == 1
+
+
+def test_qwen_frame_list_request_size_fails_without_reducing_input():
+    native_video_api.validate_payload_size('qwen-frames', native_video_api.QWEN, 16 * 2**20)
+    with pytest.raises(ValueError, match='official workspace endpoint'):
+        native_video_api.validate_payload_size('qwen-frames', native_video_api.QWEN, 16 * 2**20 + 1)
+    workspace = 'https://workspace.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1'
+    native_video_api.validate_payload_size('qwen-frames', workspace, 64_000_000)
+    with pytest.raises(ValueError, match='64000000-byte limit'):
+        native_video_api.validate_payload_size('qwen-frames', workspace, 64_000_001)
 
 
 def test_fixture_end_to_end(tmp_path, monkeypatch):

@@ -15,6 +15,7 @@ import numpy as np
 
 from .generators import classic_events as classic_t23
 from . import catalog as jinwei_release
+from .media import opencv_rgb8, write_rgb_mp4
 from .release import REPO_ID, REVISION
 from .generators import events as t5_paired
 
@@ -197,7 +198,18 @@ def verify_video(data, path, row):
     expected = row.get("decoded_stream_sha256") or row.get("RGB_stream_sha256")
     if expected is None and row.get("decoded_frame_sha256") is None:
         # Classic T1 m=0.5 records identify the original master by its container SHA.
-        master = data.file(row.get("video_path") or row["path"], row["video_sha256"])
+        reference = row.get("master_video")
+        if reference is None:
+            master = data.file(row.get("video_path") or row["path"], row["video_sha256"])
+        else:
+            from huggingface_hub import hf_hub_download
+
+            master = Path(hf_hub_download(
+                reference["repo_id"], reference["path"], repo_type="dataset",
+                revision=reference["revision"], token=False,
+            ))
+            if file_sha(master) != reference["sha256"]:
+                raise ValueError(f"Archived master SHA-256 differs for {path.name}")
         expected = decoded_video_sha(master, row)
     if expected is not None and stream_sha != expected:
         raise ValueError(f"Decoded RGB SHA-256 differs for {path.name}")
@@ -218,11 +230,15 @@ def render(job):
     with TemporaryDirectory(prefix=".render-", dir=destination.parent) as stage:
         work = Path(stage)
         video = work / name
+        master = row.get("master_video")
+        source = video
+        if master is not None:
+            source = video.with_suffix(".mkv")
         route = {
-            "classic/t1": lambda: render_classic_t1(data, row, video),
-            "classic/t2": lambda: render_classic_t23(row, video, work),
-            "classic/t3": lambda: render_classic_t23(row, video, work),
-            "classic/t4": lambda: render_classic_t4(data, row, video),
+            "classic/t1": lambda: render_classic_t1(data, row, source),
+            "classic/t2": lambda: render_classic_t23(row, source, work),
+            "classic/t3": lambda: render_classic_t23(row, source, work),
+            "classic/t4": lambda: render_classic_t4(data, row, source),
             "natural/t1": lambda: natural.render_t1(data, row, video),
             "natural/t2": lambda: natural.render_t2(data, row, video),
             "natural/t3": lambda: natural.render_t3(data, row, video, work),
@@ -233,6 +249,15 @@ def render(job):
             "natural/t5/paired-v1": lambda: render_paired_t5(data, row, video, work),
         }
         route[scope]()
+        if master is not None:
+            master_row = {
+                **row,
+                "decoded_stream_sha256": master.get("decoded_stream_sha256"),
+                "decoded_frame_sha256": master.get("decoded_frame_sha256"),
+                "RGB_stream_sha256": master.get("RGB_stream_sha256"),
+            }
+            verify_video(data, source, master_row)
+            write_rgb_mp4(video, opencv_rgb8(source))
         stream_sha = verify_video(data, video, row)
         container_sha = file_sha(video)
         # Link only verified output into place and refuse concurrent overwrites.
@@ -270,7 +295,7 @@ def generate(task, sample_ids, output, data_root, revision=REVISION, workers=1):
     for task in tasks:
         scope = SCOPES[task]
         with data.file(
-            f"{scope}/metadata.jsonl", jinwei_release.manifest_scope(scope)[2]
+            f"{scope}/metadata.jsonl", jinwei_release.manifest_scope(scope, revision)[2]
         ).open() as source:
             for row in map(json.loads, source):
                 matching = {row["sample_id"], row.get("legacy_sample_id")} & wanted

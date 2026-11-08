@@ -287,6 +287,10 @@ def main(argv=None):
         from .generation import main as generate
 
         return generate(argv[1:])
+    if argv and argv[0] == "verify-media":
+        from .media import main as verify_media
+
+        return verify_media(argv[1:])
     if argv and argv[0] == "api":
         from .api.cli import main as api
 

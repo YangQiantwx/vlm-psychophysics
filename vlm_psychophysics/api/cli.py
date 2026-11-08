@@ -7,9 +7,12 @@ import base64
 from collections import Counter, defaultdict
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from contextlib import closing
+import csv
 import fcntl
 import hashlib
 from http.client import HTTPException
+from importlib.metadata import version
+from io import StringIO
 import json
 import os
 from pathlib import Path
@@ -19,7 +22,7 @@ from tempfile import TemporaryDirectory
 import time
 from urllib.error import HTTPError
 from urllib.request import HTTPRedirectHandler, Request, build_opener
-from zipfile import ZIP_DEFLATED, ZipFile
+from zipfile import BadZipFile, ZIP_DEFLATED, ZipFile
 
 from .. import catalog as release
 from . import native_video_api
@@ -35,13 +38,32 @@ TASK_SCOPES = {
 }
 RETRIES = {"SOURCE_ERROR", "CLAIMED", "HTTP_ERROR"}
 UNCERTAIN = {"SENT", "TRANSPORT_UNKNOWN"}
-RETURN_FILES = (
+LEGACY_RETURN_FILES = (
     "plan.json",
     "source-plan.jsonl",
     "config.json",
     "attempts.jsonl",
     "results.jsonl",
     "summary.json",
+)
+RETURN_FILES = (*LEGACY_RETURN_FILES, "results.csv")
+CSV_FIELDS = (
+    "sample_id",
+    "scope",
+    "input",
+    "requested_model",
+    "returned_model",
+    "truth",
+    "raw_answer",
+    "normalized_answer",
+    "accuracy_eligible",
+    "correct",
+    "strict_format_valid",
+    "status",
+    "request_id",
+    "source_video_sha256",
+    "prompt_sha256",
+    "static_case_id",
 )
 
 
@@ -76,10 +98,17 @@ def load_plan(out):
     return plan, rows
 
 
-def build_plan(out, metadata_root=None, private=None):
-    rows = release.public_plan(metadata_root)
+def build_plan(
+    out, metadata_root=None, private=None, *, scopes=None, modality=None, samples=None
+):
+    rows = (
+        release.public_plan(metadata_root, scopes, modality)
+        if scopes or modality
+        else release.public_plan(metadata_root)
+    )
     if private:
         rows.extend(private.plan(rows))
+    rows = filter_samples(rows, samples)
     rows.sort(key=lambda r: (r["scope"], r["input"], r["sample_id"]))
     raw = b"".join(map(release.encoded, rows))
     plan = dict(
@@ -105,7 +134,10 @@ def build_plan(out, metadata_root=None, private=None):
     return plan, rows
 
 
-def configured(out, plan, model, max_tokens, provider=PROVIDER, all_frames=False):
+def configured(
+    out, plan, model, max_tokens, provider=PROVIDER, all_frames=False,
+    generation_parameters=None,
+):
     release.require(
         bool(model) and bool(re.fullmatch(r"[A-Za-z0-9_.:/-]+", model)),
         "Set --model to the exact provider model ID",
@@ -123,6 +155,8 @@ def configured(out, plan, model, max_tokens, provider=PROVIDER, all_frames=False
         requested_model=model,
         max_completion_tokens=max_tokens,
         source_plan_sha256=plan["source_plan_sha256"],
+        dataset_revision=plan["revision"],
+        dataset_index_sha256=plan["index_sha256"],
         code_sha256={
             p.name: file_sha(p)
             for p in (
@@ -142,8 +176,20 @@ def configured(out, plan, model, max_tokens, provider=PROVIDER, all_frames=False
             Path(native_video_api.__file__)
         )
         native_video_api.validate_config(config)
+        if provider in native_video_api.FRAME_LISTS:
+            config["transport"] = "ordered lossless PNG images"
+            config["media_runtime"] = {name: version(name) for name in ("av", "Pillow")}
+        if provider == "astra":
+            generation_parameters = {
+                "reasoning": {"effort": "medium"},
+                **(generation_parameters or {}),
+            }
+    if generation_parameters:
+        config["generation_parameters"] = generation_parameters
+        config["generation"] = "explicit requested settings, no tools"
     if all_frames:
-        config["frame_settings"] = native_video_api.FULL_FRAME_FIELDS
+        config["frame_settings"] = native_video_api.frame_settings(provider)
+        config["processor_visibility"] = "requires separate server frame report"
         config["code_sha256"]["native_video_api.py"] = file_sha(
             Path(native_video_api.__file__)
         )
@@ -205,7 +251,15 @@ def validate_frame_report(report, attempt, config):
         and report["request_sha256"] == attempt["request_sha256"]
         and isinstance(report["deployment"], str)
         and bool(report["deployment"].strip())
-        and report["decoded_indices"] == report["processor_indices"] == indices,
+        and report["decoded_indices"] == report["processor_indices"] == indices
+        and (
+            "dataset_revision" not in config
+            or all(
+                type(i) is int
+                for key in ("decoded_indices", "processor_indices")
+                for i in report[key]
+            )
+        ),
         "The server report must bind the successful pilot and show decoded and processor indices 0–179 in order",
     )
 
@@ -274,9 +328,16 @@ class NoRedirect(HTTPRedirectHandler):
 
 def transport(payload, credential, config=None):
     endpoint = config["endpoint"] if config else BASE_URL
+    timeout = 300
     if config and config["provider"] == "gemini":
         endpoint += "/models/" + config["requested_model"] + ":generateContent"
         auth = {"x-goog-api-key": credential}
+    elif config and config["provider"] == "astra":
+        endpoint += "/responses"
+        timeout = 900
+        auth = {"Authorization": "Bearer " + credential}
+        if project := os.environ.get("OPENAI_PROJECT_ID"):
+            auth["OpenAI-Project"] = project
     else:
         endpoint += "/chat/completions"
         auth = {"Authorization": "Bearer " + credential}
@@ -287,7 +348,7 @@ def transport(payload, credential, config=None):
         method="POST",
     )
     try:
-        response = build_opener(NoRedirect).open(request, timeout=300)
+        response = build_opener(NoRedirect).open(request, timeout=timeout)
     except HTTPError as response:
         with response:
             return response.code, response.headers, response.read()
@@ -302,6 +363,8 @@ def response_fields(body, status, choices, expected_model, provider=PROVIDER):
         document = json.loads(body)
         if provider == "gemini":
             document = native_video_api.gemini_completion(document)
+        elif provider == "astra":
+            document = native_video_api.astra_completion(document)
         options = document["choices"]
         if len(options) != 1:
             raise ValueError("Expected one completion choice")
@@ -348,6 +411,7 @@ def response_fields(body, status, choices, expected_model, provider=PROVIDER):
 def request_body(row, config, media_root, private):
     provider = config.get("provider", PROVIDER)
     media = []
+    frame_parts = []
     verified = []
     for item in row["media"]:
         local = media_root / item["path"] if media_root is not None else None
@@ -364,9 +428,46 @@ def request_body(row, config, media_root, private):
         else:
             raise ValueError("Authorized private media is missing")
         release.checked(data, item["sha256"], item["path"])
-        media.append((item["mime"], base64.b64encode(data).decode("ascii")))
         verified.append({**item, "bytes": len(data)})
-    if provider in native_video_api.HOSTED:
+        if provider in native_video_api.FRAME_LISTS:
+            if item["mime"] == "image/png":
+                url = "data:image/png;base64," + base64.b64encode(data).decode("ascii")
+                frame_parts.append({"type": "image_url", "image_url": {"url": url}})
+            else:
+                release.require(item["mime"] == "video/mp4", "Use the verified MP4 release")
+                images, rgb_sha = native_video_api.ordered_pngs(
+                    data,
+                    item.get("processor_input_rgb_sha256"),
+                    compression=native_video_api.PNG_COMPRESSION[provider],
+                )
+                part = {"type": "video", "video": images}
+                if provider == "qwen-frames":
+                    pixels = native_video_api.SOURCE_WIDTH * native_video_api.SOURCE_HEIGHT
+                    part.update(
+                        fps=config["video_fps"],
+                        min_pixels=pixels,
+                        max_pixels=pixels,
+                        total_pixels=len(images) * pixels,
+                    )
+                frame_parts.append(part)
+                verified[-1]["ordered_frames"] = {
+                    "count": len(images),
+                    "rgb_sha256": rgb_sha,
+                    "fps": native_video_api.SOURCE_FPS,
+                }
+        else:
+            media.append((item["mime"], base64.b64encode(data).decode("ascii")))
+    generation = config.get("generation_parameters", {})
+    if provider in native_video_api.FRAME_LISTS:
+        body = native_video_api.frame_list_request(
+            provider,
+            config["requested_model"],
+            row["prompt"],
+            frame_parts,
+            config["max_completion_tokens"],
+            generation,
+        )
+    elif provider in native_video_api.HOSTED:
         body = native_video_api.request(
             provider,
             config["requested_model"],
@@ -391,11 +492,10 @@ def request_body(row, config, media_root, private):
             {"type": "text", "text": row["prompt"]}
         ]
         body.update(config.get("frame_settings", {}))
+    if provider not in native_video_api.FRAME_LISTS:
+        body.update(generation)
     payload = release.encoded(body)
-    if provider == "gemini":
-        release.require(
-            len(payload) <= 20_000_000, "Gemini inline request exceeds 20 MB"
-        )
+    native_video_api.validate_payload_size(provider, config.get("endpoint"), len(payload))
     return payload, verified
 
 
@@ -419,6 +519,7 @@ def invoke(out, receipt, row, config, media_root, private, credential, expected_
         receipt.update(
             status="SENT",
             request_sha256=release.sha(payload),
+            request_bytes=len(payload),
             verified_media=verified,
             sent_unix=time.time(),
         )
@@ -469,13 +570,33 @@ def invoke(out, receipt, row, config, media_root, private, credential, expected_
         return receipt
 
 
+def filter_samples(rows, samples):
+    if not samples:
+        return rows
+    wanted = set(samples)
+    found = set()
+    selected = []
+    for row in rows:
+        matches = wanted.intersection((row["sample_id"], row["static_case_id"]))
+        if matches:
+            found.update(matches)
+            selected.append(row)
+    release.require(wanted == found, f"Unknown sample IDs: {', '.join(sorted(wanted - found))}")
+    return selected
+
+
 def selected_requests(rows, args):
-    return {
-        key: row
-        for key, row in release.unique_requests(rows).items()
+    matching = [
+        row for row in rows
         if (not args.scope or row["scope"] in args.scope)
         and (not args.input or row["input"] == args.input)
-    }
+    ]
+    requests = release.unique_requests(matching)
+    samples = getattr(args, "sample_id", None)
+    if not samples:
+        return requests
+    requested = {row["request_id"] for row in filter_samples(matching, samples)}
+    return {key: row for key, row in requests.items() if key in requested}
 
 
 def execution(out, plan, rows, args, private, pilot):
@@ -493,7 +614,7 @@ def execution(out, plan, rows, args, private, pilot):
     hosted = native_video_api.HOSTED.get(args.provider)
     if args.all_frames:
         release.require(
-            not hosted,
+            not hosted or args.provider in native_video_api.FRAME_LISTS,
             "This provider samples video. Choose a full-frame deployment or pass --sampled-video.",
         )
         release.require(
@@ -508,7 +629,17 @@ def execution(out, plan, rows, args, private, pilot):
             ),
             "Select a 180-frame, 60 fps video task for the all-frame run",
         )
-    if hosted:
+    if args.provider in native_video_api.FRAME_LISTS:
+        release.require(
+            all(
+                r["source"] == "public"
+                and all(i["mime"] in {"image/png", "video/mp4"} for i in r["media"])
+                and (r["input"] == "static" or args.all_frames)
+                for r in selected.values()
+            ),
+            "Use the public MP4 release with --all-frames or select static input",
+        )
+    elif hosted:
         release.require(
             all(
                 r["source"] == "public"
@@ -536,7 +667,8 @@ def execution(out, plan, rows, args, private, pilot):
             "Private metadata no longer matches the run plan",
         )
     config = configured(
-        out, plan, args.model, args.max_tokens, args.provider, args.all_frames
+        out, plan, args.model, args.max_tokens, args.provider, args.all_frames,
+        getattr(args, "generation_parameters", None),
     )
     with closing(open_db(out)) as db:
         history = records(db)
@@ -809,6 +941,14 @@ def summarize(results):
     return report
 
 
+def results_csv(rows):
+    with StringIO(newline="") as stream:
+        writer = csv.DictWriter(stream, CSV_FIELDS, extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(rows)
+        return stream.getvalue().encode("utf-8")
+
+
 def export(out, archive):
     plan, rows = load_plan(out)
     config_path = out / "config.json"
@@ -843,6 +983,7 @@ def export(out, archive):
         with (stage / "results.jsonl").open("wb") as dest:
             for row in normalized:
                 dest.write(release.encoded(row))
+        (stage / "results.csv").write_bytes(results_csv(normalized))
         (stage / "config.json").write_bytes(release.encoded(config))
         (stage / "summary.json").write_bytes(release.encoded(summary))
         paths = {
@@ -858,6 +999,8 @@ def export(out, archive):
                     output.write(path, name)
                 output.writestr("SHA256SUMS.json", release.encoded(checksums))
             target.replace(archive)
+        for name in ("summary.json", "results.csv", "results.jsonl", "attempts.jsonl"):
+            (stage / name).replace(out / name)
     checksum = file_sha(archive)
     atomic(
         archive.with_suffix(archive.suffix + ".sha256"),
@@ -878,15 +1021,16 @@ def verify(archive):
     sidecar = archive.with_suffix(archive.suffix + ".sha256")
     if sidecar.exists():
         release.require(
-            sidecar.read_text().split()[0] == checksum, "Return ZIP SHA-256 mismatch"
+            sidecar.read_text().split()[:1] == [checksum], "Return ZIP SHA-256 mismatch"
         )
     with ZipFile(archive) as bundle:
+        files = RETURN_FILES if "results.csv" in bundle.namelist() else LEGACY_RETURN_FILES
         release.require(
-            sorted(bundle.namelist()) == sorted((*RETURN_FILES, "SHA256SUMS.json")),
+            sorted(bundle.namelist()) == sorted((*files, "SHA256SUMS.json")),
             "Unexpected archive members",
         )
         checksums = json.loads(bundle.read("SHA256SUMS.json"))
-        release.require(set(checksums) == set(RETURN_FILES), "Missing member SHA-256")
+        release.require(set(checksums) == set(files), "Missing member SHA-256")
         for name, expected in checksums.items():
             with bundle.open(name) as stream:
                 release.require(
@@ -913,6 +1057,8 @@ def verify(archive):
                 config["source_plan_sha256"] == plan["source_plan_sha256"],
                 "Run configuration differs from plan",
             )
+            for name, source in (("dataset_revision", "revision"), ("dataset_index_sha256", "index_sha256")):
+                release.require(config.get(name, plan[source]) == plan[source], "Run dataset differs from plan")
             if provider in native_video_api.HOSTED:
                 native_video_api.validate_config(config)
             elif provider == "vllm":
@@ -924,8 +1070,8 @@ def verify(archive):
                 )
             if "frame_settings" in config:
                 release.require(
-                    provider in (PROVIDER, "vllm")
-                    and config["frame_settings"] == native_video_api.FULL_FRAME_FIELDS,
+                    provider in {PROVIDER, "vllm", *native_video_api.FRAME_LISTS}
+                    and config["frame_settings"] == native_video_api.frame_settings(provider),
                     "All-frame configuration differs",
                 )
         history = defaultdict(list)
@@ -954,12 +1100,28 @@ def verify(archive):
                         bool(re.fullmatch(r"[0-9a-f]{64}", entry["request_sha256"]))
                         and len(source) == len(verified)
                         and all(
-                            {k: v for k, v in actual.items() if k != "bytes"} == planned
+                            {k: v for k, v in actual.items() if k not in {"bytes", "ordered_frames"}} == planned
                             and actual["bytes"] > 0
                             for planned, actual in zip(source, verified)
                         ),
                         "Sent media receipt differs from frozen input",
                     )
+                    if "request_bytes" in entry:
+                        size = entry["request_bytes"]
+                        release.require(type(size) is int and size > 0, "Invalid request size")
+                        native_video_api.validate_payload_size(provider, (config or {}).get("endpoint"), size)
+                    if provider in native_video_api.FRAME_LISTS:
+                        for actual in verified:
+                            if actual["mime"] == "video/mp4":
+                                wire = actual["ordered_frames"]
+                                release.require(
+                                    wire["count"] == 180 and wire["fps"] == 60
+                                    and bool(re.fullmatch(r"[0-9a-f]{64}", wire["rgb_sha256"]))
+                                    and wire["rgb_sha256"] == actual.get(
+                                        "processor_input_rgb_sha256", wire["rgb_sha256"]
+                                    ),
+                                    "Ordered frame receipt differs from frozen input",
+                                )
                 if body is not None:
                     content = base64.b64decode(body, validate=True)
                     release.require(
@@ -1023,6 +1185,8 @@ def verify(archive):
             not history or config is not None, "Attempts have no configuration"
         )
         expected = list(result_rows(rows, history, config))
+        if "results.csv" in files:
+            release.require(bundle.read("results.csv") == results_csv(expected), "CSV differs from rescored rows")
         with bundle.open("results.jsonl") as stream:
             for recorded, computed in zip(stream, expected, strict=True):
                 release.require(
@@ -1031,7 +1195,9 @@ def verify(archive):
                 )
         summary = json.loads(bundle.read("summary.json"))
         release.require(
-            summary["profiles"] == summarize(expected)
+            summary["schema"] == SCHEMA
+            and summary["source_plan_sha256"] == plan["source_plan_sha256"]
+            and summary["profiles"] == summarize(expected)
             and summary["logical_rows"] == len(rows)
             and summary["unique_requests"] == len(selected)
             and summary["request_attempts"] == sum(map(len, history.values())),
@@ -1053,6 +1219,7 @@ def main(argv=None):
     )
     parser.add_argument("--out", type=Path)
     parser.add_argument("--archive", type=Path)
+    parser.add_argument("--data-root", type=Path, help="Local dataset from run.py download")
     parser.add_argument(
         "--metadata-root", type=Path, help="Offline root of the pinned public manifests"
     )
@@ -1078,6 +1245,11 @@ def main(argv=None):
         choices=(PROVIDER, "vllm", *native_video_api.HOSTED),
     )
     parser.add_argument("--max-tokens", type=int, default=4096)
+    parser.add_argument("--temperature", type=float)
+    parser.add_argument("--seed", type=int)
+    parser.add_argument("--disable-thinking", action="store_true")
+    parser.add_argument("--reasoning-effort", choices=("low", "medium", "high", "xhigh", "max"))
+    parser.add_argument("--reasoning-mode", choices=("standard", "pro"))
     parser.add_argument(
         "--max-requests",
         type=int,
@@ -1093,6 +1265,7 @@ def main(argv=None):
         help="Select a task and domain, e.g. t1-classic; defaults to all-frame video",
     )
     parser.add_argument("--input", choices=("video", "static"))
+    parser.add_argument("--sample-id", action="append", help="Select a published sample ID")
     frames = parser.add_mutually_exclusive_group()
     frames.add_argument(
         "--all-frames",
@@ -1128,13 +1301,42 @@ def main(argv=None):
         "--execute", action="store_true", help="Authorize real calls from this shell"
     )
     args = parser.parse_args(argv)
+    if args.data_root:
+        args.metadata_root = args.metadata_root or args.data_root.expanduser()
+        args.media_root = args.media_root or args.data_root.expanduser()
+    generation = {}
+    if args.temperature is not None or args.seed is not None or args.disable_thinking:
+        if args.provider not in {"vllm", "qwen", "qwen-frames"}:
+            parser.error("These generation settings require vllm or Qwen")
+        if args.temperature is not None:
+            if not 0 <= args.temperature < 2:
+                parser.error("--temperature must be in [0, 2)")
+            generation["temperature"] = args.temperature
+        if args.seed is not None:
+            if not 0 <= args.seed < 2**31:
+                parser.error("--seed must be in [0, 2**31)")
+            generation["seed"] = args.seed
+        if args.disable_thinking:
+            if args.provider == "vllm":
+                generation["chat_template_kwargs"] = {"enable_thinking": False}
+            else:
+                generation["enable_thinking"] = False
+    if args.reasoning_effort or args.reasoning_mode:
+        if args.provider != "astra":
+            parser.error("--reasoning-effort and --reasoning-mode are for Astra")
+        generation["reasoning"] = {"effort": args.reasoning_effort or "medium"}
+        if args.reasoning_mode:
+            generation["reasoning"]["mode"] = args.reasoning_mode
+    args.generation_parameters = generation
     if args.task:
         args.scope = list(
             dict.fromkeys(
                 [*(args.scope or []), *(TASK_SCOPES[task] for task in args.task)]
             )
         )
+    if args.task or args.data_root:
         args.input = args.input or "video"
+    if args.task or args.data_root or args.provider in native_video_api.FRAME_LISTS:
         args.all_frames = args.all_frames or (
             args.input == "video" and not args.sampled_video
         )
@@ -1152,7 +1354,7 @@ def main(argv=None):
             with (args.out / ".run.lock").open("a") as lock:
                 fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 result = command(args)
-    except (OSError, ValueError, KeyError, sqlite3.Error) as error:
+    except (OSError, ValueError, KeyError, sqlite3.Error, BadZipFile) as error:
         parser.exit(2, f"{type(error).__name__}: {error}\n")
     print(json.dumps(result, ensure_ascii=False, sort_keys=True), flush=True)
     if result.get("stop_reason") or result.get("status") == "PARTIAL":
@@ -1178,7 +1380,13 @@ def command(args):
     if args.command == "plan" or (
         args.command == "evaluate" and not (args.out / "plan.json").exists()
     ):
-        plan, rows = build_plan(args.out, args.metadata_root, private)
+        local_selection = getattr(args, "task", None) or getattr(args, "data_root", None)
+        plan, rows = build_plan(
+            args.out, args.metadata_root, private,
+            scopes=args.scope if local_selection and not private else None,
+            modality=args.input if local_selection and not private else None,
+            samples=getattr(args, "sample_id", None),
+        )
     else:
         plan, rows = load_plan(args.out)
         release.require(
@@ -1204,6 +1412,18 @@ def command(args):
     with closing(open_db(args.out)) as db:
         histories = records(db)
     selected = selected_requests(rows, args)
+    pending_frame_profiles = set()
+    if args.all_frames:
+        profiles = {row["profile"] for row in selected.values()}
+        admitted_pilots = [
+            attempt for attempts in histories.values() for attempt in attempts
+            if attempt["profile"] in profiles
+            and attempt["phase"] == "pilot"
+            and attempt.get("modality_admitted")
+        ]
+        pending_frame_profiles = {
+            attempt["profile"] for attempt in admitted_pilots
+        } - {attempt["profile"] for attempt in admitted_pilots if attempt.get("frame_report")}
     finished = sum(
         1
         for key in selected
@@ -1225,6 +1445,7 @@ def command(args):
         "status": "COMPLETE" if finished == len(selected) else "PARTIAL",
         "selected_requests": len(selected),
         "finished_selected_requests": finished,
+        "awaiting_server_frame_report": sorted(pending_frame_profiles),
         "pilot": pilot,
         "run": run,
     }

@@ -414,6 +414,8 @@ def published_selection(matches, sample_id, video_name):
     for scope, row in matches:
         path = source_video(scope, row)["path"]
         paths = (path, *row.get("alias_paths", []))
+        if row.get("master_video"):
+            paths += (row["master_video"]["path"],)
         if any(
             video_name == name or selector.name in (Path(name).name, Path(name).stem)
             for name in paths

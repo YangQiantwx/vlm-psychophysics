@@ -635,6 +635,7 @@ def verify_archive(path):
             (f"{scope}/{suffix}", values[index], values[0])
             for scope, values in [
                 *data.jinwei_release.SCOPES.items(),
+                *data.jinwei_release.RGB16_SCOPES.items(),
                 *data.jinwei_release.PAIRED_MANIFESTS.items(),
                 *data.jinwei_release.PREVIOUS_MANIFESTS.items(),
             ]

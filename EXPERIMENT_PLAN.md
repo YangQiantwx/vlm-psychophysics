@@ -4,7 +4,7 @@ The runner pins the [dataset revision and model recipes](configs/current-x.json)
 
 ## Stimuli
 
-Every video contains 180 frames at 60 fps and 768 × 512 pixels. Classic T1–T4 use lossless sRGB RGB16 FFV1/MKV. Natural T1–T5 and Classic T5 use lossless sRGB RGB8 H.264/MP4.
+Every released video contains 180 frames at 60 fps and 768 × 512 pixels in lossless RGB8 H.264/MP4. Classic T1–T4 evaluation files store the exact RGB8 frames read from the original RGB16 FFV1/MKV masters by the Protocol X loader. The [master archive](https://huggingface.co/datasets/DrQY/vlm-psychophysics-rgb16-masters/tree/acd03f1772e4ee61fd3dcd180ab6cbfb580c9ce7) preserves the original sample IDs and file hashes. The [equivalence report](https://huggingface.co/datasets/DrQY/vlm-psychophysics/blob/main/media-equivalence.json) binds the evaluation files to those masters.
 
 | Task | Conditions | Ordered static input |
 |---|---|---|
@@ -28,16 +28,30 @@ Use the commands in the [repository README](README.md) for a bounded run. The ru
 
 ## Model API
 
-Use an endpoint that accepts the original video and can report post-processor frame indices. Set `VLLM_BASE_URL` and `VLLM_API_KEY`, then send one pilot.
+Install the client with `python -m pip install -e ".[download]"`. Download one published video from the pinned release and reuse the same `--data-root` for the API pilot. Omit `--sample-id` from both commands to select the whole task. `--max-requests` caps new attempts in each invocation, including pilots.
 
 ```bash
-python run.py api evaluate --provider vllm \
-  --model Qwen/Qwen3.5-397B-A17B --task t1-classic \
-  --out qwen397b-t1-classic --max-requests 1 --execute
+sample=t1_db543a401163261ed5b4
+python run.py download --task t1-classic --input video --sample-id "$sample" \
+  --media-only --data-root benchmark-data --out download-t1
+
+# Set DASHSCOPE_API_KEY in the shell before running the Qwen pilot.
+python run.py api evaluate --provider qwen-frames --model qwen3.8-max-0902 \
+  --task t1-classic --input video --sample-id "$sample" --data-root benchmark-data \
+  --out api-qwen-t1 --max-requests 1 --temperature 0 --seed 0 --disable-thinking --execute
+
+# Set OPENAI_API_KEY in the shell before running the Astra pilot.
+python run.py api evaluate --provider astra --model gpt-6-astra \
+  --task t1-classic --input video --sample-id "$sample" --data-root benchmark-data \
+  --out api-astra-t1 --max-requests 1 --reasoning-effort medium --execute
 ```
 
-The NVIDIA internal gateway uses `--provider nvidia-internal`, `NVIDIA_API_KEY` and the exact model ID for the account. The gateway must forward the full-frame controls to the serving backend.
+The client verifies the media SHA and uses the exact published prompt. Both frame-list adapters decode the 180 RGB frames in order, check the 60 fps source timestamps and submit lossless PNGs. When the manifest supplies the Protocol X reader's RGB hash, the client checks it before submitting. T5 places its reference image first. Select `--input static` for the published ordered stills and download that modality first.
 
-For an all-frame batch, pass `--frame-report server-report.json` and the authorized `--max-requests`. Each report identifies the endpoint, returned model, pinned deployment and pilot `request_sha256` from `attempts.jsonl`, and gives `decoded_indices` and `processor_indices` containing every index from 0 to 179 in order. Use indices after the last sampling step. Record effective bit depth and resize policy for Classic. The runner checks the task-specific pilot before proceeding.
+- `qwen-frames` uses one DashScope `video` frame-list part. It requests 10 fps, the documented maximum. Source time remains 60 fps. The client rejects requests above the 16 MiB legacy domain or 64 MB workspace limit. A representative Natural T5 clip produced a 186 MB payload at lossless PNG compression. Use `DASHSCOPE_BASE_URL` for your official regional workspace endpoint when needed. [Frame and payload limits](https://www.alibabacloud.com/help/en/model-studio/vision) · [Request parameters](https://www.alibabacloud.com/help/en/model-studio/qwen-api-via-openai-chat-completions)
+- `astra` uses ordered Responses `input_image` items with `detail: original`. The API documents up to 1,500 images and a 512 MB payload. Astra uses `--reasoning-effort low|medium|high|xhigh|max` and optionally `--reasoning-mode standard|pro`. [Image inputs](https://developers.openai.com/api/docs/guides/images-vision?api-mode=responses) · [Reasoning](https://developers.openai.com/api/docs/guides/reasoning)
+- `vllm` submits the original MP4 with server controls for full decoding and disabled processor sampling. Set `VLLM_BASE_URL`, `VLLM_API_KEY` and the exact served `--model`. `nvidia-internal` uses `NVIDIA_API_KEY` and requires the gateway to forward those controls. `--temperature`, `--seed` and `--disable-thinking` are optional for Qwen and compatible vLLM templates. [vLLM serving](https://docs.vllm.ai/en/latest/serving/openai_compatible_server.html)
 
-Return `return.zip` and `return.zip.sha256`. Run `python run.py api verify --archive PATH/return.zip` to verify the package. The [previous Model API protocol](https://github.com/YangQiantwx/vlm-psychophysics/blob/8dcff9eac165ca9c36ca19fed72470ce26cda96c/EXPERIMENT_PLAN.md#model-api) records the separate sampled-video and frame-image comparisons.
+An all-frame pilot stays `PARTIAL` with its raw answer recorded until server evidence arrives. To qualify the pilot and start a batch, repeat the command with `--frame-report server-report.json` and a new request budget. The report is a JSON list of objects with `endpoint`, `model` (returned ID), `deployment` (pinned serving identity), `request_sha256` (from `attempts.jsonl`), and `decoded_indices` and `processor_indices` with integers 0 through 179 in order. Use processor indices after its final sampling step and record the effective resize and bit-depth policy. The gate is per task/domain/input profile. Hosted pilots can establish what was sent and what the API returned. They require the same server evidence for all-frame scoring and batch execution. Qwen's frame-list timing and Astra's ordered-image input are distinct from Protocol X's native timeline.
+
+The output directory contains `results.csv`, `results.jsonl`, `config.json`, `attempts.jsonl` and `summary.json`. Return `return.zip` and `return.zip.sha256`. `python run.py api verify --archive PATH/return.zip` verifies the package and recomputes the labels and scores from the saved raw responses. The `qwen` and `gemini` adapters remain available with `--sampled-video` for separate native-video comparisons. [Historical Model API protocol](https://github.com/YangQiantwx/vlm-psychophysics/blob/8dcff9eac165ca9c36ca19fed72470ce26cda96c/EXPERIMENT_PLAN.md#model-api)
