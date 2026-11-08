@@ -17,10 +17,10 @@ Set `OPENAI_API_KEY` in your shell or secret store before running the pilot.
 ```bash
 python run.py api evaluate --provider astra --model gpt-6-astra \
   --task t1-classic --input video --sample-id t1_2379890eb33c9a254afd \
-  --out outputs/t1-astra-one --max-requests 1 --reasoning-effort low --execute
+  --out outputs/t1-astra-ordered-one --max-requests 1 --reasoning-effort low --execute
 ```
 
-The Responses API receives 180 ordered lossless PNG images at `detail: original` plus the exact published prompt. [GPT-6 Astra](https://developers.openai.com/api/docs/models/gpt-6-astra) · [Responses image inputs](https://developers.openai.com/api/docs/guides/images-vision?api-mode=responses)
+The Responses API receives 180 ordered lossless PNG images at `detail: original`. The request text starts with “The video is provided as 180 consecutive frames in chronological order at 60 fps.” The published task prompt follows verbatim. [GPT-6 Astra](https://developers.openai.com/api/docs/models/gpt-6-astra) · [Responses image inputs](https://developers.openai.com/api/docs/guides/images-vision?api-mode=responses)
 
 ### Qwen3.8-Max
 
@@ -46,7 +46,7 @@ Indices are zero-based in sorted `sample_id` order within one task and modality.
 
 Public dataset access works anonymously. Use `hf auth login` for interactive Hub authentication or inject `HF_TOKEN` as a CI or Space secret.
 
-A successful video pilot records the raw answer and frame delivery in `results.csv` and `attempts.jsonl`. It reports `PARTIAL` (exit code 2) while it awaits server-side frame evidence. All-frame scoring and batch concurrency require that evidence. Hosted responses show the answer and usage, while processor verification requires a separate server report. Verify the saved results with `python run.py api verify --archive outputs/t1-astra-one/return.zip`. [Range and batch examples](EXPERIMENT_PLAN.md#model-api) · [Hugging Face authentication](https://huggingface.co/docs/huggingface_hub/quick-start#authentication)
+A successful video pilot records the raw answer and frame delivery in `results.csv` and `attempts.jsonl`. It reports `PARTIAL` (exit code 2) while it awaits server-side frame evidence. All-frame scoring and batch concurrency require that evidence. Hosted responses show the answer and usage, while processor verification requires a separate server report. Verify the saved results with `python run.py api verify --archive outputs/t1-astra-ordered-one/return.zip`. [Range and batch examples](EXPERIMENT_PLAN.md#model-api) · [Hugging Face authentication](https://huggingface.co/docs/huggingface_hub/quick-start#authentication)
 
 To cache a whole task before evaluating, run:
 

@@ -382,6 +382,7 @@ def test_frame_list_cli_and_raw_return_over_http(tmp_path, monkeypatch, provider
         reference, sequence, question = body['messages'][0]['content']
         assert reference['type'] == 'image_url' and sequence['type'] == 'video'
         assert question == {'type': 'text', 'text': prompt}
+        assert 'video_prompt_prefix' not in config and 'request_prompt_sha256' not in receipt
         assert 'fps' not in sequence
         assert config['video_fps'] is None and config['frame_settings']['requested_fps'] is None
         assert all(body[k] == v for k, v in config['generation_parameters'].items())
@@ -390,7 +391,13 @@ def test_frame_list_cli_and_raw_return_over_http(tmp_path, monkeypatch, provider
     else:
         assert path == '/v1/responses'
         *sequence, question = body['input'][0]['content']
-        assert question == {'type': 'input_text', 'text': prompt}
+        prefix = 'The video is provided as 180 consecutive frames in chronological order at 60 fps.\n\n'
+        assert question == {'type': 'input_text', 'text': prefix + prompt}
+        assert config['video_prompt_prefix'] == prefix
+        assert receipt['request_prompt_sha256'] == release.sha((prefix + prompt).encode('utf-8'))
+        assert row['prompt'] == prompt and row['prompt_sha256'] == release.sha(prompt.encode('utf-8'))
+        assert runner.request_prompt({'input': 'static', 'prompt': prompt}, config) == prompt
+        assert runner.request_prompt(row, {}) == prompt
         assert all(p['type'] == 'input_image' and p['detail'] == 'original' for p in sequence)
         assert body['reasoning'] == config['generation_parameters']['reasoning'] == {'effort': 'xhigh'}
         assert body['tools'] == [] and body['truncation'] == 'disabled'

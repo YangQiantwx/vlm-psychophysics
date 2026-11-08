@@ -31,6 +31,9 @@ from .provider_api import ROUTES, parameters
 SCHEMA = "jinwei-provider-v1"
 PROVIDER = "nvidia-internal"
 BASE_URL, KEY_ENV, _ = ROUTES[PROVIDER]
+ASTRA_VIDEO_PROMPT_PREFIX = (
+    "The video is provided as 180 consecutive frames in chronological order at 60 fps.\n\n"
+)
 TASK_SCOPES = {
     f"{task}-{domain}": scope
     for scope in release.SCOPES
@@ -206,6 +209,8 @@ def configured(
             provider, config.get("video_fps")
         )
         config["processor_visibility"] = "requires separate server frame report"
+        if provider == "astra":
+            config["video_prompt_prefix"] = ASTRA_VIDEO_PROMPT_PREFIX
         config["code_sha256"]["native_video_api.py"] = file_sha(
             Path(native_video_api.__file__)
         )
@@ -424,6 +429,12 @@ def response_fields(body, status, choices, expected_model, provider=PROVIDER):
     )
 
 
+def request_prompt(row, config):
+    if row["input"] == "video":
+        return config.get("video_prompt_prefix", "") + row["prompt"]
+    return row["prompt"]
+
+
 def request_body(row, config, media_root, private):
     provider = config.get("provider", PROVIDER)
     media = []
@@ -479,7 +490,7 @@ def request_body(row, config, media_root, private):
         body = native_video_api.frame_list_request(
             provider,
             config["requested_model"],
-            row["prompt"],
+            request_prompt(row, config),
             frame_parts,
             config["max_completion_tokens"],
             generation,
@@ -540,6 +551,10 @@ def invoke(out, receipt, row, config, media_root, private, credential, expected_
             verified_media=verified,
             sent_unix=time.time(),
         )
+        if "video_prompt_prefix" in config:
+            receipt["request_prompt_sha256"] = release.sha(
+                request_prompt(row, config).encode("utf-8")
+            )
         save(db, receipt)
         raw = None
         try:
@@ -1098,6 +1113,13 @@ def verify(archive):
                     provider == PROVIDER and config["endpoint"] == BASE_URL,
                     "Run configuration differs from provider",
                 )
+            if "video_prompt_prefix" in config:
+                release.require(
+                    provider == "astra"
+                    and config["video_prompt_prefix"] == ASTRA_VIDEO_PROMPT_PREFIX
+                    and "frame_settings" in config,
+                    "Unexpected video prompt prefix",
+                )
             if "frame_settings" in config:
                 release.require(
                     provider in {PROVIDER, "vllm", *native_video_api.FRAME_LISTS}
@@ -1126,6 +1148,12 @@ def verify(archive):
                     "Invalid attempt identity",
                 )
                 if "request_sha256" in entry:
+                    if "video_prompt_prefix" in config:
+                        expected_prompt = request_prompt(selected[key], config)
+                        release.require(
+                            entry.get("request_prompt_sha256") == release.sha(expected_prompt.encode("utf-8")),
+                            "Request prompt SHA-256 differs from the recorded prefix and source prompt",
+                        )
                     source = selected[key]["media"]
                     verified = entry["verified_media"]
                     release.require(
