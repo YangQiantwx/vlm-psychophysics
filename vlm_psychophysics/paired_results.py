@@ -48,7 +48,7 @@ def cases(root, *, offline):
     for scope in data.PAIRED_SCOPES:
         count, _, sha, _ = data.jinwei_release.manifest_scope(scope)
         name = f"{scope}/metadata.jsonl"
-        path = data.fetch_release_file(root, name, sha, offline=offline)
+        path = data.fetch_release_file(root, name, sha, offline=offline, revision=data.jinwei_release.PAIRED_RELEASE_REVISION)
         with path.open(encoding="utf-8") as stream:
             part = data.read_jsonl(stream)
         if len(part) != count:

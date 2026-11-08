@@ -93,7 +93,7 @@ def build_plan(out, metadata_root=None, private=None):
         logical_rows=len(rows),
         unique_requests=len(release.unique_requests(rows)),
         static_policy="one provider call per frozen static_case_id; project to matching video IDs",
-        t5_static_policy="inspection only",
+        t5_static_policy="reference first, then event midpoints in chronological order",
     )
     if (out / "plan.json").exists():
         release.require(

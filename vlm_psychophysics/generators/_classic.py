@@ -132,7 +132,57 @@ def disc_patch(cx, cy):
     return x0, y0, alpha
 
 
-def encode_strict(video, track):
+class MixedShapes:
+    """Pixel-area rasterization of the published, fixed-orientation shape polygons."""
+
+    def __init__(self, definitions):
+        import shapely
+        from shapely.geometry import Polygon
+
+        self.shapely = shapely
+        self.definitions = definitions
+        self.geometry = {}
+        for name, shape in definitions.items():
+            if name == "circle":
+                continue
+            polygon = Polygon(shape["outer"], shape["holes"])
+            inside, outside = polygon.buffer(-0.8), polygon.buffer(0.8)
+            shapely.prepare(inside)
+            shapely.prepare(outside)
+            self.geometry[name] = (polygon, inside, outside, polygon.bounds)
+
+    def patch(self, name, cx, cy):
+        if name == "circle":
+            return disc_patch(cx, cy)
+        shapely = self.shapely
+        polygon, inside, outside, bounds = self.geometry[name]
+        x0, y0 = math.floor(cx + bounds[0]), math.floor(cy + bounds[1])
+        x1, y1 = math.ceil(cx + bounds[2]), math.ceil(cy + bounds[3])
+        yy, xx = np.mgrid[y0:y1, x0:x1]
+        x, y = xx - cx, yy - cy
+        alpha = shapely.contains_xy(inside, x + 0.5, y + 0.5).astype(float)
+        edge = shapely.contains_xy(outside, x + 0.5, y + 0.5) & (alpha == 0)
+        cells = shapely.box(x[edge], y[edge], x[edge] + 1, y[edge] + 1)
+        alpha[edge] = shapely.area(shapely.intersection(cells, polygon, grid_size=0))
+        require(
+            alpha.min() >= -1e-12 and alpha.max() <= 1 + 1e-10, "Invalid shape coverage"
+        )
+        require(
+            abs(alpha.sum() - self.definitions[name]["area_px2"]) < 2e-7,
+            "Shape pixel integral does not conserve area",
+        )
+        return x0, y0, alpha
+
+
+def encode_strict(video, track, *, shape_ids=None, definitions=None):
+    raster = MixedShapes(definitions) if shape_ids is not None else None
+    if raster is not None:
+        require(len(shape_ids) == track.shape[1], "Shape and trajectory counts differ")
+    area = (
+        sum(definitions[name]["area_px2"] for name in shape_ids)
+        if raster is not None
+        else track.shape[1] * np.pi * 28**2
+    )
     background = int(np.rint((1.055 * BG ** (1 / 2.4) - 0.055) * 65535))
     with av.open(str(video), "w", format="matroska") as container:
         stream = container.add_stream("ffv1", rate=60)
@@ -144,14 +194,20 @@ def encode_strict(video, track):
             setattr(stream.codec_context, key, value)
         for index, points in enumerate(track):
             coverage = np.zeros((512, 768), np.float64)
-            for cx, cy in points:
-                x, y, alpha = disc_patch(cx, cy)
+            for point_index, (cx, cy) in enumerate(points):
+                x, y, alpha = (
+                    raster.patch(shape_ids[point_index], cx, cy)
+                    if raster is not None
+                    else disc_patch(cx, cy)
+                )
                 h, w = alpha.shape
                 assert 0 <= x <= 768 - w and 0 <= y <= 512 - h, (video, index, x, y)
                 # Disjoint disks can both cover part of the same edge pixel.
                 coverage[y : y + h, x : x + w] += alpha
             assert coverage.max() <= 1 + 1e-10, (video, index, coverage.max())
-            assert abs(coverage.sum() - len(points) * np.pi * 28**2) < 2e-6, (
+            assert abs(coverage.sum() - area) < (
+                3e-6 if raster is not None else 2e-6
+            ), (
                 video,
                 index,
             )

@@ -20,7 +20,9 @@ ORIGINAL_INDEX_SHA = "096a675cfce1beeede63fdd3c1fec0f49a3c5deeafe7956fb9de96ee45
 PREVIOUS_REVISION = "13e9cf67bb0b63be562ed7b7a48668fa7b7bca22"
 PREVIOUS_INDEX_SHA = "47611f9b112b406d7b585eade36ab260491fde2dce341ece13e3ad12b893c7f7"
 HF_URL = f"https://huggingface.co/datasets/{REPO}/resolve/{REVISION}/"
-INDEX_SHA = "2b1a15160f2323d6bd7447e0a8631304291f99651d4070e40d09bf534032ffcd"
+INDEX_SHA = "1fc0fff6cc0e724ab083876cac1257e3d79bc1727c4bdec23ee26c82acd4e3ee"
+PAIRED_RELEASE_REVISION = "343f6272cdcdd9beabe3d666ba829483ec742467"
+PAIRED_INDEX_SHA = "2b1a15160f2323d6bd7447e0a8631304291f99651d4070e40d09bf534032ffcd"
 LAYOUT_REVISION = "6b7b66385e21d40aac0664628877b40d4d0ec3dd"
 LAYOUT_INDEX_SHA = "7752daa71c3e1fa4bd39478d1fc204cf1e88929d574e35fa16aa20a54e728925"
 PRE_LAYOUT_REVISION = "3ede52f068164d2db4889d6a84cb153037da1a45"
@@ -52,16 +54,16 @@ SCOPES = {
         "7d2bebd9082e4c92654b6fcece52ab8f8865e9cda144a902e029a75c0995e2de",
     ),
     "classic/t4": (
-        768,
-        768,
-        "78041f9ba97b9c603c1fc50c77cfdd3834dcb8ceaf0ef6a21704ad698e10c82a",
-        "02356da18bf29ba361a2e5f5000a776e38d852ea30415b63356911a4aa3a1638",
+        1536,
+        1536,
+        "3ede68ef45e0e1c97e1509166937da1b9a7d75e52c6ac0452f5d5b7e37cb34d0",
+        "ac409fcbc07cb1cc8b31fb029da40266dfc8fda1a19faece456ece02df831ddc",
     ),
     "classic/t5": (
-        96,
-        0,
-        "f9e9e7ef363d4befeca738165b390a62c9cead779fabb49326538d38cb4a4912",
-        "6ffb19e4882e4c20420e1b71517680467f67b140bf23ee4a11ed42bf2c95d5bd",
+        384,
+        44,
+        "835df66999e665081859113b6511804086511a42cb7bbd4ca9c0955756fd0f2c",
+        "6f0a3ad4c9debc410f88f041d6e37f59a5cf6a066c21f071b148d203ed661b05",
     ),
     "natural/t1": (
         4224,
@@ -86,6 +88,26 @@ SCOPES = {
         1536,
         "5f3359250ff3c437696a41e9592d820932192ea943d2657820367a00063443ae",
         "791e1aee2260c08626dcd3cd88aadbdc5ce19e7f16bb922864074d2a8460bd4f",
+    ),
+    "natural/t5": (
+        384,
+        381,
+        "cc277a90796c763a1e705433b25e60a5eae4e95f0929e322b57d041c1150f35a",
+        "a9226cc417f835aa154ac6d073c3a2203e603c0cd4fbc9b7ede973fd6f67862b",
+    ),
+}
+PREVIOUS_MANIFESTS = {
+    "classic/t4": (
+        768,
+        768,
+        "78041f9ba97b9c603c1fc50c77cfdd3834dcb8ceaf0ef6a21704ad698e10c82a",
+        "02356da18bf29ba361a2e5f5000a776e38d852ea30415b63356911a4aa3a1638",
+    ),
+    "classic/t5": (
+        96,
+        0,
+        "f9e9e7ef363d4befeca738165b390a62c9cead779fabb49326538d38cb4a4912",
+        "6ffb19e4882e4c20420e1b71517680467f67b140bf23ee4a11ed42bf2c95d5bd",
     ),
     "natural/t5": (
         96,
@@ -117,6 +139,7 @@ def manifest_scope(scope):
 def known_public_release(revision, index_sha):
     return (revision, index_sha) in (
         (REVISION, INDEX_SHA),
+        (PAIRED_RELEASE_REVISION, PAIRED_INDEX_SHA),
         (LAYOUT_REVISION, LAYOUT_INDEX_SHA),
         (FULL_MEDIA_REVISION, FULL_INDEX_SHA),
         (PRE_LAYOUT_REVISION, FULL_INDEX_SHA),
@@ -203,7 +226,11 @@ def trial(scope, video, protocol, manifest_sha, static=None, private=False):
     original = media(path, video["video_sha256"], scope, role="video")
     source = "private" if private else "public"
     mode = "static" if static is not None else "video"
-    inspection = mode == "static" and task == "T5"
+    inspection = (
+        mode == "static"
+        and task == "T5"
+        and static.get("purpose") == "stimulus inspection"
+    )
     case = sid
     if static is not None:
         require(
@@ -240,7 +267,10 @@ def trial(scope, video, protocol, manifest_sha, static=None, private=False):
             )
             for item in static["images"]
         ]
-        expected = {"T1": 4, "T2": 1, "T3": 1, "T4": 2, "T5": 3}[task]
+        if task == "T5":
+            expected = 3 if inspection else len(static["frame_indices"]) + 1
+        else:
+            expected = {"T1": 4, "T2": 1, "T3": 1, "T4": 2}[task]
         require(
             len(ordered) == expected and all(x["mime"] == "image/png" for x in ordered),
             f"Unexpected static inputs for {sid}",
@@ -379,7 +409,8 @@ def public_plan(root=None):
         rows = [
             row
             for items in pool.map(
-                scope_plan, ((scope, index["scopes"][scope]) for scope in sorted(SCOPES))
+                scope_plan,
+                ((scope, index["scopes"][scope]) for scope in sorted(SCOPES)),
             )
             for row in items
         ]

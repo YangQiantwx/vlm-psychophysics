@@ -19,14 +19,11 @@ from . import paired_inputs
 
 REPO_ID = current_release.REPO_ID
 REVISION = current_release.REVISION
-DEFAULT_SCOPES = tuple(
-    scope for scope in current_release.SCOPES if not scope.endswith("/t5")
-)
+DEFAULT_SCOPES = current_release.SCOPES
 PAIRED_SCOPES = current_release.PAIRED_SCOPES
-SCOPES = (*DEFAULT_SCOPES, *PAIRED_SCOPES, *paired_inputs.SCOPES)
+SCOPES = DEFAULT_SCOPES
 TASK_OPTIONS = {
     **{f"{scope[-2:]}-{scope.split('/')[0]}": scope for scope in DEFAULT_SCOPES},
-    **{f"t5-{scope.split('/')[0]}-paired": scope for scope in PAIRED_SCOPES},
     **{
         f"t5-{scope.split('/')[0]}-equal-canvas": scope
         for scope in paired_inputs.SCOPES
@@ -134,7 +131,7 @@ def source_reference(scope, row):
         "pixel_sha256": require_sha(row["reference_pixel_sha256"]),
         "frame_index": None,
     }
-    if scope in paired_inputs.SCOPES:
+    if paired_inputs.is_current_reference(scope):
         descriptor["size_wh"] = [768, 512]
     return descriptor
 
@@ -196,7 +193,7 @@ def make_case(row, scope, modality, canonical_id, input_sha, video, images, alia
         "model_input_sha256": input_sha,
         "aliases": aliases,
     }
-    if scope in paired_inputs.SCOPES:
+    if paired_inputs.is_current_reference(scope):
         case["reference_version"] = paired_inputs.VERSION
         case["cohort"] = (
             "single" if len(aliases[0]["parameters"]["events"]) == 1 else "dual"
@@ -207,18 +204,24 @@ def make_case(row, scope, modality, canonical_id, input_sha, video, images, alia
 def case_scope(case):
     task = case["task"].lower()
     scope = f'{case["domain"]}/{task}'
-    if task == "t5":
+    if task == "t5" and any(
+        "/paired-v1/" in image["path"] for image in case.get("images", [])
+    ):
         scope += "/paired-v1"
-    version = case.get("reference_version")
-    if version is not None:
-        scope += f"/{version}"
+        version = case.get("reference_version")
+        if version is not None:
+            scope += f"/{version}"
     return scope
 
 
 def profile_key(modality, scope):
     task = scope.split("/")[1].upper()
     key = f"{modality}/{task}"
-    return f"{key}/{paired_inputs.VERSION}" if scope in paired_inputs.SCOPES else key
+    return (
+        f"{key}/{paired_inputs.VERSION}"
+        if paired_inputs.is_current_reference(scope)
+        else key
+    )
 
 
 def recipe_name(name, cohort):
@@ -227,11 +230,7 @@ def recipe_name(name, cohort):
 
 def video_case(scope, row):
     video = source_video(scope, row)
-    images = (
-        [source_reference(scope, row)]
-        if paired_inputs.source_scope(scope) in PAIRED_SCOPES
-        else []
-    )
+    images = [source_reference(scope, row)] if row["task"] == "T5" else []
     identity = video_input_identity(video["sha256"], images)
     identity = digest([identity, row["prompt"], row.get("choices", CHOICES)])
     return make_case(
@@ -290,7 +289,9 @@ def static_identity(scope, task, images, frames, prompt, choices, sample_id):
         image_scope = scope if reference else paired_inputs.source_scope(scope)
         current_release.payload_path(image_scope, image["path"])
         if reference:
-            expected_size = (768, 512) if scope in paired_inputs.SCOPES else (160, 160)
+            expected_size = (
+                (768, 512) if paired_inputs.is_current_reference(scope) else (160, 160)
+            )
             if image_size(image) != expected_size:
                 raise ValueError(f"Wrong reference geometry for {sample_id}")
         require_sha(image["sha256"])
@@ -440,7 +441,7 @@ def custom_case(path, scopes, modalities, parents):
             "An unlisted local video requires a specific --task and --input video."
         )
     scope = scopes[0]
-    if paired_inputs.source_scope(scope) in PAIRED_SCOPES:
+    if scope.split("/")[1] == "t5":
         raise ValueError("Paired T5 needs a published trial with its reference image.")
     rows = parents[scope].values()
     prompts = {(row["prompt"], tuple(row.get("choices", CHOICES))) for row in rows}
@@ -504,11 +505,6 @@ def build_selection(
         root, "dataset-index.json", jinwei_release.INDEX_SHA, offline=offline
     )
     entries = json.loads(index_path.read_bytes())["scopes"]
-    overlay = (
-        paired_inputs.read_overlay(root, offline=offline)
-        if any(scope in paired_inputs.SCOPES for scope in scopes)
-        else None
-    )
 
     def load(scope):
         original = paired_inputs.source_scope(scope)
@@ -527,10 +523,6 @@ def build_selection(
                 root, original, entry, "static", offline=offline
             )
             provenance.append(manifest)
-        if scope in paired_inputs.SCOPES:
-            parents, stills = paired_inputs.selection_rows(
-                scope, overlay, parents, stills
-            )
         return scope, parents, stills, provenance
 
     with ThreadPoolExecutor(max_workers=min(4, len(scopes))) as pool:
@@ -563,8 +555,11 @@ def build_selection(
                 cases.extend(video_case(scope, rows[sample]) for sample in sorted(ids))
             if stills is not None and ids:
                 options = {}
-                if scope in paired_inputs.SCOPES:
-                    canonical = overlay["scopes"][scope]["static_sources"]
+                if paired_inputs.is_current_reference(scope):
+                    canonical = {
+                        row["static_case_id"]: row["canonical_source_id"]
+                        for row in stills.values()
+                    }
                     options = {
                         "expected_count": len(canonical),
                         "canonical_sources": canonical,
@@ -589,8 +584,7 @@ def build_selection(
         "repo_id": REPO_ID,
         "revision": REVISION,
         "index_sha256": jinwei_release.INDEX_SHA,
-        "manifests": [item for _, _, _, provenance in inputs for item in provenance]
-        + ([paired_inputs.manifest_record()] if overlay else []),
+        "manifests": [item for _, _, _, provenance in inputs for item in provenance],
         "cases": cases,
     }, files
 
@@ -638,11 +632,7 @@ def prepare_media(
             if file_sha(destination) != expected_sha:
                 raise ValueError(f"SHA-256 mismatch for {destination}")
         else:
-            revision = (
-                paired_inputs.RELEASE_REVISION
-                if any(path.startswith(f"{scope}/") for scope in paired_inputs.SCOPES)
-                else REVISION
-            )
+            revision = REVISION
             destination = fetch_release_file(
                 root, path, expected_sha, offline=offline, revision=revision
             )

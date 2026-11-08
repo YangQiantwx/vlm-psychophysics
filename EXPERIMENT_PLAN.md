@@ -1,6 +1,6 @@
 # Stimulus and model protocol
 
-The runner pins the [dataset revision and model recipes](configs/current-x.json). The [dataset index](https://huggingface.co/datasets/DrQY/vlm-psychophysics/blob/main/dataset-index.json) points to the paired video and static manifests. The [published answer tables](https://huggingface.co/datasets/DrQY/vlm-psychophysics/tree/main/results/current-x) bind earlier completed runs to their original inputs and settings.
+The runner pins the [dataset revision and model recipes](configs/current-x.json). The [dataset index](https://huggingface.co/datasets/DrQY/vlm-psychophysics/blob/main/dataset-index.json) points to the paired video and static manifests. The [published answer tables](https://huggingface.co/datasets/DrQY/vlm-psychophysics/tree/main/results) bind completed runs to their inputs and settings.
 
 ## Stimuli
 
@@ -11,12 +11,12 @@ Every video contains 180 frames at 60 fps and 768 × 512 pixels. Classic T1–T4
 | T1 | Eight spatial frequencies, 24 phases and both directions. The m=0.5 extension contributes 384 trials per domain. Natural modulation is multiplicative in linear RGB. | Frames 0–3 |
 | T2 | Thirty-frame brightening. Classic crosses four background luminances with 20 increments, 24 onsets and two sides. Natural uses the same increment, onset and side grid in each of four photo/generated source groups. | One frame at onset + 15 |
 | T3 | Thirty-frame orientation comparison. The 2,736 Natural trials pair with the Classic grid. Left/right pairs hold the background, object, onset, angle and physical tilt direction fixed. | One frame at onset + 15 |
-| T4 | Classic crosses 8 or 16 elements, eight nonzero coherence levels, 24 layouts and both directions. Natural uses the same trajectories with same or distinct object appearance. Trajectories stay contained and separated. | Frames 0 and 179 |
-| T5 | Paired-v1 contains 192 single-event and 192 dual-event videos per domain. Each event lasts 30 frames. Dual trials add a 90° nonmatch before or after the fixed probe at SOAs of 30, 45 or 60 frames. The response is YES or NO. | Reference followed by each event midpoint for inspection |
+| T4 | Classic crosses 8 or 16 elements, eight nonzero coherence levels, 24 layouts and both directions. Classic includes circle and mixed-shape appearances. Natural uses the same trajectories with same or distinct object appearance. Trajectories stay contained and separated. | Frames 0 and 179 |
+| T5 | Each domain contains 192 single-event and 192 dual-event videos. Each event lasts 30 frames. Dual trials add a 90° nonmatch before or after the fixed probe at SOAs of 30, 45 or 60 frames. The response is YES or NO. | Reference followed by each event midpoint in chronological order |
 
-Paired T5 model inputs use the original reference PNG, then all 180 video frames. The earlier 96 unmasked videos per domain retain their original manifests and reproduction entry points.
+T5 video input is a centered 768 × 512 reference PNG followed by all 180 video frames. Static input is that reference followed by one or two event midpoint PNGs, also 768 × 512. The reference object has the same pixel size as the object in the scene.
 
-The full Natural T2 panel contains 3,840 trials. The [frozen 960-trial selection](https://huggingface.co/datasets/DrQY/vlm-psychophysics/blob/main/natural/t2/selection.json) includes 240 trials per source group and retains its own Classic pairing table.
+Classic and Natural T2 each contain 3,840 trials: Classic has four background luminances, and Natural has four photo/generated background–object source groups, with 960 trials per group.
 
 Each task's video manifest specifies the source conditions, prompt, truth and ordered static counterparts. The static manifest specifies the exact static prompt and image order. Use `sample_id` for scientific joins and the frozen static case identity for call accounting. Classic T2 has 3,840 static records across 160 distinct inputs. Classic T3 has 2,736 static records across 114 distinct inputs. Static PNGs use RGB8. Frame indices start at zero.
 

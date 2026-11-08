@@ -433,13 +433,14 @@ def validate_case(case):
     paired = task == "T5"
     scope = data.case_scope(case)
     if (
-        scope not in data.SCOPES
+        scope
+        not in (*data.SCOPES, *data.PAIRED_SCOPES, *data.paired_inputs.LEGACY_SCOPES)
         or modality not in data.MODALITIES
         or not isinstance(prompt, str)
         or not prompt
     ):
         raise ValueError("Unexpected task, modality, choices or prompt")
-    if scope in data.paired_inputs.SCOPES:
+    if data.paired_inputs.is_current_reference(scope):
         counts = {len(alias["parameters"]["events"]) for alias in case["aliases"]}
         expected = {"single": 1, "dual": 2}.get(case["cohort"])
         if counts != {expected}:
@@ -485,7 +486,9 @@ def validate_case(case):
             data.require_sha(reference["sha256"])
             data.require_sha(reference["pixel_sha256"])
             expected_size = (
-                (768, 512) if scope in data.paired_inputs.SCOPES else (160, 160)
+                (768, 512)
+                if data.paired_inputs.is_current_reference(scope)
+                else (160, 160)
             )
             if (
                 reference["frame_index"] is not None
@@ -495,9 +498,7 @@ def validate_case(case):
                 raise ValueError(f'Unexpected reference frame for {case["sample_id"]}')
         media_identity = data.video_input_identity(case["video_sha256"], images)
         identity = data.digest([media_identity, prompt, case["choices"]])
-    case_key = data.digest(
-        [scope, modality, case["sample_id"], identity]
-    )
+    case_key = data.digest([scope, modality, case["sample_id"], identity])
     if case["model_input_sha256"] != identity or case["case_id"] != case_key:
         raise ValueError(f'Model input identity differs for {case["sample_id"]}')
     if (
@@ -632,10 +633,11 @@ def verify_archive(path):
             raise ValueError("Unexpected release identity")
         known_manifests = {
             (f"{scope}/{suffix}", values[index], values[0])
-            for scope, values in {
-                **data.jinwei_release.SCOPES,
-                **data.jinwei_release.PAIRED_MANIFESTS,
-            }.items()
+            for scope, values in [
+                *data.jinwei_release.SCOPES.items(),
+                *data.jinwei_release.PAIRED_MANIFESTS.items(),
+                *data.jinwei_release.PREVIOUS_MANIFESTS.items(),
+            ]
             for suffix, index in (("metadata.jsonl", 2), ("static/metadata.jsonl", 3))
         }
         overlay = data.paired_inputs.manifest_record()
@@ -659,7 +661,7 @@ def verify_archive(path):
                 or overlay not in run["manifests"]
                 or data.paired_inputs.source_scope(scope) in scopes
             )
-            for scope in data.paired_inputs.SCOPES
+            for scope in data.paired_inputs.LEGACY_SCOPES
         ):
             raise ValueError(
                 "Equal-canvas case provenance or reference version differs"

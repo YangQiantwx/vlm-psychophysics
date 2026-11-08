@@ -27,9 +27,6 @@ SCOPES = {
     for i in range(1, 6)
     for domain in ("classic", "natural")
 }
-SCOPES.update(
-    {f"t5-{scope.split('/')[0]}-paired": scope for scope in jinwei_release.PAIRED_SCOPES}
-)
 ALL_TASKS = tuple(SCOPES)
 SOURCES = "sources"
 BASIS = f"{SOURCES}/classic/t1"
@@ -113,7 +110,7 @@ def render_classic_t23(row, destination, work):
     (work / result["video_relative"]).replace(destination)
 
 
-def render_classic_t4(row, destination):
+def render_classic_t4(data, row, destination):
     p = row["parameters"]
     start = np.asarray(p["positions_xy_px"])
     velocity = np.asarray(p["velocity_xy_px_s"])
@@ -121,7 +118,13 @@ def render_classic_t4(row, destination):
         start[None]
         + (np.arange(row["frames"])[:, None, None] / row["fps"]) * velocity[None]
     )
-    classic.encode_strict(destination, track)
+    if p.get("appearance") == "mixed":
+        plan = json_file(data.file(p["shape_definitions"], row["source_plan_sha256"]))
+        classic.encode_strict(
+            destination, track, shape_ids=p["shape_ids"], definitions=plan["shapes"]
+        )
+    else:
+        classic.encode_strict(destination, track)
 
 
 def index_t5(rows):
@@ -158,12 +161,17 @@ def render_paired_t5(data, row, destination, work):
     for folder in ("qa", "videos", "inspection"):
         (work / folder).mkdir()
     trial = {**row, "video_path": str(work / "videos" / destination.name)}
-    trial["reference_path"] = str(data.file(row["reference_path"], row["reference_sha256"]))
+    trial["reference_path"] = str(
+        data.file(row["reference_path"], row["reference_sha256"])
+    )
     if row["scene"] is not None:
         scene = trial["scene"] = row["scene"].copy()
         for key in ("background_prepared", "object_prepared"):
             entry = scene[key]
-            scene[key] = {**entry, "path": str(data.file(entry["path"], entry["sha256"]))}
+            scene[key] = {
+                **entry,
+                "path": str(data.file(entry["path"], entry["sha256"])),
+            }
     t5_paired.render_one((work, trial))
     Path(trial["video_path"]).replace(destination)
 
@@ -230,7 +238,7 @@ def render(job):
     data, row, output = job
     scope = f"{row['domain']}/{row['task'].lower()}"
     paired = row.get("source_version") == t5_paired.PROTOCOL
-    if paired:
+    if paired and "/paired-v1/" in row["video_path"]:
         scope += "/paired-v1"
     name = Path(row.get("video_path") or row["path"]).name
     destination = output / scope / "videos" / name
@@ -244,13 +252,17 @@ def render(job):
             "classic/t1": lambda: render_classic_t1(data, row, video),
             "classic/t2": lambda: render_classic_t23(row, video, work),
             "classic/t3": lambda: render_classic_t23(row, video, work),
-            "classic/t4": lambda: render_classic_t4(row, video),
+            "classic/t4": lambda: render_classic_t4(data, row, video),
             "natural/t1": lambda: natural.render_t1(data, row, video),
             "natural/t2": lambda: natural.render_t2(data, row, video),
             "natural/t3": lambda: natural.render_t3(data, row, video, work),
             "natural/t4": lambda: natural.render_t4(data, row, video, work),
-            "classic/t5": lambda: render_t5(data, row, video, work),
-            "natural/t5": lambda: render_t5(data, row, video, work),
+            "classic/t5": lambda: (render_paired_t5 if paired else render_t5)(
+                data, row, video, work
+            ),
+            "natural/t5": lambda: (render_paired_t5 if paired else render_t5)(
+                data, row, video, work
+            ),
             "classic/t5/paired-v1": lambda: render_paired_t5(data, row, video, work),
             "natural/t5/paired-v1": lambda: render_paired_t5(data, row, video, work),
         }
@@ -268,7 +280,11 @@ def render(job):
         "frames": row["frames"],
     }
     if row["task"] == "T5":
-        receipt["purpose"] = "stimulus inspection"
+        receipt["purpose"] = (
+            "video and static evaluation"
+            if row.get("input_protocol")
+            else "stimulus inspection"
+        )
         receipt["ordered_images"] = [image["path"] for image in row["static"]["images"]]
     return receipt
 

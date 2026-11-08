@@ -201,22 +201,16 @@ def test_t5_reference_first_then_event_midpoints(frames, monkeypatch, tmp_path):
         data.static_cases(scope, {"a": parent}, {"a": row}, expected_count=1)
 
 
-def test_t5_reference_versions_use_separate_plans():
-    args = cli.parse_arguments(
-        [
-            "plan",
-            "--task",
-            "t5-classic-paired",
-            "--task",
-            "t5-classic-equal-canvas",
-        ]
-    )
-    with pytest.raises(ValueError, match="one T5 reference version"):
-        cli.selection_for(args)
-    args = cli.parse_arguments(["plan", "--task", "t5-classic-equal-canvas"])
-    assert cli.selection_for(args)["modalities"] == ("video", "static")
+def test_t5_current_task_names_include_both_modalities():
+    short = cli.selection_for(cli.parse_arguments(["plan", "--task", "t5-classic"]))
+    alias = cli.selection_for(cli.parse_arguments(["plan", "--task", "t5-classic-equal-canvas"]))
+    assert short == alias
+    assert short["scopes"] == ("classic/t5",)
+    assert short["modalities"] == ("video", "static")
     args = cli.parse_arguments(["plan", "--task", "all"])
     assert cli.selection_for(args)["scopes"] == data.DEFAULT_SCOPES
+    assert {"classic/t5", "natural/t5"} <= set(data.DEFAULT_SCOPES)
+
 
 
 @pytest.mark.parametrize("task", ["T2", "T5"])
@@ -257,7 +251,6 @@ def test_resume_does_not_repeat_an_intent_and_archive_rescores(
         "index_sha256": data.jinwei_release.INDEX_SHA,
         "manifests": [
             {"path": f"{base}/metadata.jsonl", "sha256": sha, "rows": count},
-            *([paired_inputs.manifest_record()] if task == "T5" else []),
         ],
         "cases": cases,
     }

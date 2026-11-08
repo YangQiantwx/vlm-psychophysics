@@ -66,7 +66,7 @@ def parse_arguments(argv):
         "--media-only", action="store_true", help="For download, fetch only media."
     )
     parser.add_argument(
-        "--paired-results", type=Path, help="Rescore a published paired T5 answer bundle."
+        "--paired-results", type=Path, help="Rescore a historical original-reference T5 answer bundle."
     )
     args = parser.parse_args(argv)
     if args.archive is not None and args.command != "verify":
@@ -85,15 +85,7 @@ def selection_for(args):
         if "all" in args.task:
             requested.update(data.DEFAULT_SCOPES)
         scopes = tuple(scope for scope in data.SCOPES if scope in requested)
-    paired = any(scope in data.PAIRED_SCOPES for scope in scopes)
-    if any(
-        scope in scopes and data.paired_inputs.source_scope(scope) in scopes
-        for scope in data.paired_inputs.SCOPES
-    ):
-        raise ValueError("Select one T5 reference version per domain and run.")
-    mode = args.input or ("video" if paired or args.video else "both")
-    if paired and mode != "video":
-        raise ValueError("Paired T5 evaluates the reference and video together.")
+    mode = args.input or ("video" if args.video else "both")
     modalities = data.MODALITIES if mode == "both" else (mode,)
     models = data.MODELS if args.model == "all" else (args.model,)
     return {
