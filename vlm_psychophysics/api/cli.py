@@ -31,7 +31,7 @@ from .provider_api import ROUTES, parameters
 SCHEMA = "jinwei-provider-v1"
 PROVIDER = "nvidia-internal"
 BASE_URL, KEY_ENV, _ = ROUTES[PROVIDER]
-ASTRA_VIDEO_PROMPT_PREFIX = (
+ORDERED_IMAGE_VIDEO_PROMPT_PREFIX = (
     "The video is provided as 180 consecutive frames in chronological order at 60 fps.\n\n"
 )
 TASK_SCOPES = {
@@ -192,6 +192,8 @@ def configured(
         config["code_sha256"]["native_video_api.py"] = file_sha(
             Path(native_video_api.__file__)
         )
+        if provider == "claude":
+            config["api_version"] = native_video_api.CLAUDE_API_VERSION
         native_video_api.validate_config(config)
         if provider in native_video_api.FRAME_LISTS:
             config["transport"] = "ordered lossless PNG images"
@@ -209,8 +211,8 @@ def configured(
             provider, config.get("video_fps")
         )
         config["processor_visibility"] = "requires separate server frame report"
-        if provider == "astra":
-            config["video_prompt_prefix"] = ASTRA_VIDEO_PROMPT_PREFIX
+        if provider in native_video_api.ORDERED_IMAGES:
+            config["video_prompt_prefix"] = ORDERED_IMAGE_VIDEO_PROMPT_PREFIX
         config["code_sha256"]["native_video_api.py"] = file_sha(
             Path(native_video_api.__file__)
         )
@@ -359,6 +361,13 @@ def transport(payload, credential, config=None):
         auth = {"Authorization": "Bearer " + credential}
         if project := os.environ.get("OPENAI_PROJECT_ID"):
             auth["OpenAI-Project"] = project
+    elif config and config["provider"] == "claude":
+        endpoint += "/messages"
+        timeout = 600
+        auth = {
+            "Authorization": "Bearer " + credential,
+            "anthropic-version": config["api_version"],
+        }
     else:
         endpoint += "/chat/completions"
         auth = {"Authorization": "Bearer " + credential}
@@ -386,6 +395,8 @@ def response_fields(body, status, choices, expected_model, provider=PROVIDER):
             document = native_video_api.gemini_completion(document)
         elif provider == "astra":
             document = native_video_api.astra_completion(document)
+        elif provider == "claude":
+            document = native_video_api.claude_completion(document)
         options = document["choices"]
         if len(options) != 1:
             raise ValueError("Expected one completion choice")
@@ -575,6 +586,9 @@ def invoke(out, receipt, row, config, media_root, private, credential, expected_
             ) or (
                 config["provider"] == "gemini"
                 and re.search(rb'"inline_?data"\s*:', raw, re.IGNORECASE)
+            ) or (
+                config["provider"] == "claude"
+                and re.search(rb'\\?"type\\?"\s*:\s*\\?"base64\\?"', raw, re.IGNORECASE)
             ):
                 receipt.update(
                     status="SENSITIVE_RESPONSE_WITHHELD",
@@ -1115,8 +1129,8 @@ def verify(archive):
                 )
             if "video_prompt_prefix" in config:
                 release.require(
-                    provider == "astra"
-                    and config["video_prompt_prefix"] == ASTRA_VIDEO_PROMPT_PREFIX
+                    provider in native_video_api.ORDERED_IMAGES
+                    and config["video_prompt_prefix"] == ORDERED_IMAGE_VIDEO_PROMPT_PREFIX
                     and "frame_settings" in config,
                     "Unexpected video prompt prefix",
                 )
@@ -1298,11 +1312,14 @@ def main(argv=None):
         help="Local copy of the pinned private index and T5 manifests",
     )
     parser.add_argument("--allow-private-media-transfer", action="store_true")
-    parser.add_argument("--model", default=os.environ.get("JINWEI_MODEL"))
+    parser.add_argument(
+        "--model",
+        help="Exact model ID, e.g. gpt-6-astra, claude-opus-5-5 or gemini-4-argon",
+    )
     parser.add_argument(
         "--provider",
-        default=PROVIDER,
         choices=(PROVIDER, "vllm", *native_video_api.HOSTED),
+        help="Override the route selected for --model",
     )
     parser.add_argument("--max-tokens", type=int, default=4096)
     parser.add_argument("--temperature", type=float)
@@ -1371,6 +1388,16 @@ def main(argv=None):
         "--execute", action="store_true", help="Authorize real calls from this shell"
     )
     args = parser.parse_args(argv)
+    auto_provider = None
+    if args.provider is None:
+        auto_provider = native_video_api.model_provider(args.model) if args.model else None
+        if (
+            args.model and auto_provider is None and "/" not in args.model
+            and args.command not in {"export", "verify"}
+        ):
+            parser.error("Unknown model route. Set --provider explicitly for this model.")
+        args.provider = auto_provider or PROVIDER
+    args.model = args.model or os.environ.get("JINWEI_MODEL")
     if args.data_root:
         args.metadata_root = args.metadata_root or args.data_root.expanduser()
         args.media_root = args.media_root or args.data_root.expanduser()
@@ -1404,7 +1431,7 @@ def main(argv=None):
                 [*(args.scope or []), *(TASK_SCOPES[task] for task in args.task)]
             )
         )
-    if args.task or args.data_root:
+    if args.task or args.data_root or auto_provider:
         args.input = args.input or "video"
     args.index_bounds = None
     if args.from_index is not None or args.to_index is not None:
@@ -1414,7 +1441,7 @@ def main(argv=None):
         ):
             parser.error("Index selection requires one public --task and one modality, without --sample-id")
         args.index_bounds = (args.from_index, args.to_index)
-    if args.task or args.data_root or args.provider in native_video_api.FRAME_LISTS:
+    if args.task or args.data_root or auto_provider or args.provider in native_video_api.FRAME_LISTS:
         args.all_frames = args.all_frames or (
             args.input == "video" and not args.sampled_video
         )
@@ -1489,6 +1516,10 @@ def command(args):
             "status": "PLANNED_NO_MODEL_CALLS",
             **plan,
             "selected_requests": len(selected_requests(rows, args)),
+            **(
+                {"provider": args.provider, "requested_model": args.model}
+                if args.model else {}
+            ),
         }
     if all_requests:
         args.max_requests = len(selected_requests(rows, args))

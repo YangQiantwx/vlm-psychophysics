@@ -15,24 +15,50 @@ from ..catalog import require
 GEMINI = "https://generativelanguage.googleapis.com/v1beta"
 QWEN = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
 ASTRA = "https://api.openai.com/v1"
+CLAUDE = "https://api.anthropic.com/v1"
+CLAUDE_API_VERSION = "2026-10-21"
+CLAUDE_MODELS = {"claude-opus-5-5", "claude-fable-5-1"}
+CLAUDE_IMAGE_TRANSFORMATIONS = {"oversized_image": "error"}
+GEMINI_MODELS = {"gemini-4-argon", "gemini-3.8-flash", "gemini-3.1-pro-preview"}
 QWEN_ENDPOINT = re.compile(
     r"https://(?:(?:cn-hongkong\.)?dashscope(?:-intl|-us)?\.aliyuncs\.com|"
     r"[a-z0-9-]+\.[a-z0-9-]+\.maas\.aliyuncs\.com)/compatible-mode/v1"
+)
+QWEN_FRAME_MODEL = re.compile(
+    r"qwen3\.[5-8]-(?:max|plus|flash|[0-9][A-Za-z0-9.-]*b)(?:-[0-9-]+)?"
 )
 HOSTED = {
     "gemini": ("GEMINI_API_KEY", 24, {"video/mp4"}),
     "qwen": ("DASHSCOPE_API_KEY", 10, {"video/mp4", "video/x-matroska"}),
     "qwen-frames": ("DASHSCOPE_API_KEY", 10, {"video/mp4"}),
     "astra": ("OPENAI_API_KEY", None, {"video/mp4"}),
+    "claude": ("ANTHROPIC_API_KEY", None, {"video/mp4"}),
 }
-FRAME_LISTS = {"qwen-frames", "astra"}
+ORDERED_IMAGES = {"astra", "claude"}
+FRAME_LISTS = {"qwen-frames", *ORDERED_IMAGES}
 FULL_FRAME_FIELDS = {
     "media_io_kwargs": {"video": {"num_frames": -1, "fps": -1}},
     "mm_processor_kwargs": {"do_sample_frames": False},
 }
 SOURCE_FRAMES, SOURCE_FPS = 180, 60
 SOURCE_WIDTH, SOURCE_HEIGHT = 768, 512
-PNG_COMPRESSION = {"qwen-frames": 6, "astra": 1}
+PNG_COMPRESSION = {"qwen-frames": 6, "astra": 1, "claude": 6}
+
+
+def model_provider(model):
+    if re.fullmatch(r"gpt-6-astra(?:-[0-9]{4}-[0-9]{2}-[0-9]{2})?", model):
+        return "astra"
+    if model in CLAUDE_MODELS:
+        return "claude"
+    if model in GEMINI_MODELS:
+        return "gemini"
+    if QWEN_FRAME_MODEL.fullmatch(model):
+        return "qwen-frames"
+    return None
+
+
+def fixed_endpoint(provider):
+    return {"gemini": GEMINI, "astra": ASTRA, "claude": CLAUDE}.get(provider)
 
 
 def vllm_endpoint(base):
@@ -49,10 +75,8 @@ def vllm_endpoint(base):
 
 
 def endpoint(provider):
-    if provider == "gemini":
-        return GEMINI
-    if provider == "astra":
-        return ASTRA
+    if base := fixed_endpoint(provider):
+        return base
     base = os.environ.get("DASHSCOPE_BASE_URL", QWEN)
     require(
         bool(QWEN_ENDPOINT.fullmatch(base)),
@@ -78,15 +102,21 @@ def validate_config(config):
         )
     if provider == "astra":
         require(model.startswith("gpt-6-astra"), "Use a GPT-6 Astra model ID")
+    if provider == "claude":
+        require(model in CLAUDE_MODELS, "Use claude-opus-5-5 or claude-fable-5-1")
+        require(
+            config.get("api_version") == CLAUDE_API_VERSION,
+            "Claude Messages API version differs",
+        )
     if provider == "qwen-frames":
         require(
-            bool(re.fullmatch(r"qwen3\.[5-8]-(?:max|plus|flash|[0-9][A-Za-z0-9.-]*b)(?:-[0-9-]+)?", model)),
+            bool(QWEN_FRAME_MODEL.fullmatch(model)),
             "Use an exact supported Qwen3.5–3.8 vision model ID, e.g. qwen3.8-max-0902",
         )
     base = config["endpoint"]
-    fixed_endpoint = {"gemini": GEMINI, "astra": ASTRA}.get(provider)
+    fixed = fixed_endpoint(provider)
     require(
-        base == fixed_endpoint if fixed_endpoint else bool(QWEN_ENDPOINT.fullmatch(base)),
+        base == fixed if fixed else bool(QWEN_ENDPOINT.fullmatch(base)),
         "Hosted API endpoint differs",
     )
     # Retain verification of older Qwen frame-list archives that requested 10 fps.
@@ -99,13 +129,16 @@ def validate_config(config):
 
 def frame_settings(provider, video_fps=None):
     if provider in FRAME_LISTS:
-        return {
+        settings = {
             "delivery": "ordered_lossless_png",
             "frames": SOURCE_FRAMES,
             "source_fps": SOURCE_FPS,
             "requested_fps": video_fps,
             "png_compression": PNG_COMPRESSION[provider],
         }
+        if provider == "claude":
+            settings["image_transformations"] = CLAUDE_IMAGE_TRANSFORMATIONS
+        return settings
     return FULL_FRAME_FIELDS
 
 
@@ -147,14 +180,24 @@ def ordered_pngs(payload, expected_rgb_sha=None, *, compression=6):
 
 
 def frame_list_request(provider, model, prompt, parts, max_tokens, generation):
+    if provider not in ORDERED_IMAGES:
+        return {
+            "model": model,
+            "stream": False,
+            "max_tokens": max_tokens,
+            "messages": [{"role": "user", "content": parts + [{"type": "text", "text": prompt}]}],
+            **generation,
+        }
+    images = [
+        url
+        for part in parts
+        for url in (part["video"] if part["type"] == "video" else [part["image_url"]["url"]])
+    ]
     if provider == "astra":
-        content = []
-        for part in parts:
-            urls = part["video"] if part["type"] == "video" else [part["image_url"]["url"]]
-            content.extend(
-                {"type": "input_image", "image_url": url, "detail": "original"}
-                for url in urls
-            )
+        content = [
+            {"type": "input_image", "image_url": url, "detail": "original"}
+            for url in images
+        ]
         return {
             "model": model,
             "input": [{"role": "user", "content": content + [{"type": "input_text", "text": prompt}]}],
@@ -166,12 +209,23 @@ def frame_list_request(provider, model, prompt, parts, max_tokens, generation):
             "stream": False,
             "truncation": "disabled",
         }
+    content = [
+        {
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": "image/png",
+                "data": url.split(",", 1)[1],
+            },
+            "transformations": CLAUDE_IMAGE_TRANSFORMATIONS,
+        }
+        for url in images
+    ]
     return {
         "model": model,
-        "stream": False,
         "max_tokens": max_tokens,
-        "messages": [{"role": "user", "content": parts + [{"type": "text", "text": prompt}]}],
-        **generation,
+        "messages": [{"role": "user", "content": content + [{"type": "text", "text": prompt}]}],
+        "stream": False,
     }
 
 
@@ -208,11 +262,40 @@ def validate_payload_size(provider, base, size):
         hint = "" if workspace else "; set DASHSCOPE_BASE_URL to the official workspace endpoint"
     elif provider == "astra":
         limit, hint = 512_000_000, ""
+    elif provider == "claude":
+        limit, hint = 128_000_000, ""
     elif provider == "gemini":
         limit, hint = 20_000_000, ""
     else:
         return
     require(size <= limit, f"{provider} request is {size} bytes, above the {limit}-byte limit{hint}")
+
+
+def claude_completion(document):
+    parts = document["content"]
+    stop = document["stop_reason"]
+    finish = {
+        "end_turn": "stop",
+        "max_tokens": "length",
+        "model_context_window_exceeded": "length",
+    }.get(stop, stop)
+    if (document.get("stop_details") or {}).get("type") == "refusal":
+        finish = "refusal"
+    return {
+        "model": document["model"],
+        "id": document.get("id"),
+        "usage": document.get("usage"),
+        "choices": [{
+            "finish_reason": finish,
+            "message": {
+                "content": "".join(part["text"] for part in parts if part["type"] == "text"),
+                "tool_calls": any(
+                    part["type"] not in {"text", "thinking", "redacted_thinking"}
+                    for part in parts
+                ),
+            },
+        }],
+    }
 
 
 def request(provider, model, prompt, media, max_tokens, fps):

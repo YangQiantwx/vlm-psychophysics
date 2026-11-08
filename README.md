@@ -4,7 +4,7 @@ Five controlled visual judgments in Classic and Natural scenes. The release cont
 
 ## Model API quickstart
 
-Clone this repository and run the commands from its root. Start with one Classic T1 video. The client downloads the pinned public media as needed and checks its SHA-256.
+Clone this repository and run the commands from its root. Start with one Classic T1 video. For the models below, `--model` selects the provider, media format and prompt handling. The client downloads the pinned public media as needed and checks its SHA-256.
 
 ```bash
 python -m pip install -e '.[download]'
@@ -15,7 +15,7 @@ python -m pip install -e '.[download]'
 Set `OPENAI_API_KEY` in your shell or secret store before running the pilot.
 
 ```bash
-python run.py api evaluate --provider astra --model gpt-6-astra \
+python run.py api evaluate --model gpt-6-astra \
   --task t1-classic --input video --sample-id t1_2379890eb33c9a254afd \
   --out outputs/t1-astra-ordered-one --max-requests 1 --reasoning-effort low --execute
 ```
@@ -27,13 +27,24 @@ The Responses API receives 180 ordered lossless PNG images at `detail: original`
 Set `DASHSCOPE_API_KEY` and, for a workspace-specific endpoint, `DASHSCOPE_BASE_URL`. The Qwen pilot uses the same Classic trial.
 
 ```bash
-python run.py api evaluate --provider qwen-frames --model qwen3.8-max-0902 \
+python run.py api evaluate --model qwen3.8-max-0902 \
   --task t1-classic --input video --sample-id t1_2379890eb33c9a254afd \
   --out outputs/t1-qwen-one --max-requests 1 --temperature 0 --seed 0 \
   --disable-thinking --execute
 ```
 
 DashScope receives the 180 PNGs as one ordered `type: video` frame list. Use Astra for clips whose lossless request exceeds DashScope's size limit. [DashScope video inputs](https://www.alibabacloud.com/help/en/model-studio/vision) · [Regional endpoints](https://www.alibabacloud.com/help/en/model-studio/regions/)
+
+### Other hosted models
+
+Use the same task, sample ID and request budget. Choose a fresh `--out` and supply the selected model's API key. `--reasoning-effort` is specific to the Astra example.
+
+| Model ID | Key environment variable | Video delivery |
+|---|---|---|
+| `claude-opus-5-5`, `claude-fable-5-1` | `ANTHROPIC_API_KEY` | 180 ordered lossless PNGs with the same chronology note. Claude rejects images it would downscale. The inline request limit is 128 MB. |
+| `gemini-4-argon`, `gemini-3.8-flash` | `GEMINI_API_KEY` | Original MP4 with server sampling requested at 24 fps. Add `--sampled-video` for this separate T1–T4 comparison. |
+
+[Claude image inputs and limits](https://platform.claude.com/docs/en/build-with-claude/vision) · [Claude resize setting](https://platform.claude.com/docs/en/build-with-claude/vision-coordinates#turn-resizing-into-an-error-with-transformations) · [Gemini video sampling](https://aistudio.google.com/docs/video-understanding?generate-content=true)
 
 | Scope | Arguments |
 |---|---|
@@ -42,11 +53,11 @@ DashScope receives the 180 PNGs as one ordered `type: video` frame list. Use Ast
 | Entire task | `--task t1-classic --all-requests` |
 | Parallel calls | `--concurrency 4` |
 
-Indices are zero-based in sorted `sample_id` order within one task and modality. `--to-index` is exclusive. `api plan` previews the selection without calling the model. Static ranges select video associations first, then share identical image requests. Use a separate `--out` per selection. The same output directory resumes the same selection.
+Indices are zero-based in sorted `sample_id` order within one task and modality. `--to-index` is exclusive. `api plan` previews the selection and, when supplied, the model route without calling the model. Static ranges select video associations first, then share identical image requests. Use a separate `--out` per model and selection. The same output directory resumes the same selection.
 
 Public dataset access works anonymously. Use `hf auth login` for interactive Hub authentication or inject `HF_TOKEN` as a CI or Space secret.
 
-A successful video pilot records the raw answer and frame delivery in `results.csv` and `attempts.jsonl`. It reports `PARTIAL` (exit code 2) while it awaits server-side frame evidence. All-frame scoring and batch concurrency require that evidence. Hosted responses show the answer and usage, while processor verification requires a separate server report. Verify the saved results with `python run.py api verify --archive outputs/t1-astra-ordered-one/return.zip`. [Range and batch examples](EXPERIMENT_PLAN.md#model-api) · [Hugging Face authentication](https://huggingface.co/docs/huggingface_hub/quick-start#authentication)
+A successful full-frame video pilot records the raw answer and client-side delivery in `results.csv` and `attempts.jsonl`. It reports `PARTIAL` (exit code 2) while it awaits a frame report from the serving deployment. All-frame scoring and batch concurrency require that evidence. Verify the saved results with `python run.py api verify --archive outputs/t1-astra-ordered-one/return.zip`. [Range and batch examples](EXPERIMENT_PLAN.md#model-api) · [Hugging Face authentication](https://huggingface.co/docs/huggingface_hub/quick-start#authentication)
 
 To cache a whole task before evaluating, run:
 

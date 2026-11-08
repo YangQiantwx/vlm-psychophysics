@@ -106,7 +106,7 @@ def test_gateway_post_contains_only_frozen_prompt_and_inline_media(tmp_path, mon
 
 
 @pytest.mark.parametrize('provider,model,env', [
-    ('gemini', 'gemini-3.1-pro-preview', 'GEMINI_API_KEY'),
+    ('gemini', 'gemini-4-argon', 'GEMINI_API_KEY'),
     ('qwen', 'qwen3.8-max', 'DASHSCOPE_API_KEY'),
 ])
 def test_hosted_native_video_request_and_return(tmp_path, monkeypatch, provider, model, env):
@@ -117,7 +117,7 @@ def test_hosted_native_video_request_and_return(tmp_path, monkeypatch, provider,
                   prompt='Frozen question.', parameters={'modulation': .5}, video_path=str(video.relative_to(tmp_path)),
                   video_sha256=release.sha(video.read_bytes()), frames=180, fps=60, width=768, height=512)
     row = release.trial('natural/t1', source, 'fixture', 'video-sha')
-    monkeypatch.setattr(release, 'public_plan', lambda _: [row])
+    monkeypatch.setattr(release, 'public_plan', lambda *_: [row])
     monkeypatch.setenv(env, 'fixture-key')
     monkeypatch.delenv('DASHSCOPE_BASE_URL', raising=False)
 
@@ -159,8 +159,17 @@ def test_hosted_native_video_request_and_return(tmp_path, monkeypatch, provider,
     out.mkdir()
     options = dict(command='evaluate', out=out, archive=None, private_index=None,
                    private_metadata_root=None, metadata_root=None, scope=['natural/t1'], input='video')
-    result = runner.command(_args(tmp_path, **options, provider=provider, model=model, max_requests=1))
-    assert result['status'] == 'COMPLETE'
+    if provider == 'gemini':
+        args = ['evaluate', '--model', model, '--task', 't1-natural', '--out', str(out),
+                '--data-root', str(tmp_path), '--max-requests', '1', '--execute']
+        with pytest.raises(SystemExit) as exit_info:
+            runner.main(args)
+        assert exit_info.value.code == 2
+        assert not (out / 'config.json').exists()
+        runner.main([*args, '--sampled-video'])
+    else:
+        result = runner.command(_args(tmp_path, **options, provider=provider, model=model, max_requests=1))
+        assert result['status'] == 'COMPLETE'
     assert runner.verify(out / 'return.zip')['request_attempts'] == 1
     with ZipFile(out / 'return.zip') as package:
         trial, = runner.load_rows(package.read('results.jsonl'))
@@ -278,6 +287,7 @@ def test_all_frame_batch_requires_server_evidence(tmp_path, monkeypatch):
 @pytest.mark.parametrize('provider,model,key_env', [
     ('qwen-frames', 'qwen3.8-max-0902', 'DASHSCOPE_API_KEY'),
     ('astra', 'gpt-6-astra', 'OPENAI_API_KEY'),
+    ('claude', 'claude-opus-5-5', 'ANTHROPIC_API_KEY'),
 ])
 def test_frame_list_cli_and_raw_return_over_http(tmp_path, monkeypatch, provider, model, key_env):
     import numpy as np
@@ -324,6 +334,13 @@ def test_frame_list_cli_and_raw_return_over_http(tmp_path, monkeypatch, provider
             ]}],
         })
         options = ['--reasoning-effort', 'xhigh']
+    elif provider == 'claude':
+        raw = release.encoded({
+            'id': 'fixture-id', 'model': model, 'stop_reason': 'end_turn',
+            'content': [{'type': 'thinking', 'thinking': 'Hidden reasoning'},
+                        {'type': 'text', 'text': ' YES! '}],
+        })
+        options = []
     else:
         raw = _response(' YES! ')
         options = ['--temperature', '0', '--seed', '0', '--disable-thinking']
@@ -332,7 +349,7 @@ def test_frame_list_cli_and_raw_return_over_http(tmp_path, monkeypatch, provider
     class Server(BaseHTTPRequestHandler):
         def do_POST(self):
             data = self.rfile.read(int(self.headers['Content-Length']))
-            received.append((self.path, self.headers['Authorization'], data))
+            received.append((self.path, self.headers, data))
             self.send_response(200)
             self.send_header('Content-Length', str(len(raw)))
             self.end_headers()
@@ -342,6 +359,8 @@ def test_frame_list_cli_and_raw_return_over_http(tmp_path, monkeypatch, provider
         base = f'http://127.0.0.1:{server.server_port}/v1'
         if provider == 'astra':
             monkeypatch.setattr(native_video_api, 'ASTRA', base)
+        elif provider == 'claude':
+            monkeypatch.setattr(native_video_api, 'CLAUDE', base)
         else:
             monkeypatch.setattr(native_video_api, 'QWEN_ENDPOINT', re.compile(re.escape(base)))
             monkeypatch.setenv('DASHSCOPE_BASE_URL', base)
@@ -349,8 +368,10 @@ def test_frame_list_cli_and_raw_return_over_http(tmp_path, monkeypatch, provider
         thread.start()
         out = tmp_path / 'run'
         args = ['api', 'evaluate', '--data-root', str(tmp_path), '--task', 't5-natural',
-                '--sample-id', sample_id, '--provider', provider, '--model', model,
+                '--sample-id', sample_id, '--model', model,
                 '--out', str(out), '--max-requests', '1', '--execute', *options]
+        if provider == 'qwen-frames':
+            args += ['--provider', provider]
         try:
             with pytest.raises(SystemExit) as e:
                 main(args)
@@ -370,8 +391,8 @@ def test_frame_list_cli_and_raw_return_over_http(tmp_path, monkeypatch, provider
             server.shutdown()
             thread.join()
 
-    (path, auth, data), = received
-    assert auth == 'Bearer fixture-credential'
+    (path, headers, data), = received
+    assert headers['Authorization'] == 'Bearer fixture-credential'
     assert sample_id.encode() not in data and b'GT_YES' not in data and b'fixture-credential' not in data
     assert release.sha(data) == receipt['request_sha256'] and len(data) == receipt['request_bytes']
     body = json.loads(data)
@@ -389,20 +410,34 @@ def test_frame_list_cli_and_raw_return_over_http(tmp_path, monkeypatch, provider
         assert config['generation_parameters'] == {'temperature': 0, 'seed': 0, 'enable_thinking': False}
         images = [reference['image_url']['url'], *sequence['video']]
     else:
-        assert path == '/v1/responses'
-        *sequence, question = body['input'][0]['content']
         prefix = 'The video is provided as 180 consecutive frames in chronological order at 60 fps.\n\n'
-        assert question == {'type': 'input_text', 'text': prefix + prompt}
         assert config['video_prompt_prefix'] == prefix
         assert receipt['request_prompt_sha256'] == release.sha((prefix + prompt).encode('utf-8'))
         assert row['prompt'] == prompt and row['prompt_sha256'] == release.sha(prompt.encode('utf-8'))
         assert runner.request_prompt({'input': 'static', 'prompt': prompt}, config) == prompt
         assert runner.request_prompt(row, {}) == prompt
-        assert all(p['type'] == 'input_image' and p['detail'] == 'original' for p in sequence)
-        assert body['reasoning'] == config['generation_parameters']['reasoning'] == {'effort': 'xhigh'}
-        assert body['tools'] == [] and body['truncation'] == 'disabled'
-        assert 'temperature' not in body and 'seed' not in body
-        images = [p['image_url'] for p in sequence]
+        if provider == 'astra':
+            assert path == '/v1/responses'
+            *sequence, question = body['input'][0]['content']
+            assert question == {'type': 'input_text', 'text': prefix + prompt}
+            assert all(p['type'] == 'input_image' and p['detail'] == 'original' for p in sequence)
+            assert body['reasoning'] == config['generation_parameters']['reasoning'] == {'effort': 'xhigh'}
+            assert body['tools'] == [] and body['truncation'] == 'disabled'
+            assert 'temperature' not in body and 'seed' not in body
+            images = [p['image_url'] for p in sequence]
+        else:
+            assert path == '/v1/messages'
+            assert headers['anthropic-version'] == config['api_version'] == '2026-10-21'
+            assert set(body) == {'model', 'max_tokens', 'messages', 'stream'}
+            *sequence, question = body['messages'][0]['content']
+            assert question == {'type': 'text', 'text': prefix + prompt}
+            assert all(
+                p['type'] == 'image' and p['source']['type'] == 'base64'
+                and p['source']['media_type'] == 'image/png'
+                and p['transformations'] == {'oversized_image': 'error'}
+                for p in sequence
+            )
+            images = ['data:image/png;base64,' + p['source']['data'] for p in sequence]
     assert len(images) == 181 and base64.b64decode(images[0].split(',')[1]) == ref_bytes
     for i, url in enumerate(images[1:]):
         header, encoded = url.split(',', 1)
@@ -429,6 +464,19 @@ def test_qwen_frame_list_request_size_fails_without_reducing_input():
     native_video_api.validate_payload_size('qwen-frames', workspace, 64_000_000)
     with pytest.raises(ValueError, match='64000000-byte limit'):
         native_video_api.validate_payload_size('qwen-frames', workspace, 64_000_001)
+
+
+def test_claude_inline_request_size_and_refusal():
+    native_video_api.validate_payload_size('claude', native_video_api.CLAUDE, 128_000_000)
+    with pytest.raises(ValueError, match='above the 128000000-byte limit'):
+        native_video_api.validate_payload_size('claude', native_video_api.CLAUDE, 128_000_001)
+    response = release.encoded({
+        'model': 'claude-fable-5-1', 'stop_reason': 'end_turn',
+        'stop_details': {'type': 'refusal'},
+        'content': [{'type': 'text', 'text': 'YES'}],
+    })
+    fields = runner.response_fields(response, 200, ['YES', 'NO'], None, 'claude')
+    assert fields['finish_reason'] == 'refusal' and not fields['modality_admitted']
 
 
 def test_fixture_end_to_end(tmp_path, monkeypatch):
