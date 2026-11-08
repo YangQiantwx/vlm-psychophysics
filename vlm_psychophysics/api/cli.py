@@ -182,7 +182,10 @@ def configured(
         answer_parser="single-label-v1",
     )
     if hosted:
-        config.update(video_fps=hosted[1], transport="inline video bytes")
+        config.update(
+            video_fps=native_video_api.requested_fps(provider, model),
+            transport="inline video bytes",
+        )
         config["code_sha256"]["native_video_api.py"] = file_sha(
             Path(native_video_api.__file__)
         )
@@ -199,7 +202,9 @@ def configured(
         config["generation_parameters"] = generation_parameters
         config["generation"] = "explicit requested settings, no tools"
     if all_frames:
-        config["frame_settings"] = native_video_api.frame_settings(provider)
+        config["frame_settings"] = native_video_api.frame_settings(
+            provider, config.get("video_fps")
+        )
         config["processor_visibility"] = "requires separate server frame report"
         config["code_sha256"]["native_video_api.py"] = file_sha(
             Path(native_video_api.__file__)
@@ -455,11 +460,12 @@ def request_body(row, config, media_root, private):
                 if provider == "qwen-frames":
                     pixels = native_video_api.SOURCE_WIDTH * native_video_api.SOURCE_HEIGHT
                     part.update(
-                        fps=config["video_fps"],
                         min_pixels=pixels,
                         max_pixels=pixels,
                         total_pixels=len(images) * pixels,
                     )
+                    if config["video_fps"] is not None:
+                        part["fps"] = config["video_fps"]
                 frame_parts.append(part)
                 verified[-1]["ordered_frames"] = {
                     "count": len(images),
@@ -1095,7 +1101,9 @@ def verify(archive):
             if "frame_settings" in config:
                 release.require(
                     provider in {PROVIDER, "vllm", *native_video_api.FRAME_LISTS}
-                    and config["frame_settings"] == native_video_api.frame_settings(provider),
+                    and config["frame_settings"] == native_video_api.frame_settings(
+                        provider, config.get("video_fps")
+                    ),
                     "All-frame configuration differs",
                 )
         history = defaultdict(list)

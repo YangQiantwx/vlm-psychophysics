@@ -381,7 +381,9 @@ def test_frame_list_cli_and_raw_return_over_http(tmp_path, monkeypatch, provider
         assert path == '/v1/chat/completions'
         reference, sequence, question = body['messages'][0]['content']
         assert reference['type'] == 'image_url' and sequence['type'] == 'video'
-        assert question == {'type': 'text', 'text': prompt} and sequence['fps'] == 10
+        assert question == {'type': 'text', 'text': prompt}
+        assert 'fps' not in sequence
+        assert config['video_fps'] is None and config['frame_settings']['requested_fps'] is None
         assert all(body[k] == v for k, v in config['generation_parameters'].items())
         assert config['generation_parameters'] == {'temperature': 0, 'seed': 0, 'enable_thinking': False}
         images = [reference['image_url']['url'], *sequence['video']]

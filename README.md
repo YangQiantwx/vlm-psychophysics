@@ -10,21 +10,30 @@ Clone this repository and run the commands from its root. Start with one Classic
 python -m pip install -e '.[download]'
 ```
 
-Load the provider key into your shell:
+### OpenAI GPT-6 Astra
+
+Set `OPENAI_API_KEY` in your shell or secret store before running the pilot.
 
 ```bash
-printf 'DashScope API key: '
-read -r -s DASHSCOPE_API_KEY
-printf '\n'
-export DASHSCOPE_API_KEY
+python run.py api evaluate --provider astra --model gpt-6-astra \
+  --task t1-classic --input video --sample-id t1_2379890eb33c9a254afd \
+  --out outputs/t1-astra-one --max-requests 1 --reasoning-effort low --execute
 ```
+
+The Responses API receives 180 ordered lossless PNG images at `detail: original` plus the exact published prompt. [GPT-6 Astra](https://developers.openai.com/api/docs/models/gpt-6-astra) · [Responses image inputs](https://developers.openai.com/api/docs/guides/images-vision?api-mode=responses)
+
+### Qwen3.8-Max
+
+Set `DASHSCOPE_API_KEY` and, for a workspace-specific endpoint, `DASHSCOPE_BASE_URL`. The Qwen pilot uses the same Classic trial.
 
 ```bash
 python run.py api evaluate --provider qwen-frames --model qwen3.8-max-0902 \
-  --task t1-classic --input video --sample-id t1_db543a401163261ed5b4 \
+  --task t1-classic --input video --sample-id t1_2379890eb33c9a254afd \
   --out outputs/t1-qwen-one --max-requests 1 --temperature 0 --seed 0 \
   --disable-thinking --execute
 ```
+
+DashScope receives the 180 PNGs as one ordered `type: video` frame list. Use Astra for clips whose lossless request exceeds DashScope's size limit. [DashScope video inputs](https://www.alibabacloud.com/help/en/model-studio/vision) · [Regional endpoints](https://www.alibabacloud.com/help/en/model-studio/regions/)
 
 | Scope | Arguments |
 |---|---|
@@ -35,9 +44,9 @@ python run.py api evaluate --provider qwen-frames --model qwen3.8-max-0902 \
 
 Indices are zero-based in sorted `sample_id` order within one task and modality. `--to-index` is exclusive. `api plan` previews the selection without calling the model. Static ranges select video associations first, then share identical image requests. Use a separate `--out` per selection. The same output directory resumes the same selection.
 
-Use `OPENAI_API_KEY` for Astra, `DASHSCOPE_API_KEY` for Qwen or `VLLM_API_KEY` for your vLLM endpoint. Set these in the shell or your CI secret store. Public dataset access works anonymously. Use `hf auth login` for interactive Hub authentication or inject `HF_TOKEN` as a CI or Space secret.
+Public dataset access works anonymously. Use `hf auth login` for interactive Hub authentication or inject `HF_TOKEN` as a CI or Space secret.
 
-An all-frame video batch starts after its pilot's server frame report is supplied. The run directory contains `results.csv`, `results.jsonl`, `config.json`, `summary.json` and a verifiable `return.zip`. [Range and batch examples](EXPERIMENT_PLAN.md#model-api) · [Hugging Face authentication](https://huggingface.co/docs/huggingface_hub/quick-start#authentication)
+A successful video pilot records the raw answer and frame delivery in `results.csv` and `attempts.jsonl`. It reports `PARTIAL` (exit code 2) while it awaits server-side frame evidence. All-frame scoring and batch concurrency require that evidence. Hosted responses show the answer and usage, while processor verification requires a separate server report. Verify the saved results with `python run.py api verify --archive outputs/t1-astra-one/return.zip`. [Range and batch examples](EXPERIMENT_PLAN.md#model-api) · [Hugging Face authentication](https://huggingface.co/docs/huggingface_hub/quick-start#authentication)
 
 To cache a whole task before evaluating, run:
 

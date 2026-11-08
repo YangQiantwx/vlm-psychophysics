@@ -61,6 +61,13 @@ def endpoint(provider):
     return base
 
 
+def requested_fps(provider, model):
+    if provider == "qwen-frames" and model.startswith("qwen3.8-"):
+        # DashScope does not document frame-list timestamps for this series.
+        return None
+    return HOSTED[provider][1]
+
+
 def validate_config(config):
     provider = config["provider"]
     model = config["requested_model"]
@@ -82,19 +89,21 @@ def validate_config(config):
         base == fixed_endpoint if fixed_endpoint else bool(QWEN_ENDPOINT.fullmatch(base)),
         "Hosted API endpoint differs",
     )
+    # Retain verification of older Qwen frame-list archives that requested 10 fps.
+    allowed_fps = (requested_fps(provider, model), HOSTED[provider][1])
     require(
-        config["video_fps"] == HOSTED[provider][1],
+        config["video_fps"] in allowed_fps,
         "Hosted video sampling setting differs",
     )
 
 
-def frame_settings(provider):
+def frame_settings(provider, video_fps=None):
     if provider in FRAME_LISTS:
         return {
             "delivery": "ordered_lossless_png",
             "frames": SOURCE_FRAMES,
             "source_fps": SOURCE_FPS,
-            "requested_fps": HOSTED[provider][1],
+            "requested_fps": video_fps,
             "png_compression": PNG_COMPRESSION[provider],
         }
     return FULL_FRAME_FIELDS
