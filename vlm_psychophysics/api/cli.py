@@ -368,6 +368,8 @@ def transport(payload, credential, config=None):
             "Authorization": "Bearer " + credential,
             "anthropic-version": config["api_version"],
         }
+        if workspace := os.environ.get("ANTHROPIC_WORKSPACE_ID"):
+            auth["anthropic-workspace-id"] = workspace
     else:
         endpoint += "/chat/completions"
         auth = {"Authorization": "Bearer " + credential}

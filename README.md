@@ -55,6 +55,8 @@ Use the same task, sample ID and request budget. Choose a fresh `--out` and supp
 
 Indices are zero-based in sorted `sample_id` order within one task and modality. `--to-index` is exclusive. `api plan` previews the selection and, when supplied, the model route without calling the model. Static ranges select video associations first, then share identical image requests. Use a separate `--out` per model and selection. The same output directory resumes the same selection.
 
+If your Anthropic API key is organization-wide, set `ANTHROPIC_WORKSPACE_ID` to the workspace that should handle the request.
+
 Public dataset access works anonymously. Use `hf auth login` for interactive Hub authentication or inject `HF_TOKEN` as a CI or Space secret.
 
 A successful full-frame video pilot records the raw answer and client-side delivery in `results.csv` and `attempts.jsonl`. It reports `PARTIAL` (exit code 2) while it awaits a frame report from the serving deployment. All-frame scoring and batch concurrency require that evidence. Verify the saved results with `python run.py api verify --archive outputs/t1-astra-ordered-one/return.zip`. [Range and batch examples](EXPERIMENT_PLAN.md#model-api) · [Hugging Face authentication](https://huggingface.co/docs/huggingface_hub/quick-start#authentication)
