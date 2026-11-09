@@ -548,7 +548,7 @@ def validate_ingress(
         if model == "qwen":
             require(
                 observation["selector_calls_during_request"] > 0,
-                "The configured X QSA selector was not used",
+                "The deterministic Qwen QSA selector was not used",
             )
         if model in ("cosmos", "qwen"):
             normalizer = observation["normalizer"]

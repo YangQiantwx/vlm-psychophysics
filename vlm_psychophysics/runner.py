@@ -64,13 +64,23 @@ def check_storage(path, *, minimum_free=0, writable=False):
     return info
 
 
-def data_directory(explicit=None, *, create=True):
+def data_directory(explicit=None, *, create=True, require_ssd=True):
     explicit = explicit or os.environ.get("VLM_PSYCHOPHYSICS_DATA_ROOT")
+    if not require_ssd:
+        root = Path(explicit or "dataset").expanduser().resolve()
+        if create:
+            root.mkdir(parents=True, exist_ok=True)
+        return root
     if explicit:
         candidates = [Path(explicit)]
     else:
         xdg = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share"))
-        candidates = [xdg / "vlm-psychophysics" / "data" / data.REVISION]
+        candidates = []
+        local = Path.cwd() / "dataset"
+        index = local / "dataset-index.json"
+        if index.is_file() and data.file_sha(index) == data.dataset_catalog.INDEX_SHA:
+            candidates.append(local)
+        candidates.append(xdg / "vlm-psychophysics" / "data" / data.REVISION)
         mounts = json.loads(
             subprocess.check_output(
                 ["findmnt", "--list", "--json", "--output", "TARGET,SOURCE"], text=True
@@ -361,7 +371,7 @@ def save_plan(out, config_path, config, models, manifest, selection):
     source_bytes = data.json_bytes(source_fingerprint()) + b"\n"
     runtime_lock = runtime_lock_path(config).read_bytes()
     run = {
-        "schema": "vlm-psychophysics-collaborator-v1",
+        "schema": "vlm-psychophysics-run-v1",
         "repo_id": manifest["repo_id"],
         "revision": manifest["revision"],
         "index_sha256": manifest["index_sha256"],

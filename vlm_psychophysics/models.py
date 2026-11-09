@@ -1,4 +1,4 @@
-"""Four current-X model sessions, using the same native input and generation settings."""
+"""Native model sessions with pinned input and generation settings."""
 
 from __future__ import annotations
 
@@ -187,7 +187,7 @@ class Session:
                 observers.worker_identity, args=(model,)
             )
             write_json(self.output / "runtime.json", runtime)
-            inputs.require(len(runtime) == 1, "Current X uses one model worker per GPU")
+            inputs.require(len(runtime) == 1, "The local recipe requires one model worker per GPU")
             for receipt in runtime:
                 inputs.require(
                     receipt["actual_kv_capacity"]
@@ -204,7 +204,7 @@ class Session:
                 if model == "qwen":
                     inputs.require(
                         receipt["custom_qsa_selector"]["status"] == "APPLIED_X_QSA",
-                        "Current Qwen X selector is missing",
+                        "The deterministic Qwen QSA selector is missing",
                     )
             if model == "gemma":
                 self.adapter = inputs.GemmaAdapter(
@@ -225,7 +225,7 @@ class Session:
         if key not in self.sampling:
             settings = dict(self.config["generation"])
             thinking = settings.pop("enable_thinking")
-            inputs.require(thinking is False, "Current X uses thinking disabled")
+            inputs.require(thinking is False, "The local recipe requires thinking disabled")
             self.sampling[key] = SamplingParams(
                 **settings,
                 structured_outputs=StructuredOutputsParams(choice=list(choices)),

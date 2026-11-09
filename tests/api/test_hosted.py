@@ -64,7 +64,7 @@ def _response(text, *, finish='stop'):
 
 
 def _args(root, **changes):
-    values = dict(scope=None, input=None, execute=True, max_requests=20, allow_private_media_transfer=False,
+    values = dict(scope=None, input=None, execute=True, max_requests=20,
                   media_root=root, model='provider/company/model-name', max_tokens=4096, workers=2,
                   retry=None, retry_uncertain=False, pilot_trial=None, provider='nvidia-internal',
                   all_frames=False, frame_report=None)
@@ -84,7 +84,7 @@ def test_gateway_post_contains_only_frozen_prompt_and_inline_media(tmp_path, mon
     model = 'openai/openai/gpt-6-astra'
     config = dict(requested_model=model, max_completion_tokens=512)
     for row in release.unique_requests(_fixture(tmp_path)).values():
-        body, evidence = runner.request_body(row, config, tmp_path, None)
+        body, evidence = runner.request_body(row, config, tmp_path)
         assert runner.transport(body, 'fixture-credential')[0] == 200
         request = requests[-1]
         assert request.full_url == 'https://inference-api.nvidia.com/v1/chat/completions'
@@ -117,7 +117,7 @@ def test_hosted_native_video_request_and_return(tmp_path, monkeypatch, provider,
                   prompt='Frozen question.', parameters={'modulation': .5}, video_path=str(video.relative_to(tmp_path)),
                   video_sha256=release.sha(video.read_bytes()), frames=180, fps=60, width=768, height=512)
     row = release.trial('natural/t1', source, 'fixture', 'video-sha')
-    monkeypatch.setattr(release, 'public_plan', lambda *_: [row])
+    monkeypatch.setattr(release, 'public_plan', lambda *_, **kwargs: [row])
     monkeypatch.setenv(env, 'fixture-key')
     monkeypatch.delenv('DASHSCOPE_BASE_URL', raising=False)
 
@@ -157,8 +157,7 @@ def test_hosted_native_video_request_and_return(tmp_path, monkeypatch, provider,
     monkeypatch.setattr(runner, 'build_opener', lambda *handlers: SimpleNamespace(open=open_request))
     out = tmp_path / 'run'
     out.mkdir()
-    options = dict(command='evaluate', out=out, archive=None, private_index=None,
-                   private_metadata_root=None, metadata_root=None, scope=['natural/t1'], input='video')
+    options = dict(command='evaluate', out=out, archive=None, metadata_root=None, scope=['natural/t1'], input='video')
     if provider == 'gemini':
         args = ['evaluate', '--model', model, '--task', 't1-natural', '--out', str(out),
                 '--data-root', str(tmp_path), '--max-requests', '1', '--execute']
@@ -183,8 +182,7 @@ def test_evaluate_reports_completion_for_selected_scope(tmp_path, monkeypatch):
     monkeypatch.setattr(release, 'public_plan', lambda _: _fixture(tmp_path))
     monkeypatch.setenv('NVIDIA_API_KEY', 'fixture-credential-unused')
     monkeypatch.setattr(runner, 'transport', lambda *_: (200, {}, _response('LEFT')))
-    options = dict(command='evaluate', out=out, archive=None, private_index=None,
-                   private_metadata_root=None, metadata_root=None, scope=['classic/t2'], input='video')
+    options = dict(command='evaluate', out=out, archive=None, metadata_root=None, scope=['classic/t2'], input='video')
     first = runner.command(_args(tmp_path, **options, max_requests=1))
     assert first['status'] == 'PARTIAL'
     assert first['finished_selected_requests'] == 1
@@ -214,6 +212,41 @@ def test_index_range_is_sorted_and_slices_before_static_dedup(tmp_path, monkeypa
     with pytest.raises(SystemExit, match='2'):
         runner.main([*command, '--from-index', '0', '--to-index', '2'])
     assert runner.load_plan(out) == (plan, rows)
+
+
+def test_filename_selection_and_resume_require_the_same_trials(tmp_path, monkeypatch, capsys):
+    source = _fixture(tmp_path, classic_extension="mp4")
+
+    def public_plan(_root, scopes, modality):
+        return [row for row in source if row["scope"] in scopes and row["input"] == modality]
+
+    monkeypatch.setattr(release, "public_plan", public_plan)
+    monkeypatch.setenv("NVIDIA_API_KEY", "fixture-credential-unused")
+    requests = []
+    def transport(payload, *_):
+        requests.append(payload)
+        return 200, {}, _response("LEFT")
+    monkeypatch.setattr(runner, "transport", transport)
+    out = tmp_path / "run"
+    argv = [
+        "evaluate", "--task", "t2-classic", "--sampled-video",
+        "--model", "example/model", "--out", str(out), "--media-root", str(tmp_path),
+        "--all-requests", "--execute",
+    ]
+    runner.main([*argv, "--sample", "source-a-GT_LEFT.mp4"])
+    plan, rows = runner.load_plan(out)
+    assert [row["sample_id"] for row in rows] == ["source-a"]
+    assert len(requests) == 1
+    assert b"source-a-GT_LEFT.mp4" not in requests[0]
+
+    runner.main([*argv, "--sample", "source-a"])
+    assert len(requests) == 1
+    for different in ([], ["--sample", "source-b-GT_LEFT.mp4"]):
+        with pytest.raises(SystemExit, match="2"):
+            runner.main([*argv, *different])
+        assert "another plan" in capsys.readouterr().err
+        assert runner.load_plan(out) == (plan, rows)
+        assert len(requests) == 1
 
 
 def test_all_requests_uses_full_task_and_preserves_resume(tmp_path, monkeypatch, capsys):
@@ -362,8 +395,7 @@ def test_all_frame_batch_requires_server_evidence(tmp_path, monkeypatch):
         return 200, {}, _response('LEFT')
 
     monkeypatch.setattr(runner, 'transport', transport)
-    options = dict(command='evaluate', out=out, archive=None, private_index=None,
-                   private_metadata_root=None, metadata_root=None, scope=['classic/t2'], input='video',
+    options = dict(command='evaluate', out=out, archive=None, metadata_root=None, scope=['classic/t2'], input='video',
                    provider='vllm', all_frames=True)
     first = runner.command(_args(tmp_path, **options))
     assert first['status'] == 'PARTIAL' and first['request_attempts'] == 1
@@ -427,7 +459,7 @@ def test_frame_list_cli_and_raw_return_over_http(tmp_path, monkeypatch, provider
         processor_input_rgb_sha256=digest.hexdigest(), reference_path=str(ref.relative_to(tmp_path)),
         reference_sha256=release.sha(ref_bytes),
     ), 'fixture', 'video-sha')
-    monkeypatch.setattr(release, 'public_plan', lambda *args: [row] if args == (
+    monkeypatch.setattr(release, 'public_plan', lambda *args, **kwargs: [row] if args == (
         tmp_path, ['natural/t5'], 'video'
     ) else pytest.fail(f'Unexpected download selection {args}'))
     monkeypatch.setenv(key_env, 'fixture-credential')
@@ -618,11 +650,11 @@ def test_fixture_end_to_end(tmp_path, monkeypatch):
         return 200, {'x-request-id': 'fixture-id'}, result
 
     monkeypatch.setattr(runner, 'transport', fake_transport)
-    pilot = runner.execution(out, plan, rows, _args(tmp_path), None, pilot=True)
+    pilot = runner.execution(out, plan, rows, _args(tmp_path), pilot=True)
     assert pilot['started'] == 3 and not pilot['blocked_profiles']
-    run = runner.execution(out, plan, rows, _args(tmp_path), None, pilot=False)
+    run = runner.execution(out, plan, rows, _args(tmp_path), pilot=False)
     assert run['started'] == 1
-    assert runner.execution(out, plan, rows, _args(tmp_path), None, pilot=False)['started'] == 0
+    assert runner.execution(out, plan, rows, _args(tmp_path), pilot=False)['started'] == 0
     assert len(sent) == 4
     archive = out / 'return.zip'
     assert runner.export(out, archive)['request_attempts'] == 4
@@ -641,7 +673,7 @@ def test_fixture_end_to_end(tmp_path, monkeypatch):
         assert b'fixture-credential-unused' not in package.read('attempts.jsonl')
         assert b't5 video fixture' not in package.read('attempts.jsonl')
     with pytest.raises(ValueError, match='Model, request parameters'):
-        runner.execution(out, plan, rows, _args(tmp_path, max_tokens=40), None, pilot=False)
+        runner.execution(out, plan, rows, _args(tmp_path, max_tokens=40), pilot=False)
 
 
 def test_explicit_retry_preserves_ambiguous_attempt(tmp_path, monkeypatch):
@@ -657,17 +689,17 @@ def test_explicit_retry_preserves_ambiguous_attempt(tmp_path, monkeypatch):
 
     monkeypatch.setattr(runner, 'transport', timeout)
     args = _args(tmp_path, scope=['natural/t5'], input='video')
-    result = runner.execution(out, plan, rows, args, None, pilot=True)
+    result = runner.execution(out, plan, rows, args, pilot=True)
     assert result['statuses'] == {'TRANSPORT_UNKNOWN': 1}
-    assert runner.execution(out, plan, rows, args, None, pilot=True)['started'] == 0
-    assert runner.execution(out, plan, rows, args, None, pilot=False)['started'] == 0
+    assert runner.execution(out, plan, rows, args, pilot=True)['started'] == 0
+    assert runner.execution(out, plan, rows, args, pilot=False)['started'] == 0
     key = next(r['request_id'] for r in rows if r['scope'] == 'natural/t5' and r['input'] == 'video')
     args.retry = [key]
     with pytest.raises(ValueError, match='cannot be retried'):
-        runner.execution(out, plan, rows, args, None, pilot=True)
+        runner.execution(out, plan, rows, args, pilot=True)
     args.retry_uncertain = True
     monkeypatch.setattr(runner, 'transport', lambda *_: (200, {}, _response('YES')))
-    assert runner.execution(out, plan, rows, args, None, pilot=True)['statuses'] == {'ANSWERED': 1}
+    assert runner.execution(out, plan, rows, args, pilot=True)['statuses'] == {'ANSWERED': 1}
     archive = out / 'return.zip'
     runner.export(out, archive)
     assert runner.verify(archive)['request_attempts'] == 2
@@ -701,7 +733,7 @@ def test_credential_and_media_echo_not_exported(tmp_path, monkeypatch):
     ):
         monkeypatch.setattr(runner, 'transport', lambda *_: (400, {}, original))
         assert runner.execution(out, plan, rows, _args(tmp_path, scope=[scope], input='video'),
-                                None, pilot=True)['statuses'] == {'SENSITIVE_RESPONSE_WITHHELD': 1}
+                                pilot=True)['statuses'] == {'SENSITIVE_RESPONSE_WITHHELD': 1}
     archive = out / 'return.zip'
     runner.export(out, archive)
     assert runner.verify(archive)['request_attempts'] == 2

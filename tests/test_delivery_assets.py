@@ -210,3 +210,19 @@ def test_cli_runtime_gate_blocks_run_before_data_and_allows_download(
     )
     assert cli.main(["download", *flags]) == 0
     assert json.loads(capsys.readouterr().out)["checkpoints"] == {"qwen": "cached"}
+
+
+def test_default_native_output_falls_back_to_data_ssd(tmp_path, monkeypatch):
+    from vlm_psychophysics import cli
+
+    monkeypatch.chdir(tmp_path)
+    cache = tmp_path / "ssd"
+    def reject_local(path, **kwargs):
+        assert path.parent == tmp_path / "outputs"
+        raise ValueError("No SSD backing")
+
+    monkeypatch.setattr(cli.runner, "check_storage", reject_local)
+    args = cli.parse_arguments(["plan", "--task", "t5-natural"])
+    output = cli.output_directory(args, cli.selection_for(args), cache)
+    assert output.parent == cache / "outputs"
+    assert output.name.startswith("natural-t5-")

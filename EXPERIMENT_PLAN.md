@@ -1,10 +1,10 @@
 # Stimulus and model protocol
 
-The runner pins the [dataset revision and model recipes](configs/models.json). The [dataset index](https://huggingface.co/datasets/DrQY/vlm-psychophysics/blob/main/dataset-index.json) points to the paired video and static manifests. The [published answer tables](https://huggingface.co/datasets/DrQY/vlm-psychophysics/tree/main/results) bind completed runs to their inputs and settings.
+The runner pins the [dataset revision and model recipes](configs/models.json). The [dataset index](https://huggingface.co/datasets/DrQY/vlm-psychophysics/blob/901ab8c3065f3d21acb870c74a4cce76f0908b20/dataset-index.json) points to the paired video and static manifests. The [published answer tables](https://huggingface.co/datasets/DrQY/vlm-psychophysics/tree/901ab8c3065f3d21acb870c74a4cce76f0908b20/results) bind completed runs to their inputs and settings.
 
 ## Stimuli
 
-Every released video contains 180 frames at 60 fps and 768 × 512 pixels in lossless RGB8 H.264/MP4. Classic T1–T4 evaluation files store the exact RGB8 frames read from the original RGB16 FFV1/MKV masters by the evaluation loader. The [master archive](https://huggingface.co/datasets/DrQY/vlm-psychophysics-rgb16-masters/tree/c01a232fa55fac3e1ccf3e20ba833baf81a0f0b8) preserves the original sample IDs, file hashes and execution records. The [equivalence report](https://huggingface.co/datasets/DrQY/vlm-psychophysics/blob/main/media-equivalence.json) binds the evaluation files to those masters.
+Every released video contains 180 frames at 60 fps and 768 × 512 pixels in lossless RGB8 H.264/MP4. Classic T1–T4 evaluation files store the exact RGB8 frames read from the original RGB16 FFV1/MKV masters by the evaluation loader. The [master archive](https://huggingface.co/datasets/DrQY/vlm-psychophysics-rgb16-masters/tree/c01a232fa55fac3e1ccf3e20ba833baf81a0f0b8) preserves the original sample IDs, file hashes and execution records. The [equivalence report](https://huggingface.co/datasets/DrQY/vlm-psychophysics/blob/901ab8c3065f3d21acb870c74a4cce76f0908b20/media-equivalence.json) binds the evaluation files to those masters.
 
 | Task | Conditions | Ordered static input |
 |---|---|---|
@@ -22,37 +22,37 @@ Each task's video manifest specifies the source conditions, prompt, truth and or
 
 ## Native execution
 
-[Model recipes](configs/models.json) pin official mixed NVFP4 checkpoints for Cosmos, Qwen, Nemotron and Gemma, including the higher-precision components shipped in each checkpoint. [Runtime lock](configs/runtime-lock.json) records the exact runtime files and package builds. Qwen uses the recorded deterministic QSA selector inside its worker. The model recipes bind native video preprocessing and ordered static inputs. Gemma's qualified current video and static recipes use a 280 soft-token budget with 176 effective tokens per frame or image.
+[Model recipes](configs/models.json) pin official mixed NVFP4 checkpoints for Cosmos, Qwen, Nemotron and Gemma, including the higher-precision components shipped in each checkpoint. [Runtime lock](configs/runtime-lock.json) records the exact runtime files and package builds. Qwen uses the recorded deterministic QSA selector inside its worker. The model recipes bind native video preprocessing and ordered static inputs. Gemma's released video and static recipes use a 280 soft-token budget with 176 effective tokens per frame or image.
 
 Use the commands in the [repository README](README.md) for a bounded run. The runner records the selected dataset cases, configuration, input and runtime evidence, original answers, and counts. Each recipe checks the first actual request against its native CPU reference and GPU input, then checks prompt IDs and media ordering on subsequent requests. Source profile SHA-256 values are recorded in each model recipe.
 
 ## Model API
 
-Install the client with `python -m pip install -e '.[download]'`. Public manifests and media download on demand through the Hugging Face cache. Use `--data-root` for a dataset already downloaded with `run.py download`. The supported model IDs select their official API routes. Use `--provider` to select a specific serving endpoint or a legacy adapter explicitly. Keys come from the provider's environment variable. Hub authentication uses `hf auth login` or `HF_TOKEN`. [Hugging Face authentication](https://huggingface.co/docs/huggingface_hub/quick-start#authentication)
+Install the client with `python -m pip install -e '.[download]'`. Public manifests and media download on demand through the Hugging Face cache. Use `--data-root` to reuse a local dataset and cache missing inputs there. The supported model IDs select their official API routes. Use `--provider` to select a specific serving endpoint. Keys come from the provider's environment variable. Hub authentication uses `hf auth login` or `HF_TOKEN`. [Hugging Face authentication](https://huggingface.co/docs/huggingface_hub/quick-start#authentication)
 
 ```bash
-sample=t1_2379890eb33c9a254afd
-python run.py download --task t1-classic --input video --sample-id "$sample" \
+sample=T1_left_sf8_contrast1_trial01.mp4
+python run.py download --task t1-classic --input video --sample "$sample" \
   --media-only --data-root benchmark-data --out download-t1
 
 # Set OPENAI_API_KEY in the shell before running the Astra pilot.
 python run.py api evaluate --model gpt-6-astra \
-  --task t1-classic --input video --sample-id "$sample" --data-root benchmark-data \
+  --task t1-classic --input video --sample "$sample" --data-root benchmark-data \
   --out api-astra-ordered-t1 --max-requests 1 --reasoning-effort low --execute
 
 # Set DASHSCOPE_API_KEY in the shell before running the Qwen pilot.
 python run.py api evaluate --model qwen3.8-max-0902 \
-  --task t1-classic --input video --sample-id "$sample" --data-root benchmark-data \
+  --task t1-classic --input video --sample "$sample" --data-root benchmark-data \
   --out api-qwen-t1 --max-requests 1 --temperature 0 --seed 0 --disable-thinking --execute
 
 # Set ANTHROPIC_API_KEY in the shell before running the Claude pilot.
 python run.py api evaluate --model claude-opus-5-5 \
-  --task t1-classic --input video --sample-id "$sample" --data-root benchmark-data \
+  --task t1-classic --input video --sample "$sample" --data-root benchmark-data \
   --out api-claude-t1 --max-requests 1 --execute
 
 # Set GEMINI_API_KEY in the shell before running the sampled Gemini comparison.
 python run.py api evaluate --model gemini-4-argon --sampled-video \
-  --task t1-classic --input video --sample-id "$sample" --data-root benchmark-data \
+  --task t1-classic --input video --sample "$sample" --data-root benchmark-data \
   --out api-gemini-t1-sampled --max-requests 1 --execute
 ```
 
@@ -71,7 +71,7 @@ python run.py api evaluate "${selection[@]}" "${provider[@]}" \
 
 Indices use zero-based sorted `sample_id` order for one task and modality. The range is `[from-index, to-index)`. A missing start means zero and a missing stop means the task size. Static ranges select linked trials before deduplicating matching inputs. `--concurrency` accepts 1–16 and applies after admission. Pilots run serially. `--max-requests` caps new attempts including pilots, and `--all-requests` uses the selected unique-request count as its budget. The output directory pins the selection and records completed attempts for resume.
 
-The client verifies the media SHA and preserves the published task prompt. The frame-list adapters decode the 180 RGB frames in order, check the 60 fps source timestamps and submit lossless PNGs. When the manifest supplies the evaluation reader's RGB hash, the client checks it before submitting. T5 places its reference image first. Select `--input static` on a frame-list adapter for the published ordered stills and download that modality first.
+The client verifies the media SHA and preserves the published task prompt. The frame-list adapters decode the 180 RGB frames in order, check the 60 fps source timestamps and submit lossless PNGs. When the manifest supplies the evaluation reader's RGB hash, the client checks it before submitting. T5 places its reference image first. Select `--input static` on a frame-list adapter for the published ordered stills. Use the video's filename with `--sample` to find its linked static input.
 
 - `astra` uses ordered Responses `input_image` items with `detail: original`. OpenAI documents up to 1,500 images and 512 MB per request. Use `--reasoning-effort low|medium|high|xhigh|max` and optionally `--reasoning-mode standard|pro`. [Model and modalities](https://developers.openai.com/api/docs/models/gpt-6-astra) · [Image inputs](https://developers.openai.com/api/docs/guides/images-vision?api-mode=responses)
 - `claude` sends ordered PNG image blocks to Messages API version `2026-10-21` for `claude-opus-5-5` and `claude-fable-5-1`. The request uses `transformations.oversized_image: error` on each image. Claude pads to its visual patch boundary. The two models support up to 600 images, and the client checks the exact serialized body against the 128 MB Messages limit. The Classic T1 pilot body is 5,957,184 bytes. The Natural T4 example `natural-t4-strict-v1-n16-distinct-l00-c01-left` is 138,635,966 bytes and fails the inline size check. [Models](https://platform.claude.com/docs/en/models/overview) · [Vision and limits](https://platform.claude.com/docs/en/build-with-claude/vision) · [Resize policy](https://platform.claude.com/docs/en/build-with-claude/vision-coordinates) · [Request limit](https://platform.claude.com/docs/en/api/overview)
@@ -80,7 +80,7 @@ The client verifies the media SHA and preserves the published task prompt. The f
 - `vllm` submits the original MP4 with server controls for full decoding and disabled processor sampling. Set `VLLM_BASE_URL`, `VLLM_API_KEY` and the exact served `--model`. `--temperature`, `--seed` and `--disable-thinking` are available for Qwen and compatible vLLM endpoints. [vLLM serving](https://docs.vllm.ai/en/latest/serving/openai_compatible_server.html)
 - The [NVIDIA quickstart](README.md#nvidia-inference-gateway) fixes the requested decoding settings. The gateway handles video processing. If the gateway forwards frame controls for the chosen model, add `--all-frames` in a new output directory to request all original frames with processor sampling and resizing disabled. The first request records the gateway's response to the settings.
 
-A previous OpenAI Responses request for the Classic T1 example received a completed `gpt-6-astra` response with 180 original-detail PNGs. The PNGs' ordered RGB hash matches the published MP4's reader hash for `t1_2379890eb33c9a254afd`. That request used an earlier frame-order note. Current Astra and Claude video requests prepend “The video is provided as 180 consecutive frames in chronological order at 60 fps.” The run stores the prefix in `config.json` and the full request text SHA-256 in `attempts.jsonl`. The source plan records the source prompt and its SHA-256. [Public frame-equivalence index](https://huggingface.co/datasets/DrQY/vlm-psychophysics/blob/1a1f9921d6428b9d4b2a95c77f7ba4255ed13ac3/media-equivalence.json)
+A previous OpenAI Responses request for the Classic T1 example received a completed `gpt-6-astra` response with 180 original-detail PNGs. The PNGs' ordered RGB hash matches the published MP4's reader hash for `t1_2379890eb33c9a254afd`. That request used an earlier frame-order note. Astra and Claude video requests prepend “The video is provided as 180 consecutive frames in chronological order at 60 fps.” The run stores the prefix in `config.json` and the full request text SHA-256 in `attempts.jsonl`. The source plan records the source prompt and its SHA-256. [Public frame-equivalence index](https://huggingface.co/datasets/DrQY/vlm-psychophysics/blob/1a1f9921d6428b9d4b2a95c77f7ba4255ed13ac3/media-equivalence.json)
 
 An all-frame pilot stays `PARTIAL` with its raw answer recorded until evidence arrives from the provider or deployment operator. To qualify the pilot and start a batch, repeat the command with `--frame-report server-report.json` and a new request budget. The report is a JSON list of objects with `endpoint`, `model` (returned ID), `deployment` (pinned serving identity), `request_sha256` (from `attempts.jsonl`), and `decoded_indices` and `processor_indices` with integers 0 through 179 in order. Use processor indices after final sampling. If the server reports them, include `resize_policy` and `crop_policy` as strings and `bit_depth` as an integer. The NVIDIA preset's all-frame report additionally includes `width: 768`, `height: 512`, `fps: 60`, `bit_depth: 8`, and both geometry policies set to `"none"`. If available, include the effective `generation_settings` with `n`, `temperature`, `top_p`, and `seed`. The return package keeps these fields. The gate is per task/domain/input profile. For Astra and Claude, the timing cue is text accompanying an image sequence. Qwen has a separate frame-list path. The local evaluation uses native video timing.
 
@@ -97,7 +97,7 @@ The comparison reports raw-text changes and label flips separately. It checks ma
 
 Meta Muse Wonder documents a native video input with a sampling-rate field. Its published schema leaves the supported fps range and resize behavior unspecified, so it remains a candidate for a separate pilot. ByteDance's video path caps its requested rate at 5 fps and compresses frames for processing. [Meta video schema](https://dev.meta.ai/docs/api-reference/responses/schemas#input-video-content) · [ByteDance fps range](https://docs.volcengine.com/docs/82379/1494384?lang=en) · [BytePlus frame preprocessing](https://docs.byteplus.com/en/docs/modelark/video-understanding)
 
-The output directory contains `results.csv`, `results.jsonl`, `config.json`, `attempts.jsonl` and `summary.json`. Return `return.zip` and `return.zip.sha256`. `python run.py api verify --archive PATH/return.zip` verifies the package and recomputes the labels and scores from the saved raw responses. Select the legacy DashScope sampled route explicitly with `--provider qwen --sampled-video`. [Historical Model API protocol](https://github.com/YangQiantwx/vlm-psychophysics/blob/8dcff9eac165ca9c36ca19fed72470ce26cda96c/EXPERIMENT_PLAN.md#model-api)
+The output directory contains `results.csv`, `results.jsonl`, `config.json`, `attempts.jsonl` and `summary.json`. Return `return.zip` and `return.zip.sha256`. `python run.py api verify --archive PATH/return.zip` verifies the package and recomputes the labels and scores from the saved raw responses. [Historical Model API protocol](https://github.com/YangQiantwx/vlm-psychophysics/blob/8dcff9eac165ca9c36ca19fed72470ce26cda96c/EXPERIMENT_PLAN.md#model-api)
 
 ### Python SDK examples
 

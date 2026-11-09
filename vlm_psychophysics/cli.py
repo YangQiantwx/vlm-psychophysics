@@ -1,4 +1,4 @@
-"""Command line entry point for the pinned collaborator evaluation."""
+"""Command line entry point for the pinned evaluation."""
 
 from __future__ import annotations
 
@@ -16,7 +16,11 @@ from . import data, results, runner
 def parse_arguments(argv):
     parser = argparse.ArgumentParser(
         description="Run or verify the pinned VLM psychophysics evaluation.",
-        epilog="Also: run.py generate --help; run.py api --help. Example: python run.py --task t1-classic --model qwen --input video --sample-id SAMPLE_ID",
+        epilog=(
+            "See run.py generate --help and run.py api --help. "
+            "Example command is python run.py --task t5-classic --model qwen "
+            "--input video --sample VIDEO.mp4."
+        ),
     )
     parser.add_argument(
         "command",
@@ -30,8 +34,8 @@ def parse_arguments(argv):
     parser.add_argument(
         "--task",
         action="append",
-        choices=("all", *data.TASK_OPTIONS),
-        help="Repeat to select scopes. Default: classic and natural T1–T5.",
+        metavar="TASK",
+        help="t1-classic through t5-classic, t1-natural through t5-natural, or all. Repeat to combine tasks.",
     )
     parser.add_argument("--model", choices=("all", *data.MODELS), default="all")
     parser.add_argument(
@@ -41,12 +45,15 @@ def parse_arguments(argv):
     )
     selector = parser.add_mutually_exclusive_group()
     selector.add_argument("--video", help="Published video name or a local video path.")
-    selector.add_argument("--sample-id", help="Published video or static case ID.")
+    selector.add_argument(
+        "--sample", help="Exact published trial ID, video filename or dataset-relative video path."
+    )
+    selector.add_argument("--sample-id", help=argparse.SUPPRESS)
     parser.add_argument(
         "--config", type=Path, default=runner.PROJECT / "configs/models.json"
     )
     parser.add_argument(
-        "--data-root", type=Path, help="SSD-backed dataset cache directory."
+        "--data-root", type=Path, help="Dataset directory. Local evaluation requires SSD storage."
     )
     parser.add_argument(
         "--model-root", type=Path, help="SSD-backed model cache directory."
@@ -68,9 +75,15 @@ def parse_arguments(argv):
     parser.add_argument(
         "--paired-results",
         type=Path,
-        help="Rescore a historical original-reference T5 answer bundle.",
+        help=argparse.SUPPRESS,
     )
     args = parser.parse_args(argv)
+    for task in args.task or []:
+        if task != "all" and task not in data.TASK_OPTIONS:
+            parser.error(
+                f"Unknown task {task!r}. Choose t1-classic through t5-classic "
+                "or t1-natural through t5-natural."
+            )
     if args.archive is not None and args.command != "verify":
         parser.error("An archive path is only valid with verify.")
     if args.media_only and args.command != "download":
@@ -96,10 +109,11 @@ def selection_for(args):
         "models": models,
         "sample_id": args.sample_id,
         "video_name": args.video,
+        **({"sample": args.sample} if args.sample is not None else {}),
     }
 
 
-def output_directory(args, selection):
+def output_directory(args, selection, data_root=None):
     if args.out:
         return args.out.expanduser().resolve()
     label = (
@@ -107,7 +121,14 @@ def output_directory(args, selection):
         if len(selection["scopes"]) == 1
         else "benchmark"
     )
-    return (Path.cwd() / "outputs" / f"{label}-{data.digest(selection)[:12]}").resolve()
+    name = f"{label}-{data.digest(selection)[:12]}"
+    local = (Path.cwd() / "outputs" / name).resolve()
+    try:
+        runner.check_storage(local, minimum_free=runner.GIB, writable=True)
+    except (OSError, ValueError, subprocess.CalledProcessError):
+        cache = data_root or runner.data_directory(args.data_root, create=False)
+        return cache / "outputs" / name
+    return local
 
 
 def load_config(path, models, modalities, scopes):
@@ -118,7 +139,7 @@ def load_config(path, models, modalities, scopes):
         or config["dataset"]["revision"] != data.REVISION
     ):
         raise ValueError(
-            "Config must use the pinned collaborator runtime and dataset revision."
+            "Config must use the pinned runtime and dataset revision."
         )
     for model in models:
         entry = config["models"][model]
@@ -134,10 +155,11 @@ def load_config(path, models, modalities, scopes):
 
 def run_command(args):
     selection = selection_for(args)
-    out = output_directory(args, selection)
     if args.command == "verify":
-        return results.verify_archive(args.archive or out / "return.zip")
+        archive = args.archive or output_directory(args, selection) / "return.zip"
+        return results.verify_archive(archive)
     if args.command == "report":
+        out = output_directory(args, selection)
         if args.paired_results:
             from . import paired_results
 
@@ -161,7 +183,14 @@ def run_command(args):
         from .assets import assert_runtime_environment
 
         assert_runtime_environment(config, models)
-    data_root = runner.data_directory(args.data_root, create=args.command != "doctor")
+    portable_download = args.command == "download" and args.media_only
+    data_root = runner.data_directory(
+        args.data_root, create=args.command != "doctor", require_ssd=not portable_download
+    )
+    out = (
+        output_directory(args, selection, data_root)
+        if not portable_download or args.out else None
+    )
     if args.command == "doctor":
         from .assets import doctor_environment
 
@@ -192,17 +221,29 @@ def run_command(args):
             "output_storage": runner.check_storage(out, writable=True),
         }
 
-    runner.check_storage(out, minimum_free=runner.GIB, writable=True)
+    if not portable_download:
+        runner.check_storage(out, minimum_free=runner.GIB, writable=True)
+    manifest, overrides = data.build_selection(
+        data_root,
+        scopes,
+        modalities,
+        sample=args.sample,
+        sample_id=args.sample_id,
+        video_name=args.video,
+        offline=args.offline,
+    )
+    cases = manifest["cases"]
+    if portable_download and out is None:
+        return {
+            "status": "DOWNLOADED",
+            "data_root": str(data_root),
+            **data.prepare_media(
+                data_root, cases, overrides, offline=args.offline, include_alias_images=True
+            ),
+        }
+
     (out / "evidence").mkdir(parents=True, exist_ok=True)
     with runner.exclusive_lock(out / "evidence/run.lock") as lock_fd:
-        manifest, overrides = data.build_selection(
-            data_root,
-            scopes,
-            modalities,
-            sample_id=args.sample_id,
-            video_name=args.video,
-            offline=args.offline,
-        )
         run = runner.save_plan(
             out,
             config_path,
@@ -211,7 +252,6 @@ def run_command(args):
             manifest,
             json.loads(data.json_bytes(selection)),
         )
-        cases = manifest["cases"]
         if args.command == "plan":
             counts = Counter(
                 f'{case["domain"]}/{case["task"].lower()}/{case["modality"]}'
@@ -233,7 +273,8 @@ def run_command(args):
                 cases,
                 overrides,
                 offline=args.offline,
-                check_storage=runner.check_storage,
+                check_storage=None if portable_download else runner.check_storage,
+                include_alias_images=True,
             )
             assets = {}
             if not args.media_only:

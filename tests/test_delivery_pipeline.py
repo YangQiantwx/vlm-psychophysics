@@ -201,6 +201,43 @@ def test_t5_reference_first_then_event_midpoints(frames, monkeypatch, tmp_path):
         data.static_cases(scope, {"a": parent}, {"a": row}, expected_count=1)
 
 
+def test_sample_matches_exact_trial_metadata_and_rejects_ambiguous_names():
+    name = "T5_single_yes_onset006_left.mp4"
+    classic = ("classic/t5", "classic-id", f"classic/t5/videos/{name}")
+    natural = ("natural/t5", "natural-id", f"natural/t5/videos/{name}")
+    select = data.current_release.select_samples
+    with pytest.raises(ValueError, match="multiple published trials"):
+        select((classic, natural), [name])
+    for selector in (name, classic[1], classic[2]):
+        assert select((classic,), [selector]) == {classic[:2]}
+    assert select((classic, natural), [natural[2]]) == {natural[:2]}
+    with pytest.raises(ValueError, match="No published trial"):
+        select((classic,), [f"classic/t5/typo/{name}"])
+    row = {**trial("a"), "path": classic[2]}
+    assert not data.published_selection([(classic[0], row)], None, f"bad/{name}")
+
+
+def test_static_download_includes_requested_alias_images_without_extra_calls(tmp_path):
+    scope = "classic/t2"
+    parents = {name: trial(name) for name in ("a", "b")}
+    stills = {name: still(parent) for name, parent in parents.items()}
+    (case,) = data.selected_static_cases(
+        scope, parents, stills, {"b"}, expected_count=1
+    )
+    assert len(case["aliases"]) == 1
+    for name, row in stills.items():
+        path = tmp_path / row["images"][0]["path"]
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data.json_bytes(f"PNG {name}"))
+
+    canonical = data.prepare_media(tmp_path, [case], {}, offline=True)
+    download = data.prepare_media(
+        tmp_path, [case], {}, offline=True, include_alias_images=True
+    )
+    assert canonical["files_sha256_verified"] == 1
+    assert download["files_sha256_verified"] == 2
+
+
 def test_t5_current_task_names_include_both_modalities():
     short = cli.selection_for(cli.parse_arguments(["plan", "--task", "t5-classic"]))
     alias = cli.selection_for(cli.parse_arguments(["plan", "--task", "t5-classic-equal-canvas"]))

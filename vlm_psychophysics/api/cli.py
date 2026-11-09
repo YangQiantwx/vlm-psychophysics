@@ -1,4 +1,4 @@
-"""Plan, pilot, resume and package the frozen benchmark on hosted APIs."""
+"""Plan, run and verify benchmark evaluations on model APIs."""
 
 from __future__ import annotations
 
@@ -25,6 +25,7 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 from zipfile import BadZipFile, ZIP_DEFLATED, ZipFile
 
 from .. import catalog as release
+from ..release import select_samples
 from . import native_video_api
 from .provider_api import ROUTES, parameters
 
@@ -112,22 +113,21 @@ def load_plan(out):
 
 
 def build_plan(
-    out, metadata_root=None, private=None, *, scopes=None, modality=None,
-    samples=None, index_bounds=None,
+    out, metadata_root=None, *, scopes=None, modality=None,
+    samples=None, selectors=None, index_bounds=None, download_missing=False,
 ):
-    rows = (
-        release.public_plan(metadata_root, scopes, modality)
-        if scopes or modality
-        else release.public_plan(metadata_root)
-    )
-    if private:
-        rows.extend(private.plan(rows))
-    rows = filter_samples(rows, samples)
+    if download_missing:
+        rows = release.public_plan(metadata_root, scopes, modality, download_missing=True)
+    elif scopes or modality:
+        rows = release.public_plan(metadata_root, scopes, modality)
+    else:
+        rows = release.public_plan(metadata_root)
+    rows = filter_samples(rows, samples, selectors)
     rows.sort(key=lambda r: (r["scope"], r["input"], r["sample_id"]))
     selection = None
     if index_bounds is not None:
         release.require(
-            not private and not samples and scopes and len(scopes) == 1 and modality,
+            not samples and not selectors and scopes and len(scopes) == 1 and modality,
             "Index selection requires one public task and modality",
         )
         selection = index_selection(index_bounds, scopes[0], modality, len(rows))
@@ -138,7 +138,7 @@ def build_plan(
         repo=release.REPO,
         revision=release.REVISION,
         index_sha256=release.INDEX_SHA,
-        private_index_sha256=release.PRIVATE_SHA if private else None,
+        private_index_sha256=None,
         source_plan_sha256=release.sha(raw),
         profiles=release.counts(rows),
         logical_rows=len(rows),
@@ -505,25 +505,20 @@ def request_prompt(row, config):
     return row["prompt"]
 
 
-def request_body(row, config, media_root, private):
+def request_body(row, config, media_root, *, download_missing=False):
+    release.require(row["source"] == "public", "Select a published dataset trial.")
     provider = config.get("provider", PROVIDER)
     media = []
     frame_parts = []
     verified = []
     for item in row["media"]:
         local = media_root / item["path"] if media_root is not None else None
-        if (
-            row["source"] == "private"
-            and (local is None or not local.is_file())
-            and private
-        ):
-            data = private.media_bytes(item)
-        elif local is not None:
-            data = local.read_bytes()
-        elif row["source"] == "public":
+        if local is None:
             data = release.public_media(item)
         else:
-            raise ValueError("Authorized private media is missing")
+            if download_missing and not local.is_file():
+                local = release.public_file(item["path"], media_root)
+            data = local.read_bytes()
         release.checked(data, item["sha256"], item["path"])
         verified.append({**item, "bytes": len(data)})
         if provider in native_video_api.FRAME_LISTS:
@@ -597,11 +592,13 @@ def request_body(row, config, media_root, private):
     return payload, verified
 
 
-def invoke(out, receipt, row, config, media_root, private, credential, expected_model):
+def invoke(out, receipt, row, config, media_root, credential, expected_model, download_missing):
     with closing(open_db(out)) as db:
         started = time.monotonic()
         try:
-            payload, verified = request_body(row, config, media_root, private)
+            payload, verified = request_body(
+                row, config, media_root, download_missing=download_missing
+            )
         except Exception as error:
             # Exception messages from network clients can contain signed URLs.
             receipt.update(
@@ -675,7 +672,13 @@ def invoke(out, receipt, row, config, media_root, private, credential, expected_
         return receipt
 
 
-def filter_samples(rows, samples):
+def filter_samples(rows, samples=None, selectors=None):
+    if selectors:
+        selected = select_samples(
+            ((row["scope"], row["sample_id"], row["source_video"]["path"]) for row in rows),
+            selectors,
+        )
+        return [row for row in rows if (row["scope"], row["sample_id"]) in selected]
     if not samples:
         return rows
     wanted = set(samples)
@@ -711,13 +714,14 @@ def selected_requests(rows, args):
     ]
     requests = release.unique_requests(matching)
     samples = getattr(args, "sample_id", None)
-    if not samples:
+    selectors = getattr(args, "sample", None)
+    if not samples and not selectors:
         return requests
-    requested = {row["request_id"] for row in filter_samples(matching, samples)}
+    requested = {row["request_id"] for row in filter_samples(matching, samples, selectors)}
     return {key: row for key, row in requests.items() if key in requested}
 
 
-def execution(out, plan, rows, args, private, pilot):
+def execution(out, plan, rows, args, pilot):
     release.require(
         (plan["revision"], plan["index_sha256"])
         == (release.REVISION, release.INDEX_SHA),
@@ -725,6 +729,10 @@ def execution(out, plan, rows, args, private, pilot):
     )
     selected = selected_requests(rows, args)
     release.require(bool(selected), "The selection contains no callable trials")
+    release.require(
+        all(row["source"] == "public" for row in selected.values()),
+        "Select published dataset trials for a new evaluation.",
+    )
     release.require(
         args.execute and args.max_requests > 0,
         "Set --execute and a positive --max-requests",
@@ -778,22 +786,6 @@ def execution(out, plan, rows, args, private, pilot):
                 for r in selected.values()
             ),
             "Select supported public single-video scopes with --scope and --input video",
-        )
-    if any(r["source"] == "private" for r in selected.values()):
-        release.require(
-            args.allow_private_media_transfer
-            and (args.media_root is not None or private is not None),
-            "Private inference requires authorized source access and --allow-private-media-transfer",
-        )
-    if private and not private.locations:
-        public_rows = [row for row in rows if row["source"] == "public"]
-        release.require(
-            private.plan(public_rows)
-            == sorted(
-                (row for row in rows if row["source"] == "private"),
-                key=lambda r: (r["scope"], r["sample_id"]),
-            ),
-            "Private metadata no longer matches the run plan",
         )
     config = configured(
         out, plan, args.model, args.max_tokens, args.provider, args.all_frames,
@@ -902,9 +894,9 @@ def execution(out, plan, rows, args, private, pilot):
                         row,
                         config,
                         args.media_root,
-                        private,
                         credential,
                         expected_model,
+                        getattr(args, "download_media", False),
                     )
                 )
                 started += 1
@@ -1427,33 +1419,24 @@ def main(argv=None):
         "--preset", choices=(NVIDIA_REPEAT_PRESET,),
         help="Request temperature 0 and a fixed seed on the NVIDIA gateway",
     )
-    parser.add_argument("--data-root", type=Path, help="Local dataset from run.py download")
+    parser.add_argument("--data-root", type=Path, help="Dataset cache for downloaded inputs")
     parser.add_argument(
         "--metadata-root", type=Path, help="Offline root of the pinned public manifests"
     )
     parser.add_argument(
         "--media-root",
         type=Path,
-        help="Local media root instead of on-demand downloads",
+        help="Use only media already in this local directory",
     )
-    parser.add_argument(
-        "--private-index",
-        help="Authorized generation-pinned GCS URL for the private T5 supplement",
-    )
-    parser.add_argument(
-        "--private-metadata-root",
-        type=Path,
-        help="Local copy of the pinned private index and T5 manifests",
-    )
-    parser.add_argument("--allow-private-media-transfer", action="store_true")
     parser.add_argument(
         "--model",
         help="Exact model ID, e.g. gpt-6-astra, claude-opus-5-5 or gemini-4-argon",
     )
     parser.add_argument(
         "--provider",
-        choices=(PROVIDER, "vllm", *native_video_api.HOSTED),
-        help="Override the route selected for --model",
+        choices=(PROVIDER, "nvidia", "vllm", *native_video_api.HOSTED),
+        metavar="PROVIDER",
+        help="Override the model's route (nvidia, vllm, astra, claude, gemini or qwen-frames).",
     )
     parser.add_argument("--max-tokens", type=int, default=4096)
     parser.add_argument("--temperature", type=float)
@@ -1484,7 +1467,12 @@ def main(argv=None):
         help="Select a task and domain, e.g. t1-classic; defaults to all-frame video",
     )
     parser.add_argument("--input", choices=("video", "static"))
-    parser.add_argument("--sample-id", action="append", help="Select a published sample ID")
+    sample = parser.add_mutually_exclusive_group()
+    sample.add_argument(
+        "--sample", action="append",
+        help="Exact published trial ID, video filename or dataset-relative video path. Repeat to select several trials.",
+    )
+    sample.add_argument("--sample-id", action="append", help=argparse.SUPPRESS)
     parser.add_argument("--from-index", type=int, help="First trial index, inclusive (zero-based)")
     parser.add_argument("--to-index", type=int, help="Stop before this trial index")
     frames = parser.add_mutually_exclusive_group()
@@ -1522,6 +1510,8 @@ def main(argv=None):
         "--execute", action="store_true", help="Authorize real calls from this shell"
     )
     args = parser.parse_args(argv)
+    if args.provider == "nvidia":
+        args.provider = PROVIDER
     if args.preset == NVIDIA_REPEAT_PRESET:
         args.provider = args.provider or PROVIDER
         if args.provider != PROVIDER or args.command in {"verify", "export", "compare"}:
@@ -1544,6 +1534,8 @@ def main(argv=None):
     args.model = args.model or os.environ.get("VLM_API_MODEL")
     if args.preset and not args.model and args.command != "plan":
         parser.error("Set --model or NVIDIA_VIDEO_MODEL_ID to the exact served model ID.")
+    args.download_metadata = bool(args.data_root and args.metadata_root is None)
+    args.download_media = bool(args.data_root and args.media_root is None)
     if args.data_root:
         args.metadata_root = args.metadata_root or args.data_root.expanduser()
         args.media_root = args.media_root or args.data_root.expanduser()
@@ -1571,21 +1563,24 @@ def main(argv=None):
         if args.reasoning_mode:
             generation["reasoning"]["mode"] = args.reasoning_mode
     args.generation_parameters = generation
+    args.selection_requested = bool(
+        args.task or args.scope or args.input or args.sample or args.sample_id
+        or args.from_index is not None or args.to_index is not None
+    )
     if args.task:
         args.scope = list(
             dict.fromkeys(
                 [*(args.scope or []), *(TASK_SCOPES[task] for task in args.task)]
             )
         )
-    if args.task or args.data_root or auto_provider:
+    if args.scope or args.sample or args.data_root or auto_provider:
         args.input = args.input or "video"
     args.index_bounds = None
     if args.from_index is not None or args.to_index is not None:
         if (
-            len(args.scope or []) != 1 or not args.input or args.sample_id
-            or args.private_index or args.private_metadata_root
+            len(args.scope or []) != 1 or not args.input or args.sample_id or args.sample
         ):
-            parser.error("Index selection requires one public --task and one modality, without --sample-id")
+            parser.error("Index selection requires one public --task and one modality, without --sample")
         args.index_bounds = (args.from_index, args.to_index)
     if not args.preset and (
         args.task or args.data_root or auto_provider or args.provider in native_video_api.FRAME_LISTS
@@ -1631,29 +1626,28 @@ def command(args):
         release.require(not args.retry, "Use pilot or run for an explicit retry")
     if args.command != "pilot":
         release.require(not args.pilot_trial, "--pilot-trial applies to pilot only")
-    private = None
-    if args.private_index or args.private_metadata_root:
-        private = release.PrivateDelta(args.private_index, args.private_metadata_root)
     index_bounds = getattr(args, "index_bounds", None)
     if args.command == "plan" or (
-        args.command == "evaluate" and not (args.out / "plan.json").exists()
+        args.command == "evaluate" and (
+            not (args.out / "plan.json").exists()
+            or getattr(args, "selection_requested", False)
+        )
     ):
         local_selection = (
-            getattr(args, "task", None) or getattr(args, "data_root", None) or index_bounds
+            getattr(args, "selection_requested", False)
+            or getattr(args, "task", None) or getattr(args, "data_root", None) or index_bounds
         )
         plan, rows = build_plan(
-            args.out, args.metadata_root, private,
-            scopes=args.scope if local_selection and not private else None,
-            modality=args.input if local_selection and not private else None,
+            args.out, args.metadata_root,
+            scopes=args.scope if local_selection else None,
+            modality=args.input if local_selection else None,
             samples=getattr(args, "sample_id", None),
+            selectors=getattr(args, "sample", None),
             index_bounds=index_bounds,
+            download_missing=getattr(args, "download_metadata", False),
         )
     else:
         plan, rows = load_plan(args.out)
-        release.require(
-            not private or plan["private_index_sha256"],
-            "Use a new output directory for the private plan",
-        )
         if index_bounds is not None:
             selection = plan.get("index_selection")
             release.require(
@@ -1676,13 +1670,13 @@ def command(args):
         args.max_requests = len(selected_requests(rows, args))
     if args.command in ("pilot", "run"):
         return execution(
-            args.out, plan, rows, args, private, pilot=args.command == "pilot"
+            args.out, plan, rows, args, pilot=args.command == "pilot"
         )
-    pilot = execution(args.out, plan, rows, args, private, pilot=True)
+    pilot = execution(args.out, plan, rows, args, pilot=True)
     args.max_requests -= pilot["started"]
     run = None
     if args.max_requests > 0 and not pilot.get("stop_reason"):
-        run = execution(args.out, plan, rows, args, private, pilot=False)
+        run = execution(args.out, plan, rows, args, pilot=False)
     packaged = export(args.out, archive)
     with closing(open_db(args.out)) as db:
         histories = records(db)

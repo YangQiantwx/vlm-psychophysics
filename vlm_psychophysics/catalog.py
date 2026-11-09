@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
-import gzip
 import hashlib
 import json
 from pathlib import Path, PurePosixPath
@@ -12,7 +11,7 @@ import re
 
 from .release import PAIRED_SCOPES, REPO_ID as REPO, REVISION
 
-# The private supplement and existing return archives retain the original public pin.
+# Keep the original release pin for return archive verification.
 ORIGINAL_REVISION = "20baa977b183c8ecf56b5e4f7da569c5a93e9464"
 ORIGINAL_INDEX_SHA = "096a675cfce1beeede63fdd3c1fec0f49a3c5deeafe7956fb9de96ee45897731"
 # Keep the previous layout pin available for return archive verification.
@@ -22,7 +21,9 @@ TASK_RESULTS_REVISION = "b8365822134999df89526183070aca953d93cb2b"
 TASK_RESULTS_INDEX_SHA = "f4e9d369ca5f75a505eff8f7b8a8b4e0cd5b73945d10f312c02e8eadaf117c78"
 PORTABLE_REVISION = "3a1668d2b7c090888144822273675629fef5c3ca"
 PORTABLE_INDEX_SHA = "22ff74070bb8d6a07a846bd0d3e5dad35162369714a872e4286a35f7fe15345b"
-INDEX_SHA = "c19332bd1f6b1bea3c29e349759de9a01973774a70f5ec3c438d210c7a3220be"
+INDEX_SHA = "023879fc9fbbc231b88c757f025d8fdf26459cdc034c2668ee23cecc560cfd32"
+STATIC_LAYOUT_REVISION = "7d8c81f71c6a37b98d1d7a09778e854970641b97"
+STATIC_LAYOUT_INDEX_SHA = "c19332bd1f6b1bea3c29e349759de9a01973774a70f5ec3c438d210c7a3220be"
 MEDIA_COLUMNS_REVISION = "1a1f9921d6428b9d4b2a95c77f7ba4255ed13ac3"
 MEDIA_COLUMNS_INDEX_SHA = "212533d0d0e71b0fbbb55311a12e58aa9569f691441de8797420d69a236ee2c2"
 MP4_MEDIA_REVISION = "d5ca80fade6bcc12386c10b187daca24ee6a41dd"
@@ -35,8 +36,6 @@ FULL_INDEX_SHA = "1fa80aa8c7e644566f7931d1940c38da196086e1e2671997a7dd4cfd616656
 FULL_MEDIA_REVISION = "87670fa5101bd9fc9fe05edf3d97c936e832bbb6"
 T2_960_REVISION = "7b7beae887c5d9f133744b95c85bc53a2b7fb860"
 T2_960_INDEX_SHA = "7be5c91fa7b527640b1210a7fa39f65a39272fd70b138b318a8014cfb6e38fbe"
-PRIVATE_SHA = "8eb931fa5c8c0103a6c2efbf9b0f27717147a26632f034eaa8e9f06c29c3f964"
-PRIVATE_GENERATION = "1793982719470388"
 MIME = {".png": "image/png", ".mp4": "video/mp4", ".mkv": "video/x-matroska"}
 # Logical video rows, independent static cases, video manifest SHA, static manifest SHA.
 RGB16_REVISION = "8a63496a8c59d72c1a0cb28f56c4b57325694f27"
@@ -196,6 +195,7 @@ def manifest_scope(scope, revision=REVISION):
 def known_public_release(revision, index_sha):
     return (revision, index_sha) in (
         (REVISION, INDEX_SHA),
+        (STATIC_LAYOUT_REVISION, STATIC_LAYOUT_INDEX_SHA),
         (PORTABLE_REVISION, PORTABLE_INDEX_SHA),
         (TASK_RESULTS_REVISION, TASK_RESULTS_INDEX_SHA),
         (MP4_MEDIA_REVISION, MEDIA_COLUMNS_INDEX_SHA),
@@ -258,7 +258,7 @@ def media(path, digest, scope, **fields):
     )
 
 
-def trial(scope, video, protocol, manifest_sha, static=None, private=False):
+def trial(scope, video, protocol, manifest_sha, static=None):
     domain, name = scope.split("/")
     task = name.upper()
     sid = video["sample_id"]
@@ -289,7 +289,6 @@ def trial(scope, video, protocol, manifest_sha, static=None, private=False):
     original = media(path, video["video_sha256"], scope, role="video")
     if "processor_input_rgb_sha256" in video:
         original["processor_input_rgb_sha256"] = video["processor_input_rgb_sha256"]
-    source = "private" if private else "public"
     mode = "static" if static is not None else "video"
     inspection = (
         mode == "static"
@@ -354,7 +353,7 @@ def trial(scope, video, protocol, manifest_sha, static=None, private=False):
         ordered = [original]
     request_id = None if inspection else sha(encoded([scope, mode, case]))
     profile = "/".join(
-        [scope, mode] + (["masked" if private else "unmasked"] if task == "T5" else [])
+        [scope, mode] + (["unmasked"] if task == "T5" else [])
     )
     return dict(
         scope=scope,
@@ -362,7 +361,7 @@ def trial(scope, video, protocol, manifest_sha, static=None, private=False):
         task=task,
         input=mode,
         sample_id=sid,
-        source=source,
+        source="public",
         source_manifest_sha256=manifest_sha,
         protocol=protocol,
         source_version=video.get("dataset_revision")
@@ -408,10 +407,13 @@ def row_map(raw, count):
     return by_id
 
 
-def public_plan(root=None, scopes=None, modality=None):
+def public_plan(root=None, scopes=None, modality=None, *, download_missing=False):
     require(modality in (None, "video", "static"), "Unexpected input modality")
+
     def get(path, digest):
-        local = root / path if root is not None else public_file(path)
+        local = root / path if root is not None else None
+        if local is None or (download_missing and not local.is_file()):
+            local = public_file(path, root)
         return checked(local.read_bytes(), digest, path)
 
     index = json.loads(get("dataset-index.json", INDEX_SHA))
@@ -479,144 +481,7 @@ def public_plan(root=None, scopes=None, modality=None):
     return rows
 
 
-class PrivateDelta:
-    """Generation-pinned, explicitly selected GCS supplement. No bucket is built in."""
-
-    def __init__(self, uri, metadata_root=None):
-        self.root = metadata_root
-        self.bucket = None
-        self.locations = {}
-        if uri:
-            from google.cloud import storage
-
-            require(
-                uri.startswith("gs://") and uri.endswith("#" + PRIVATE_GENERATION),
-                "Use the authorized private index URL with its exact generation suffix",
-            )
-            bucket, name = uri[5:].rsplit("#", 1)[0].split("/", 1)
-            self.bucket = storage.Client().bucket(bucket)
-        else:
-            require(
-                metadata_root is not None,
-                "An authorized private index or local metadata root is required",
-            )
-        if metadata_root is None:
-            blob = self.bucket.blob(name, generation=int(PRIVATE_GENERATION))
-            raw = blob.download_as_bytes(
-                if_generation_match=int(PRIVATE_GENERATION),
-                raw_download=True,
-                timeout=60,
-            )
-        else:
-            raw = (metadata_root / "index.json").read_bytes()
-        self.index = json.loads(checked(raw, PRIVATE_SHA, "private index"))
-        require(
-            self.index["hf_release_revision"] == ORIGINAL_REVISION
-            and self.index["t5_private_masked_trials"] == 192,
-            "Unexpected private release",
-        )
-        if self.bucket:
-            require(
-                self.index["bucket"] == self.bucket.name,
-                "Private bucket differs from pinned index",
-            )
-
-    def object_bytes(self, entry):
-        generation = int(entry["generation"])
-        blob = self.bucket.blob(entry["object"], generation=generation)
-        raw = blob.download_as_bytes(
-            if_generation_match=generation, raw_download=True, timeout=60
-        )
-        require(len(raw) == entry["bytes"], "Private object length differs")
-        return checked(raw, entry["sha256"], "private object")
-
-    def plan(self, public):
-        rows = []
-        for scope in ("classic/t5", "natural/t5"):
-            index = self.index
-            path = index["scopes"][scope]["metadata"]
-            entry = index["files"][path]
-            raw = (
-                (self.root / path).read_bytes()
-                if self.root
-                else self.object_bytes(entry)
-            )
-            records = row_map(
-                gzip.decompress(checked(raw, entry["sha256"], scope)), 192
-            )
-            current = {
-                r["sample_id"]: r
-                for r in public
-                if r["scope"] == scope and r["input"] == "video"
-            }
-            unmasked = {
-                sid
-                for sid, record in records.items()
-                if record["source"]["mask"] == "none"
-            }
-            require(
-                unmasked == current.keys(),
-                f"Private/public unmasked IDs differ for {scope}",
-            )
-            for sid, record in sorted(records.items()):
-                source = record["source"]
-                require(
-                    source["sample_id"] == sid
-                    and record["truth"] == source["truth"]
-                    and record["video"]["sha256"] == source["video_sha256"]
-                    and record["reference"]["sha256"] == source["reference_sha256"],
-                    f"Private source mismatch for {sid}",
-                )
-                if sid in unmasked:
-                    expected = current[sid]
-                    require(
-                        (
-                            expected["source_video"]["sha256"],
-                            expected["reference"]["sha256"],
-                            expected["truth"],
-                            expected["prompt"],
-                        )
-                        == (
-                            source["video_sha256"],
-                            source["reference_sha256"],
-                            source["truth"],
-                            source["prompt"],
-                        ),
-                        f"Private/public unmasked identity differs for {sid}",
-                    )
-                    continue
-                require(
-                    record["static"] is None and not source["publicly_redistributable"],
-                    f"Unexpected private static or redistribution status for {sid}",
-                )
-                for key in ("video", "reference"):
-                    item = record[key]
-                    require(
-                        item["path"] == source[key + "_path"],
-                        f"Private path differs for {sid}",
-                    )
-                    self.locations[item["path"]] = item
-                rows.append(
-                    trial(
-                        scope, source, record["protocol"], entry["sha256"], private=True
-                    )
-                )
-        require(len(rows) == 192, "Expected 192 masked T5 trials")
-        return rows
-
-    def media_bytes(self, item):
-        require(
-            self.bucket is not None,
-            "Use an authorized --private-index or provide a verified local media root",
-        )
-        location = self.locations[item["path"]]
-        require("direct" in location, "Expected a direct object for T5 media")
-        raw = self.object_bytes(location["direct"])
-        require(len(raw) == location["bytes"], "Private T5 media length differs")
-        return raw
-
-
-def public_file(filename):
+def public_file(filename, root=None):
     from huggingface_hub import hf_hub_download
 
     return Path(hf_hub_download(
@@ -624,6 +489,7 @@ def public_file(filename):
         repo_type="dataset",
         revision=REVISION,
         filename=filename,
+        local_dir=root,
     ))
 
 

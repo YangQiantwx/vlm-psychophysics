@@ -417,7 +417,8 @@ def published_selection(matches, sample_id, video_name):
         if row.get("master_video"):
             paths += (row["master_video"]["path"],)
         if any(
-            video_name == name or selector.name in (Path(name).name, Path(name).stem)
+            video_name == name
+            or (video_name == selector.name and video_name in (Path(name).name, Path(name).stem))
             for name in paths
         ):
             names.add((scope, row["sample_id"]))
@@ -500,7 +501,8 @@ def custom_case(path, scopes, modalities, parents):
 
 
 def build_selection(
-    root, scopes, modalities, *, sample_id=None, video_name=None, offline=False
+    root, scopes, modalities, *, sample=None, sample_id=None, video_name=None,
+    offline=False,
 ):
     """Return the portable evidence manifest and any local source file override."""
     index_path = fetch_release_file(
@@ -531,7 +533,14 @@ def build_selection(
         inputs = list(pool.map(load, scopes))
     parents = {scope: rows for scope, rows, _, _ in inputs}
     matches = [(scope, row) for scope, rows in parents.items() for row in rows.values()]
-    selected = published_selection(matches, sample_id, video_name)
+    if sample is None:
+        selected = published_selection(matches, sample_id, video_name)
+    else:
+        selected = current_release.select_samples(
+            ((scope, row["sample_id"], source_video(scope, row)["path"])
+             for scope, row in matches),
+            (sample,),
+        )
     files = {}
     cases = []
     if not selected and video_name:
@@ -592,14 +601,17 @@ def build_selection(
 
 
 def prepare_media(
-    root, cases, overrides, *, offline=False, workers=4, check_storage=None
+    root, cases, overrides, *, offline=False, workers=4, check_storage=None,
+    include_alias_images=False,
 ):
-    """Materialize only canonical media, hash each file, and stage local inputs on the data SSD."""
+    """Materialize and verify the required media, including alias images for downloads."""
     media = {}
     for case in cases:
         entries = case["images"]
         if case["modality"] == "video":
             entries = [*entries, case["video"]]
+        elif include_alias_images:
+            entries = [*entries, *(image for alias in case["aliases"] for image in alias["images"])]
         for entry in entries:
             path, sha = entry["path"], entry["sha256"]
             if media.setdefault(path, sha) != sha:

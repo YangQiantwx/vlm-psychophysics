@@ -1,4 +1,4 @@
-"""Native image preparation and exact input accounting used by current X."""
+"""Native image preparation and exact input accounting."""
 
 from __future__ import annotations
 
@@ -502,7 +502,7 @@ def pad(values, unit=48):
 
 
 class GemmaAdapter:
-    """Keep native HF processing, with X's padding and masked-tail compaction."""
+    """Keep native HF processing with padding and masked-tail compaction."""
 
     def __init__(self, processor_checkpoint, modality):
         import vllm.model_executor.models.gemma4_mm as gemma

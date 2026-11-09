@@ -2,7 +2,7 @@
   "schema": "vlm-psychophysics-run-config-v1",
   "dataset": {
     "repo_id": "DrQY/vlm-psychophysics",
-    "revision": "7d8c81f71c6a37b98d1d7a09778e854970641b97"
+    "revision": "901ab8c3065f3d21acb870c74a4cce76f0908b20"
   },
   "models": {
     "cosmos": {
@@ -23,7 +23,7 @@
       },
       "equal_canvas_single_source_profile": {
         "sha256": "3c52d3287d010e4338305d1b4f837aeafcfba9bddd8e52f8d9d34eba11ddea99",
-        "role": "sealed single-event equal-canvas source run"
+        "role": "published single-event source run"
       },
       "source_profiles": {
         "video/T1": {
@@ -52,15 +52,15 @@
         },
         "video/T5/equal-canvas-v1": {
           "sha256": "535adad3d6f6fd4cc55ee685280c619ce9c8fda3fcf4bcfa4cf9b4d5af5d5a82",
-          "role": "sealed equal-canvas source run"
+          "role": "published same-size reference source run"
         },
         "static/T5/equal-canvas-v1": {
           "sha256": "535adad3d6f6fd4cc55ee685280c619ce9c8fda3fcf4bcfa4cf9b4d5af5d5a82",
-          "role": "sealed equal-canvas source run"
+          "role": "published same-size reference source run"
         },
         "video/T5": {
           "sha256": "e9c0028424ad577b69e35ac72b384d5a4588569a40e0b3fd6e2677cb406ea851",
-          "role": "sealed source run"
+          "role": "published source run"
         }
       }
     },
@@ -82,7 +82,7 @@
       },
       "equal_canvas_single_source_profile": {
         "sha256": "b505b1c1818dc56bc8935969ce78e2c212235f0fa7e3a8bb2f97ba4b4491a0fb",
-        "role": "sealed single-event equal-canvas source run"
+        "role": "published single-event source run"
       },
       "source_profiles": {
         "video/T1": {
@@ -111,15 +111,15 @@
         },
         "video/T5/equal-canvas-v1": {
           "sha256": "0674e524c155a72c932c1d53092337c921be5b07e9a2f9093f8200b8888cae3d",
-          "role": "sealed equal-canvas source run"
+          "role": "published same-size reference source run"
         },
         "static/T5/equal-canvas-v1": {
           "sha256": "0674e524c155a72c932c1d53092337c921be5b07e9a2f9093f8200b8888cae3d",
-          "role": "sealed equal-canvas source run"
+          "role": "published same-size reference source run"
         },
         "video/T5": {
           "sha256": "2399cb9b7a230aa25fbc94f46109366abbf3846efad14be0a71b9e621ec6a4f1",
-          "role": "sealed source run"
+          "role": "published source run"
         }
       }
     },
@@ -141,7 +141,7 @@
       },
       "equal_canvas_single_source_profile": {
         "sha256": "469bedbdb938787289b4edbce1b1a7bcf205f1be0adde05794bb69a1affff098",
-        "role": "sealed single-event equal-canvas source run"
+        "role": "published single-event source run"
       },
       "source_profiles": {
         "video/T1": {
@@ -170,15 +170,15 @@
         },
         "video/T5/equal-canvas-v1": {
           "sha256": "f1f93cbe9a5a7960a4f6676d5b50c8c9cd84977eb836e384b8055eec85651e50",
-          "role": "sealed equal-canvas source run"
+          "role": "published same-size reference source run"
         },
         "static/T5/equal-canvas-v1": {
           "sha256": "f1f93cbe9a5a7960a4f6676d5b50c8c9cd84977eb836e384b8055eec85651e50",
-          "role": "sealed equal-canvas source run"
+          "role": "published same-size reference source run"
         },
         "video/T5": {
           "sha256": "390fcf1ef3dd66944829dd4db868d191652ce55959214f9a4f55a9ea48bc27bd",
-          "role": "sealed source run"
+          "role": "published source run"
         }
       }
     },
@@ -200,7 +200,7 @@
       },
       "equal_canvas_single_source_profile": {
         "sha256": "d9bc96017244415bbdf5fe7dfa4c2bf602af65c6f65d71cad1ad0f4459ef4d77",
-        "role": "sealed single-event equal-canvas source run"
+        "role": "published single-event source run"
       },
       "source_profiles": {
         "video/T1": {
@@ -229,15 +229,15 @@
         },
         "video/T5/equal-canvas-v1": {
           "sha256": "e65096ca07e3dc7321a7a900a90be752e42f153ab4c243377c717106375eff45",
-          "role": "sealed equal-canvas source run"
+          "role": "published same-size reference source run"
         },
         "static/T5/equal-canvas-v1": {
           "sha256": "e65096ca07e3dc7321a7a900a90be752e42f153ab4c243377c717106375eff45",
-          "role": "sealed equal-canvas source run"
+          "role": "published same-size reference source run"
         },
         "video/T5": {
           "sha256": "5f4e173ccb017f4e6401a846ab85d15d42ef5ad75eb78eb05227707ca638051f",
-          "role": "sealed source run"
+          "role": "published source run"
         }
       }
     }

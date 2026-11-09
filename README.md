@@ -1,113 +1,76 @@
 # Visual Psychophysics
 
-Five controlled visual judgments in Classic and Natural scenes. The release contains 25,440 MP4 videos and 25,440 corresponding static evaluation records. [Dataset](https://huggingface.co/datasets/DrQY/vlm-psychophysics) · [Stimulus viewer](https://vision-tasks.pages.dev/library/) · [Model results](https://vision-tasks.pages.dev/experiments/)
+Five controlled visual judgments in Classic and Natural scenes. The dataset contains 25,440 lossless MP4 videos and 25,440 linked static records. [Dataset](https://huggingface.co/datasets/DrQY/vlm-psychophysics) · [Stimulus viewer](https://vision-tasks.pages.dev/library/) · [Model results](https://vision-tasks.pages.dev/experiments/)
 
 ## Download the dataset
+
+Install the Hub client with `python -m pip install huggingface_hub`. Download the complete dataset, including metadata, results and source assets.
 
 ```bash
 hf download DrQY/vlm-psychophysics --repo-type dataset --local-dir ./dataset
 ```
 
-Install the download tool once with `python -m pip install huggingface_hub`. This downloads the videos, static inputs, metadata, results and source assets.
-
-Download one task and domain, including its metadata and static inputs:
+For one task and domain, download its folder and the dataset index.
 
 ```bash
 hf download DrQY/vlm-psychophysics --repo-type dataset \
-  --include "natural/t4/*" --local-dir ./dataset
+  --include "dataset-index.json" "natural/t5/*" --local-dir ./dataset
 ```
 
-Use `"natural/t4/videos/*"` for videos only, or another task path such as `"classic/t2/*"`. Add `--revision DATASET_COMMIT` to select a fixed release.
-
-For a single video, install this repository and run:
-
-```bash
-python run.py download --task t1-classic --input video \
-  --sample-id t1_2379890eb33c9a254afd --media-only --data-root ./dataset
-```
-
-The script checks file hashes and uses the dataset revision in `configs/models.json`. Omit `--sample-id` to download that task's videos.
-
-For T5, each static folder shares its video's name and contains reference.png plus one or two event-frame PNGs. The same reference is used for video evaluation. The manifests specify the reference first and the event images in chronological order.
-
-## Model API quickstart
-
-Clone this repository and run the commands from its root. Start with one Classic T1 video. For the models below, `--model` selects the provider, media format and prompt handling. The client downloads the pinned public media as needed and checks its SHA-256.
+Add `--revision` with the dataset commit in [configs/models.json](configs/models.json) to pin either download. For one trial by its video filename, run these commands from this repository's root.
 
 ```bash
 python -m pip install -e '.[download]'
+python run.py download --media-only --task t5-classic --input video \
+  --sample T5_single_yes_onset006_left.mp4 --data-root ./dataset
 ```
+
+This downloads the MP4 and its T5 reference PNG and verifies their SHA-256 hashes against the pinned release. Use `--input static` to download the reference and event images. T5 static folders share their video's filename stem and contain `reference.png` and one or two `frameNNN.png` images.
+
+`--sample` works on download, API and local runs. It accepts an exact video filename, a dataset-relative video path or a stable trial ID. Include `--task` when the same filename appears in both domains. Omit `--sample` to select the whole task.
+
+## Model API quickstart
+
+API calls use the published prompt and media. The client fetches and verifies the selected inputs on demand. Set `--data-root ./dataset` to reuse local files and cache missing inputs there. Each run writes `results.csv`, `results.jsonl`, `summary.json`, `attempts.jsonl` and `return.zip` to its output directory.
 
 ### OpenAI GPT-6 Astra
 
-Set `OPENAI_API_KEY` in your shell or secret store before running the pilot.
+Set `OPENAI_API_KEY` in your shell. Evaluate one T5 trial with its ordered static images.
 
 ```bash
-python run.py api evaluate --model gpt-6-astra \
-  --task t1-classic --input video --sample-id t1_2379890eb33c9a254afd \
-  --out outputs/t1-astra-ordered-one --max-requests 1 --reasoning-effort low --execute
+python run.py api evaluate --model gpt-6-astra --task t5-classic --input static \
+  --sample T5_single_yes_onset006_left.mp4 --out outputs/t5-astra-one \
+  --max-requests 1 --reasoning-effort low --execute
 ```
 
-The Responses API receives 180 ordered lossless PNG images at `detail: original`. The request text starts with “The video is provided as 180 consecutive frames in chronological order at 60 fps.” The published task prompt follows verbatim. [GPT-6 Astra](https://developers.openai.com/api/docs/models/gpt-6-astra) · [Python SDK example](EXPERIMENT_PLAN.md#openai-ordered-frames) · [Responses image inputs](https://developers.openai.com/api/docs/guides/images-vision?api-mode=responses)
+Run a complete static task by omitting the selector and using `--all-requests`.
+
+```bash
+python run.py api evaluate --model gpt-6-astra --task t5-natural --input static \
+  --out outputs/t5-natural-astra --all-requests --reasoning-effort low --execute
+```
+
+With `--input video`, Astra receives the T5 reference followed by 180 lossless PNGs in chronological order at `detail: original`. The request includes a 60 fps timing note and the published prompt. An all-frame video pilot saves the raw answer, then reports `PARTIAL` (exit code 2) while awaiting a server frame report for scoring and batch execution. [OpenAI SDK example](EXPERIMENT_PLAN.md#openai-ordered-frames) · [Frame report format](EXPERIMENT_PLAN.md#model-api)
 
 ### NVIDIA Inference Gateway
 
 Set `NVIDIA_API_KEY` and `NVIDIA_VIDEO_MODEL_ID` for a video-capable model on your gateway account.
 
 ```bash
-python run.py api evaluate --preset nvidia-repeat \
-  --task t1-classic --sample-id t1_2379890eb33c9a254afd \
-  --out outputs/t1-nvidia-one --max-requests 1 --execute
+python run.py api evaluate --preset nvidia-repeat --task t1-classic \
+  --sample T1_left_sf8_contrast1_trial01.mp4 --out outputs/t1-nvidia-one \
+  --max-requests 1 --execute
 ```
 
-The preset sends the published MP4 and prompt with `temperature=0`, `top_p=1`, `seed=0`, and one answer per trial. Send back `return.zip` and `return.zip.sha256`. [Python SDK example](EXPERIMENT_PLAN.md#nvidia-native-video) · [Run a range or repeat a trial](EXPERIMENT_PLAN.md#model-api)
-
-### Qwen3.8-Max
-
-Set `DASHSCOPE_API_KEY` and, for a workspace-specific endpoint, `DASHSCOPE_BASE_URL`. The Qwen pilot uses the same Classic trial.
-
-```bash
-python run.py api evaluate --model qwen3.8-max-0902 \
-  --task t1-classic --input video --sample-id t1_2379890eb33c9a254afd \
-  --out outputs/t1-qwen-one --max-requests 1 --temperature 0 --seed 0 \
-  --disable-thinking --execute
-```
-
-DashScope receives the 180 PNGs as one ordered `type: video` frame list. Use Astra for clips whose lossless request exceeds DashScope's size limit. [DashScope video inputs](https://www.alibabacloud.com/help/en/model-studio/vision) · [Regional endpoints](https://www.alibabacloud.com/help/en/model-studio/regions/)
+The preset sends the original MP4 and prompt with `temperature=0`, `top_p=1`, `seed=0`, and one answer per trial. [NVIDIA SDK example](EXPERIMENT_PLAN.md#nvidia-native-video)
 
 ### Other hosted models
 
-Use the same task, sample ID and request budget. Choose a fresh `--out` and supply the selected model's API key. `--reasoning-effort` is specific to the Astra example.
-
-| Model ID | Key environment variable | Video delivery |
-|---|---|---|
-| `claude-opus-5-5`, `claude-fable-5-1` | `ANTHROPIC_API_KEY` | 180 ordered lossless PNGs with the same chronology note. Claude rejects images it would downscale. The inline request limit is 128 MB. |
-| `gemini-4-argon`, `gemini-3.8-flash` | `GEMINI_API_KEY` | Original MP4 with server sampling requested at 24 fps. Add `--sampled-video` for this separate T1–T4 comparison. |
-
-[Claude image inputs and limits](https://platform.claude.com/docs/en/build-with-claude/vision) · [Claude resize setting](https://platform.claude.com/docs/en/build-with-claude/vision-coordinates#turn-resizing-into-an-error-with-transformations) · [Gemini video sampling](https://aistudio.google.com/docs/video-understanding?generate-content=true)
-
-| Scope | Arguments |
-|---|---|
-| One trial | `--sample-id ID --max-requests 1` |
-| Index range | `--from-index 20 --to-index 40 --all-requests` |
-| Entire task | `--task t1-classic --all-requests` |
-| Parallel calls | `--concurrency 4` |
-
-Indices are zero-based in sorted `sample_id` order within one task and modality. `--to-index` is exclusive. `api plan` previews the selection and, when supplied, the model route without calling the model. Static ranges select video associations first, then share identical image requests. Use a separate `--out` per model and selection. The same output directory resumes the same selection.
-
-If your Anthropic API key is organization-wide, set `ANTHROPIC_WORKSPACE_ID` to the workspace that should handle the request.
-
-Public dataset access works anonymously. Use `hf auth login` for interactive Hub authentication or inject `HF_TOKEN` as a CI or Space secret.
-
-A successful full-frame video pilot records the raw answer and client-side delivery in `results.csv` and `attempts.jsonl`. It reports `PARTIAL` (exit code 2) while it awaits a frame report from the serving deployment. All-frame scoring and batch concurrency require that evidence. Verify the saved results with `python run.py api verify --archive outputs/t1-astra-ordered-one/return.zip`. [Range and batch examples](EXPERIMENT_PLAN.md#model-api) · [Hugging Face authentication](https://huggingface.co/docs/huggingface_hub/quick-start#authentication)
-
-To cache a whole task before evaluating, run:
+The API client also supports DashScope Qwen, Claude, Gemini and compatible vLLM endpoints. The [API guide](EXPERIMENT_PLAN.md#model-api) gives their keys, model IDs, input formats and size limits. Use `api plan` to preview a selection before calling a model. For a range of trials, use `--from-index 20 --to-index 40` with one task and input mode. The indices are zero-based in sample ID order, and the stop is exclusive. Repeating the same run in the same output directory resumes the selection.
 
 ```bash
-python run.py download --task t1-classic --input video --media-only --data-root ./dataset
+python run.py api verify --archive outputs/t5-astra-one/return.zip
 ```
-
-Pass the same `--data-root ./dataset` to the API client to use that cache. Omit `--task` and `--input` from the download command for the complete dataset.
 
 ## Tasks
 
@@ -119,56 +82,51 @@ Pass the same `--data-root ./dataset` to the API client to use that cache. Omit 
 | T4 | Horizontal motion signal | 1,536 | 1,536 |
 | T5 | Orientation match to a reference | 384 | 384 |
 
-The counts are trials. Static evaluation shares a call when ordered media, prompt and choices match. T5 has 192 single-event and 192 dual-event trials per domain, using centered 768 × 512 reference images that preserve the object's pixel size. Its 768 videos correspond to 425 unique static inputs.
+The counts are trials. Static evaluation shares a call when ordered media, prompt and choices match. T5 has 192 single-event and 192 dual-event trials per domain. Its centered 768 × 512 references preserve the object's pixel size. The 768 videos correspond to 425 independent static inputs, 44 Classic and 381 Natural.
 
 ## Run the local models
 
-Clone this repository and run the commands from its root. Use Linux, Python 3.12, RTX PRO 6000 Blackwell GPUs and CUDA Toolkit 13.0.3. Install into your existing environment:
+Use the pinned Linux x86-64 environment with Python 3.12, RTX PRO 6000 Blackwell GPUs and CUDA Toolkit 13.0.3. Recipes that compile CUDA kernels also require Ninja. Install into your existing Python environment from the repository root.
 
 ```bash
-python -m pip install -e ".[download,inference]"
-python run.py --task t1-classic --model qwen
+python -m pip install -e '.[download,inference]'
 ```
 
-The runner selects writable SSD storage, downloads the pinned dataset and model, checks the runtime, and assigns work by available GPU memory. Each GPU loads and finishes one model recipe at a time. Set `VLM_PSYCHOPHYSICS_CUDA_HOME` if the CUDA toolkit is outside the standard location. Authenticate with Hugging Face for gated models and set `NGC_API_KEY` for NVIDIA downloads.
+Run all video and static trials in one task on one GPU.
 
 ```bash
-# All four models, T1–T5, both domains, video and static
-python run.py
-
-# One published video; a local video path also works
-python run.py --task t1-classic --model qwen --video T1_left_sf0.5_contrast0.05_trial01.mp4
-
-# Same-size T5 reference, both domains, all four models, video and static
-python run.py --task t5-classic --task t5-natural
-
-# Rebuild plots and verify a returned result
-python run.py report --out outputs/RUN
-python run.py verify outputs/RUN/return.zip
+CUDA_VISIBLE_DEVICES=0 python run.py --task t5-classic --model qwen --out outputs/t5-classic-qwen
 ```
 
-Each output directory contains `results.csv`, `results.jsonl`, `summary.json`, `curves.png` and `return.zip`. The `evidence/` folder holds exact prompts, ground truth, resolved model settings, source and input hashes, and execution records. Return `return.zip` for verification and rescoring. Repeating a command with the same output resumes untouched inputs and preserves recorded attempts.
+Use `--task t5-natural` and a fresh output directory for Natural. Use `--sample T5_single_yes_onset006_left.mp4` for a single trial, `--input video` or `--input static` for one modality, or `--model all` to run all four checkpoint recipes. Omit `CUDA_VISIBLE_DEVICES` to select among compatible idle GPUs. Each GPU runs one recipe at a time.
 
-Static inputs use one shared ordered-image path: T1 has frames 0–3; T2/T3 use the event midpoint (`onset + 15`); T4 uses frames 0 and 179. T5 places the reference first, followed by one or two event midpoint images in chronological order. All T5 images are 768 × 512. Video input is the reference followed by all 180 frames. The frozen video and static prompts are preserved byte for byte. Four models evaluate 4,772 independent inputs across both T5 domains; single and dual cohorts retain their respective image limits of 2 and 3.
+The runner verifies the installed runtime and downloads the pinned inputs and checkpoint. It reuses `./dataset` when it contains the matching index on SSD, or selects a writable SSD cache. Use `--data-root`, `--model-root` and `--out` to choose locations. Without `--out`, it uses `outputs/` on SSD or puts the output folder under the data cache. Set `VLM_PSYCHOPHYSICS_CUDA_HOME` for a nonstandard CUDA install. Authenticate with Hugging Face for gated weights and set `NGC_API_KEY` for the NVIDIA checkpoint.
 
-Use `--input video` or `--input static` to select a modality, `--sample-id` for a scientific ID, or repeat `--task` for several scopes. `--config configs/models.json` selects the complete model recipe. Optional `--data-root`, `--model-root`, `--out` and `--gpus` select storage and GPU UUIDs. `run.py plan` shows the selection, `run.py download` fetches it, and `run.py doctor` checks the environment. Add `--media-only` to download data without weights, or `--offline` to use existing local files.
+Use `run.py plan` to check the selected cases and `run.py doctor` to check the runtime. Repeat the same run to resume its untouched calls. Outputs include `results.csv`, `results.jsonl`, `summary.json`, `curves.png` and `return.zip`. The `evidence/` folder records input, source and runtime hashes, prompts, ground truth, settings and execution records.
+
+```bash
+python run.py report --out outputs/t5-classic-qwen
+python run.py verify outputs/t5-classic-qwen/return.zip
+```
+
+T5 video input is the reference followed by the 180 video frames. Static input is the reference followed by one or two event midpoint images in chronological order. The four published models used 4,772 independent calls across both T5 domains and both modalities. [Input definitions for all five tasks](EXPERIMENT_PLAN.md#stimuli)
 
 ## RGB16 masters and MP4 equivalence
 
-Each Classic T1–T4 trial keeps its `sample_id` and filename stem. Task metadata and the [per-task result folders](https://huggingface.co/datasets/DrQY/vlm-psychophysics/tree/main/results) provide the current MP4 path and SHA-256. The [RGB16 FFV1 archive](https://huggingface.co/datasets/DrQY/vlm-psychophysics-rgb16-masters/tree/c01a232fa55fac3e1ccf3e20ba833baf81a0f0b8) preserves the masters and original execution records.
+Each Classic T1–T4 trial keeps its `sample_id` and filename stem. Task metadata and the [per-task result folders](https://huggingface.co/datasets/DrQY/vlm-psychophysics/tree/901ab8c3065f3d21acb870c74a4cce76f0908b20/results) provide the released MP4 path and SHA-256. The [RGB16 FFV1 archive](https://huggingface.co/datasets/DrQY/vlm-psychophysics-rgb16-masters/tree/c01a232fa55fac3e1ccf3e20ba833baf81a0f0b8) preserves the masters and original execution records.
 
 Published results use `results/t1/` through `results/t5/`. Each folder contains `results.csv.gz` and `counts.csv`, with the same columns for domain, model, modality, sample ID, ground truth and prediction. T5 also includes `pairs.csv.gz` for matched single/dual comparisons.
 
-The [verification index](https://huggingface.co/datasets/DrQY/vlm-psychophysics/blob/main/media-equivalence.json) binds the two encoded files for each of 12,336 Classic trials. It records exact equality of all 2,220,480 frames at the evaluation RGB8 reader boundary, including frame order and reader metadata. The archive retains the original 16-bit values.
+The [verification index](https://huggingface.co/datasets/DrQY/vlm-psychophysics/blob/901ab8c3065f3d21acb870c74a4cce76f0908b20/media-equivalence.json) binds the two encoded files for each of 12,336 Classic trials. It records exact equality of all 2,220,480 frames at the evaluation RGB8 reader boundary, including frame order and reader metadata. The archive retains the original 16-bit values.
 
 ```bash
 video=classic/t1/videos/T1_left_sf8_contrast1_trial01
 hf download DrQY/vlm-psychophysics-rgb16-masters "$video.mkv" --repo-type dataset \
   --revision c01a232fa55fac3e1ccf3e20ba833baf81a0f0b8 --local-dir ./masters
-python run.py download --task t1-classic --input video --sample-id t1_2379890eb33c9a254afd \
+python run.py download --task t1-classic --input video --sample T1_left_sf8_contrast1_trial01.mp4 \
   --media-only --data-root ./dataset
 hf download DrQY/vlm-psychophysics media-equivalence.jsonl --repo-type dataset \
-  --revision 7d8c81f71c6a37b98d1d7a09778e854970641b97 --local-dir ./dataset
+  --revision 901ab8c3065f3d21acb870c74a4cce76f0908b20 --local-dir ./dataset
 python run.py verify-media --master-root ./masters --data-root ./dataset \
   --sample-id t1_2379890eb33c9a254afd
 ```
@@ -183,9 +141,9 @@ The videos are rendered at 768 × 512. Natural backgrounds are fitted to this ca
 python run.py generate --task t2-classic --sample-id t2_000201cb3983b82df70a --out replay
 ```
 
-Use `python run.py generate --task all` to regenerate all released T1–T5 videos. Repeat `--sample-id` to select several trials. Classic T1–T4 rendering first reconstructs the RGB16 master, then produces the verified lossless RGB8 MP4. The renderer checks decoded pixels and timestamps and reports encoded container equality separately. Set `--data-root` to reuse local sources. [Source files and attribution](https://huggingface.co/datasets/DrQY/vlm-psychophysics/tree/main/sources)
+Use `python run.py generate --task all` to regenerate all released T1–T5 videos. Repeat `--sample-id` to select several trials. Classic T1–T4 rendering first reconstructs the RGB16 master, then produces the verified lossless RGB8 MP4. The renderer checks decoded pixels and timestamps and reports encoded container equality separately. Set `--data-root` to reuse local sources. [Source files and attribution](https://huggingface.co/datasets/DrQY/vlm-psychophysics/tree/901ab8c3065f3d21acb870c74a4cce76f0908b20/sources)
 
-The released input manifests contain the exact prompt, media order and hashes. Send only the prompt and media to a model. Filenames, labels and provenance stay in the evaluation record. [Per-trial answers, prompts and counts](https://huggingface.co/datasets/DrQY/vlm-psychophysics/tree/main/results)
+The released input manifests contain the exact prompt, media order and hashes. Send only the prompt and media to a model. Filenames, labels and provenance stay in the evaluation record. [Per-trial answers, prompts and counts](https://huggingface.co/datasets/DrQY/vlm-psychophysics/tree/901ab8c3065f3d21acb870c74a4cce76f0908b20/results)
 
 ## Code layout
 
@@ -207,4 +165,4 @@ python run.py api evaluate --provider vllm --model MODEL --task t1-classic --out
 python -m pytest -q
 ```
 
-Scientific render functions are retained from the execution source; the portable runner supplies storage, scheduling and return packaging. Each run records the source it actually used. Original workstation scripts and sealed execution identities remain at the [historical source revision](https://github.com/YangQiantwx/vlm-psychophysics/tree/8dcff9eac165ca9c36ca19fed72470ce26cda96c). Website and annotation code are maintained separately in [Vision Tasks](https://github.com/YangQiantwx/vision-tasks).
+Scientific render functions are retained from the execution source; the portable runner supplies storage, scheduling and return packaging. Each run records its own runner source hashes in `evidence/source-code.json`. The source profile hashes in [configs/models.json](configs/models.json) identify the published execution profiles. The code and evidence from earlier runs are available at the [historical source revision](https://github.com/YangQiantwx/vlm-psychophysics/tree/8dcff9eac165ca9c36ca19fed72470ce26cda96c). Website and annotation code are maintained separately in [Vision Tasks](https://github.com/YangQiantwx/vision-tasks).

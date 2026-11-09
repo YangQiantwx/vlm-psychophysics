@@ -6,7 +6,7 @@ from pathlib import PurePosixPath
 REPO_ID = "DrQY/vlm-psychophysics"
 
 
-REVISION = "7d8c81f71c6a37b98d1d7a09778e854970641b97"
+REVISION = "901ab8c3065f3d21acb870c74a4cce76f0908b20"
 
 
 SCOPES = tuple(
@@ -30,3 +30,29 @@ def payload_path(scope, name):
     ):
         raise ValueError(f"Unexpected {scope} release path: {name}")
     return name
+
+
+def select_samples(trials, selectors):
+    """Resolve exact trial IDs, video filenames or dataset-relative video paths."""
+    wanted = dict.fromkeys(selectors)
+    matches = {value: set() for value in wanted}
+    for scope, sample_id, video_path in trials:
+        keys = {sample_id, video_path, PurePosixPath(video_path).name}
+        for value in keys & wanted.keys():
+            matches[value].add((scope, sample_id))
+    selected = set()
+    for value, candidates in matches.items():
+        if not candidates:
+            raise ValueError(f"No published trial matches {value!r} in the selected tasks.")
+        if len(candidates) > 1:
+            tasks = set()
+            for scope, _ in candidates:
+                domain, task, *_ = scope.split("/")
+                tasks.add(f"{task}-{domain}")
+            task_names = ", ".join(sorted(tasks))
+            raise ValueError(
+                f"{value!r} matches multiple published trials in {task_names}. "
+                "Use --task to choose one task or provide an exact sample ID or dataset path."
+            )
+        selected.update(candidates)
+    return selected

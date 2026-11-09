@@ -665,7 +665,7 @@ def verify_archive(path):
             for scope in data.paired_inputs.LEGACY_SCOPES
         ):
             raise ValueError(
-                "Equal-canvas case provenance or reference version differs"
+                "Historical T5 case provenance or reference version differs"
             )
         by_job = {}
         static_keys = set()
