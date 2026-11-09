@@ -127,7 +127,9 @@ Use `--input video` or `--input static` to select a modality, `--sample-id` for 
 
 ## RGB16 masters and MP4 equivalence
 
-Each Classic T1–T4 trial keeps its `sample_id` and filename stem. Task metadata and the [per-trial result tables](https://huggingface.co/datasets/DrQY/vlm-psychophysics/tree/main/results) provide the current MP4 path and SHA-256. The [RGB16 FFV1 archive](https://huggingface.co/datasets/DrQY/vlm-psychophysics-rgb16-masters/tree/c01a232fa55fac3e1ccf3e20ba833baf81a0f0b8) preserves the masters and original execution records.
+Each Classic T1–T4 trial keeps its `sample_id` and filename stem. Task metadata and the [per-task result folders](https://huggingface.co/datasets/DrQY/vlm-psychophysics/tree/main/results) provide the current MP4 path and SHA-256. The [RGB16 FFV1 archive](https://huggingface.co/datasets/DrQY/vlm-psychophysics-rgb16-masters/tree/c01a232fa55fac3e1ccf3e20ba833baf81a0f0b8) preserves the masters and original execution records.
+
+Published results use `results/t1/` through `results/t5/`. Each folder contains `results.csv.gz` and `counts.csv`, with the same columns for domain, model, modality, sample ID, ground truth and prediction. T5 also includes `pairs.csv.gz` for matched single/dual comparisons.
 
 The [verification index](https://huggingface.co/datasets/DrQY/vlm-psychophysics/blob/main/media-equivalence.json) binds the two encoded files for each of 12,336 Classic trials. It records exact equality of all 2,220,480 frames at the Protocol X RGB8 reader boundary, including frame order and reader metadata. The archive retains the original 16-bit values.
 
@@ -138,7 +140,7 @@ hf download DrQY/vlm-psychophysics-rgb16-masters "$video.mkv" --repo-type datase
 python run.py download --task t1-classic --input video --sample-id t1_2379890eb33c9a254afd \
   --media-only --data-root ./dataset
 hf download DrQY/vlm-psychophysics media-equivalence.jsonl --repo-type dataset \
-  --revision 1a1f9921d6428b9d4b2a95c77f7ba4255ed13ac3 --local-dir ./dataset
+  --revision b8365822134999df89526183070aca953d93cb2b --local-dir ./dataset
 python run.py verify-media --master-root ./masters --data-root ./dataset \
   --sample-id t1_2379890eb33c9a254afd
 ```
