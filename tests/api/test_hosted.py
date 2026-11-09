@@ -275,6 +275,7 @@ def test_all_frame_batch_requires_server_evidence(tmp_path, monkeypatch):
     with pytest.raises(ValueError, match='processor indices 0–179'):
         runner.command(_args(tmp_path, **options, frame_report=path))
     report['processor_indices'].append(179)
+    report.update(resize_policy='none', crop_policy='none', bit_depth=8)
     path.write_bytes(release.encoded([report]))
     done = runner.command(_args(tmp_path, **options, frame_report=path))
     assert done['status'] == 'COMPLETE' and done['request_attempts'] == 2

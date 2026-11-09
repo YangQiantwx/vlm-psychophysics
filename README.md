@@ -22,6 +22,18 @@ python run.py api evaluate --model gpt-6-astra \
 
 The Responses API receives 180 ordered lossless PNG images at `detail: original`. The request text starts with “The video is provided as 180 consecutive frames in chronological order at 60 fps.” The published task prompt follows verbatim. [GPT-6 Astra](https://developers.openai.com/api/docs/models/gpt-6-astra) · [Responses image inputs](https://developers.openai.com/api/docs/guides/images-vision?api-mode=responses)
 
+### NVIDIA Inference Gateway
+
+Set `NVIDIA_API_KEY` and `NVIDIA_VIDEO_MODEL_ID`. Use a model ID from your gateway account that accepts video.
+
+```bash
+python run.py api evaluate --provider nvidia-internal --model "$NVIDIA_VIDEO_MODEL_ID" \
+  --task t1-classic --input video --sample-id t1_2379890eb33c9a254afd \
+  --out outputs/t1-nvidia-one --max-requests 1 --execute
+```
+
+The client sends the MP4 to the gateway's Chat Completions endpoint using the gateway's generation defaults. For a batch, first attach the server's frame report. [Run a range and return the results](EXPERIMENT_PLAN.md#model-api)
+
 ### Qwen3.8-Max
 
 Set `DASHSCOPE_API_KEY` and, for a workspace-specific endpoint, `DASHSCOPE_BASE_URL`. The Qwen pilot uses the same Classic trial.
@@ -120,16 +132,22 @@ Each Classic T1–T4 trial keeps its `sample_id` and filename stem. Task metadat
 The [verification index](https://huggingface.co/datasets/DrQY/vlm-psychophysics/blob/main/media-equivalence.json) binds the two encoded files for each of 12,336 Classic trials. It records exact equality of all 2,220,480 frames at the Protocol X RGB8 reader boundary, including frame order and reader metadata. The archive retains the original 16-bit values.
 
 ```bash
-hf download DrQY/vlm-psychophysics-rgb16-masters --repo-type dataset \
-  --revision c01a232fa55fac3e1ccf3e20ba833baf81a0f0b8 --include 'classic/*/videos/*.mkv' --local-dir ./masters
+video=classic/t1/videos/T1_left_sf8_contrast1_trial01
+hf download DrQY/vlm-psychophysics-rgb16-masters "$video.mkv" --repo-type dataset \
+  --revision c01a232fa55fac3e1ccf3e20ba833baf81a0f0b8 --local-dir ./masters
+python run.py download --task t1-classic --input video --sample-id t1_2379890eb33c9a254afd \
+  --media-only --data-root ./dataset
 hf download DrQY/vlm-psychophysics media-equivalence.jsonl --repo-type dataset \
   --revision 1a1f9921d6428b9d4b2a95c77f7ba4255ed13ac3 --local-dir ./dataset
-python run.py verify-media --master-root ./masters --data-root ./dataset --workers 8
+python run.py verify-media --master-root ./masters --data-root ./dataset \
+  --sample-id t1_2379890eb33c9a254afd
 ```
 
-The verifier uses the pinned Protocol X vLLM/OpenCV reader from the inference installation and checks file hashes, arrays, frame order and timestamps. Add `--sample-id` to verify a selected trial.
+Run this in the local inference environment. The verifier checks file hashes, every decoded RGB8 frame and its timestamp. To check the full archive, download both sets of videos and omit `--sample-id`.
 
 ## Regenerate a stimulus
+
+The videos are rendered at 768 × 512. Natural backgrounds are fitted to this canvas before the objects are placed. Protocol X reads the full canvas at all 180 time points. Gemma adds 16 rows at the bottom for its processor.
 
 ```bash
 python run.py generate --task t2-classic --sample-id t2_000201cb3983b82df70a --out replay

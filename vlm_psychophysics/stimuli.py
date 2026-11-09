@@ -50,7 +50,8 @@ def checked_file(root, revision, relative, expected):
                 repo_type="dataset",
                 revision=revision,
                 token=False,
-                local_dir=root,
+                # Keep concurrent renders on the Hub's immutable snapshot cache.
+                cache_dir=root / ".cache" / "huggingface" / "hub",
             )
         )
     if expected is not None and file_sha(local) != expected:

@@ -285,6 +285,17 @@ def validate_frame_report(report, attempt, config):
         ),
         "The server report must bind the successful pilot and show decoded and processor indices 0–179 in order",
     )
+    for key in ("resize_policy", "crop_policy"):
+        if key in report:
+            release.require(
+                isinstance(report[key], str) and bool(report[key].strip()),
+                f"{key} must describe the effective server policy",
+            )
+    if "bit_depth" in report:
+        release.require(
+            type(report["bit_depth"]) is int and report["bit_depth"] > 0,
+            "bit_depth must be a positive integer",
+        )
 
 
 def attach_frame_reports(path, db, history, config):
@@ -322,13 +333,18 @@ def attach_frame_reports(path, db, history, config):
                 "processor_indices",
             )
         }
-        prior = attempt.get(
-            "frame_report", staged.get(attempt["request_sha256"], evidence)
-        )
+        evidence.update({
+            key: report[key]
+            for key in ("resize_policy", "crop_policy", "bit_depth")
+            if key in report
+        })
+        digest = attempt["request_sha256"]
+        prior = staged.get(digest, attempt.get("frame_report", {}))
         release.require(
-            prior == evidence, "Server frame evidence differs from the accepted report"
+            all(prior[key] == evidence[key] for key in prior.keys() & evidence.keys()),
+            "Server frame evidence differs from the accepted report",
         )
-        staged[attempt["request_sha256"]] = evidence
+        staged[digest] = {**prior, **evidence}
         deployments.add(evidence["deployment"])
     release.require(
         len(deployments) == 1,
