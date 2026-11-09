@@ -31,6 +31,8 @@ from .provider_api import ROUTES, parameters
 SCHEMA = "jinwei-provider-v1"
 PROVIDER = "nvidia-internal"
 BASE_URL, KEY_ENV, _ = ROUTES[PROVIDER]
+NVIDIA_REPEAT_PRESET = "nvidia-repeat"
+NVIDIA_REPEAT_GENERATION = {"n": 1, "temperature": 0.0, "top_p": 1.0, "seed": 0}
 ORDERED_IMAGE_VIDEO_PROMPT_PREFIX = (
     "The video is provided as 180 consecutive frames in chronological order at 60 fps.\n\n"
 )
@@ -148,9 +150,19 @@ def build_plan(
     return plan, rows
 
 
+def requested_frame_settings(config):
+    settings = native_video_api.frame_settings(config["provider"], config.get("video_fps"))
+    if config.get("preset") == NVIDIA_REPEAT_PRESET:
+        return {
+            **settings,
+            "mm_processor_kwargs": {**settings["mm_processor_kwargs"], "do_resize": False},
+        }
+    return settings
+
+
 def configured(
     out, plan, model, max_tokens, provider=PROVIDER, all_frames=False,
-    generation_parameters=None,
+    generation_parameters=None, preset=None,
 ):
     release.require(
         bool(model) and bool(re.fullmatch(r"[A-Za-z0-9_.:/-]+", model)),
@@ -206,10 +218,11 @@ def configured(
     if generation_parameters:
         config["generation_parameters"] = generation_parameters
         config["generation"] = "explicit requested settings, no tools"
+    if preset == NVIDIA_REPEAT_PRESET:
+        config["preset"] = preset
+        config["processor_visibility"] = "provider controls frame sampling and geometry"
     if all_frames:
-        config["frame_settings"] = native_video_api.frame_settings(
-            provider, config.get("video_fps")
-        )
+        config["frame_settings"] = requested_frame_settings(config)
         config["processor_visibility"] = "requires separate server frame report"
         if provider in native_video_api.ORDERED_IMAGES:
             config["video_prompt_prefix"] = ORDERED_IMAGE_VIDEO_PROMPT_PREFIX
@@ -265,7 +278,7 @@ def records(db):
 
 
 def validate_frame_report(report, attempt, config):
-    indices = list(range(180))
+    indices = list(range(native_video_api.SOURCE_FRAMES))
     release.require(
         attempt["phase"] == "pilot"
         and attempt.get("modality_admitted")
@@ -296,6 +309,23 @@ def validate_frame_report(report, attempt, config):
             type(report["bit_depth"]) is int and report["bit_depth"] > 0,
             "bit_depth must be a positive integer",
         )
+
+    if config.get("preset") == NVIDIA_REPEAT_PRESET:
+        release.require(
+            (report.get("width"), report.get("height"), report.get("fps"))
+            == (
+                native_video_api.SOURCE_WIDTH, native_video_api.SOURCE_HEIGHT,
+                native_video_api.SOURCE_FPS,
+            )
+            and report.get("resize_policy") == report.get("crop_policy") == "none"
+            and report.get("bit_depth") == 8,
+            "The NVIDIA all-frame report must show 768×512 RGB8 at 60 fps with no resizing or cropping",
+        )
+        if "generation_settings" in report:
+            release.require(
+                report["generation_settings"] == config["generation_parameters"],
+                "The server's generation settings differ from the repeat preset",
+            )
 
 
 def attach_frame_reports(path, db, history, config):
@@ -335,7 +365,10 @@ def attach_frame_reports(path, db, history, config):
         }
         evidence.update({
             key: report[key]
-            for key in ("resize_policy", "crop_policy", "bit_depth")
+            for key in (
+                "resize_policy", "crop_policy", "bit_depth",
+                "width", "height", "fps", "generation_settings",
+            )
             if key in report
         })
         digest = attempt["request_sha256"]
@@ -580,7 +613,7 @@ def invoke(out, receipt, row, config, media_root, private, credential, expected_
             verified_media=verified,
             sent_unix=time.time(),
         )
-        if "video_prompt_prefix" in config:
+        if "video_prompt_prefix" in config or config.get("preset") == NVIDIA_REPEAT_PRESET:
             receipt["request_prompt_sha256"] = release.sha(
                 request_prompt(row, config).encode("utf-8")
             )
@@ -706,6 +739,17 @@ def execution(out, plan, rows, args, private, pilot):
             ),
             "Select a 180-frame, 60 fps video task for the all-frame run",
         )
+    if args.all_frames and getattr(args, "preset", None) == NVIDIA_REPEAT_PRESET:
+        release.require(
+            all(
+                row["source"] == "public"
+                and (row["source_video_format"]["width"], row["source_video_format"]["height"])
+                == (native_video_api.SOURCE_WIDTH, native_video_api.SOURCE_HEIGHT)
+                and any(item["mime"] == "video/mp4" for item in row["media"])
+                for row in selected.values()
+            ),
+            "The NVIDIA all-frame pilot requires a 768×512 video from the public MP4 release",
+        )
     if args.provider in native_video_api.FRAME_LISTS:
         release.require(
             all(
@@ -745,7 +789,7 @@ def execution(out, plan, rows, args, private, pilot):
         )
     config = configured(
         out, plan, args.model, args.max_tokens, args.provider, args.all_frames,
-        getattr(args, "generation_parameters", None),
+        getattr(args, "generation_parameters", None), preset=getattr(args, "preset", None),
     )
     with closing(open_db(out)) as db:
         history = records(db)
@@ -1093,7 +1137,7 @@ def export(out, archive):
     )
 
 
-def verify(archive):
+def verify(archive, *, with_history=False):
     checksum = file_sha(archive)
     sidecar = archive.with_suffix(archive.suffix + ".sha256")
     if sidecar.exists():
@@ -1152,12 +1196,17 @@ def verify(archive):
                     and "frame_settings" in config,
                     "Unexpected video prompt prefix",
                 )
+            if "preset" in config:
+                release.require(
+                    config["preset"] == NVIDIA_REPEAT_PRESET
+                    and provider == PROVIDER
+                    and config.get("generation_parameters") == NVIDIA_REPEAT_GENERATION,
+                    "NVIDIA configuration differs from the repeat preset",
+                )
             if "frame_settings" in config:
                 release.require(
                     provider in {PROVIDER, "vllm", *native_video_api.FRAME_LISTS}
-                    and config["frame_settings"] == native_video_api.frame_settings(
-                        provider, config.get("video_fps")
-                    ),
+                    and config["frame_settings"] == requested_frame_settings(config),
                     "All-frame configuration differs",
                 )
         history = defaultdict(list)
@@ -1180,11 +1229,11 @@ def verify(archive):
                     "Invalid attempt identity",
                 )
                 if "request_sha256" in entry:
-                    if "video_prompt_prefix" in config:
+                    if "video_prompt_prefix" in config or config.get("preset") == NVIDIA_REPEAT_PRESET:
                         expected_prompt = request_prompt(selected[key], config)
                         release.require(
                             entry.get("request_prompt_sha256") == release.sha(expected_prompt.encode("utf-8")),
-                            "Request prompt SHA-256 differs from the recorded prefix and source prompt",
+                            "Request prompt SHA-256 differs from the recorded text",
                         )
                     source = selected[key]["media"]
                     verified = entry["verified_media"]
@@ -1295,22 +1344,81 @@ def verify(archive):
             and summary["request_attempts"] == sum(map(len, history.values())),
             "Result counts do not reconcile",
         )
-    return dict(
+    result = dict(
         status="VERIFIED",
         sha256=checksum,
         logical_rows=len(rows),
         unique_requests=len(selected),
         request_attempts=summary["request_attempts"],
     )
+    return (result, config, history) if with_history else result
+
+
+def compare(archive, against):
+    first, first_config, first_history = verify(archive, with_history=True)
+    second, second_config, second_history = verify(against, with_history=True)
+    release.require(first["sha256"] != second["sha256"], "Use two independent return archives")
+    release.require(
+        first_config and first_config == second_config,
+        "Compare two runs with the same selection, model and request settings",
+    )
+    common = first_history.keys() & second_history.keys()
+    raw_pairs = label_pairs = raw_changes = label_flips = 0
+    changes = []
+    identity_changes = []
+    for key in sorted(common):
+        before, after = first_history[key][-1], second_history[key][-1]
+        if not (before.get("request_sha256") and after.get("request_sha256")):
+            continue
+        release.require(
+            before["request_sha256"] == after["request_sha256"],
+            f"Request bytes differ for {before['sample_id']}",
+        )
+        if not all(isinstance(entry.get("raw_answer"), str) for entry in (before, after)):
+            continue
+        if any(
+            before.get(field) is not None and after.get(field) is not None
+            and before[field] != after[field]
+            for field in ("returned_model", "system_fingerprint")
+        ) or (
+            before.get("frame_report") and after.get("frame_report")
+            and before["frame_report"]["deployment"] != after["frame_report"]["deployment"]
+        ):
+            identity_changes.append(before["sample_id"])
+            continue
+        raw_pairs += 1
+        raw_changed = before["raw_answer"] != after["raw_answer"]
+        raw_changes += raw_changed
+        old, new = before["normalized_answer"], after["normalized_answer"]
+        both_labels = old is not None and new is not None
+        label_pairs += both_labels
+        flipped = both_labels and old != new
+        label_flips += flipped
+        if raw_changed or flipped:
+            changes.append(dict(
+                sample_id=before["sample_id"], raw_changed=raw_changed,
+                before=old, after=new, label_flipped=flipped,
+            ))
+    return dict(
+        status="COMPARED", planned_requests=first["unique_requests"],
+        common_attempted_requests=len(common), paired_raw_answers=raw_pairs,
+        paired_labels=label_pairs, raw_changes=raw_changes, label_flips=label_flips,
+        changes=changes, changed_server_identity=identity_changes,
+    )
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "command", choices=("plan", "pilot", "run", "evaluate", "export", "verify")
+        "command", choices=("plan", "pilot", "run", "evaluate", "export", "verify", "compare")
     )
     parser.add_argument("--out", type=Path)
     parser.add_argument("--archive", type=Path)
+    parser.add_argument("--against", type=Path, help="Second return ZIP for a repeat comparison")
+    parser.add_argument(
+        "--preset", choices=(NVIDIA_REPEAT_PRESET,),
+        help="Request temperature 0 and a fixed seed on the NVIDIA gateway",
+    )
     parser.add_argument("--data-root", type=Path, help="Local dataset from run.py download")
     parser.add_argument(
         "--metadata-root", type=Path, help="Offline root of the pinned public manifests"
@@ -1357,8 +1465,8 @@ def main(argv=None):
         help="Authorize every unique request in the selected task or range",
     )
     parser.add_argument(
-        "--concurrency", "--workers", dest="workers", type=int, default=2,
-        help="Maximum parallel API calls after the pilot, from 1 to 16 (default: 2)",
+        "--concurrency", "--workers", dest="workers", type=int,
+        help="Parallel calls after the pilot, from 1 to 16 (default: 2; nvidia-repeat: 1)",
     )
     parser.add_argument("--scope", action="append", choices=release.SCOPES)
     parser.add_argument(
@@ -1406,20 +1514,32 @@ def main(argv=None):
         "--execute", action="store_true", help="Authorize real calls from this shell"
     )
     args = parser.parse_args(argv)
+    if args.preset == NVIDIA_REPEAT_PRESET:
+        args.provider = args.provider or PROVIDER
+        if args.provider != PROVIDER or args.command in {"verify", "export", "compare"}:
+            parser.error("nvidia-repeat applies to NVIDIA Inference Gateway evaluation")
+        if args.temperature is not None or args.seed is not None or args.disable_thinking:
+            parser.error("nvidia-repeat fixes temperature and seed. Omit manual generation flags.")
+        args.input = args.input or "video"
+        args.model = args.model or os.environ.get("NVIDIA_VIDEO_MODEL_ID")
+    if args.workers is None:
+        args.workers = 1 if args.preset else 2
     auto_provider = None
     if args.provider is None:
         auto_provider = native_video_api.model_provider(args.model) if args.model else None
         if (
             args.model and auto_provider is None and "/" not in args.model
-            and args.command not in {"export", "verify"}
+            and args.command not in {"export", "verify", "compare"}
         ):
             parser.error("Unknown model route. Set --provider explicitly for this model.")
         args.provider = auto_provider or PROVIDER
     args.model = args.model or os.environ.get("JINWEI_MODEL")
+    if args.preset and not args.model and args.command != "plan":
+        parser.error("Set --model or NVIDIA_VIDEO_MODEL_ID to the exact served model ID.")
     if args.data_root:
         args.metadata_root = args.metadata_root or args.data_root.expanduser()
         args.media_root = args.media_root or args.data_root.expanduser()
-    generation = {}
+    generation = NVIDIA_REPEAT_GENERATION if args.preset == NVIDIA_REPEAT_PRESET else {}
     if args.temperature is not None or args.seed is not None or args.disable_thinking:
         if args.provider not in {"vllm", "qwen", "qwen-frames"}:
             parser.error("These generation settings require vllm or Qwen")
@@ -1459,7 +1579,9 @@ def main(argv=None):
         ):
             parser.error("Index selection requires one public --task and one modality, without --sample-id")
         args.index_bounds = (args.from_index, args.to_index)
-    if args.task or args.data_root or auto_provider or args.provider in native_video_api.FRAME_LISTS:
+    if not args.preset and (
+        args.task or args.data_root or auto_provider or args.provider in native_video_api.FRAME_LISTS
+    ):
         args.all_frames = args.all_frames or (
             args.input == "video" and not args.sampled_video
         )
@@ -1467,6 +1589,9 @@ def main(argv=None):
         if args.command == "verify":
             release.require(args.archive, "Set --archive for verification")
             result = verify(args.archive)
+        elif args.command == "compare":
+            release.require(args.archive and args.against, "Set --archive and --against for comparison")
+            result = compare(args.archive, args.against)
         else:
             release.require(args.out, "Set --out to a run directory on local storage")
             release.require(

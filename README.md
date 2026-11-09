@@ -24,15 +24,15 @@ The Responses API receives 180 ordered lossless PNG images at `detail: original`
 
 ### NVIDIA Inference Gateway
 
-Set `NVIDIA_API_KEY` and `NVIDIA_VIDEO_MODEL_ID`. Use a model ID from your gateway account that accepts video.
+Set `NVIDIA_API_KEY` and `NVIDIA_VIDEO_MODEL_ID` for a video-capable model on your gateway account.
 
 ```bash
-python run.py api evaluate --provider nvidia-internal --model "$NVIDIA_VIDEO_MODEL_ID" \
-  --task t1-classic --input video --sample-id t1_2379890eb33c9a254afd \
+python run.py api evaluate --preset nvidia-repeat \
+  --task t1-classic --sample-id t1_2379890eb33c9a254afd \
   --out outputs/t1-nvidia-one --max-requests 1 --execute
 ```
 
-The client sends the MP4 to the gateway's Chat Completions endpoint using the gateway's generation defaults. For a batch, first attach the server's frame report. [Run a range and return the results](EXPERIMENT_PLAN.md#model-api)
+The preset sends the published MP4 and prompt with `temperature=0`, `top_p=1`, `seed=0`, and one answer per trial. Send back `return.zip` and `return.zip.sha256`. [Repeat a trial, select a range, or request all frames](EXPERIMENT_PLAN.md#model-api)
 
 ### Qwen3.8-Max
 

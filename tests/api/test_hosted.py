@@ -17,7 +17,7 @@ from vlm_psychophysics.api import native_video_api
 from vlm_psychophysics import catalog as release
 
 
-def _fixture(tmp_path):
+def _fixture(tmp_path, classic_extension="mkv"):
     def media(name, content):
         path = tmp_path / name
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -34,7 +34,7 @@ def _fixture(tmp_path):
     still, still_sha = media(scope + '/static/still-GT_LEFT.png', b'static fixture bytes')
     sources = []
     for sid in ('source-a', 'source-b'):
-        path, digest = media(f'{scope}/{sid}-GT_LEFT.mkv', sid.encode())
+        path, digest = media(f'{scope}/{sid}-GT_LEFT.{classic_extension}', sid.encode())
         video = source(scope, sid, 'LEFT', path, digest)
         static = dict(sample_id=sid, truth='LEFT', video_sha256=digest, video_path=path,
                       static_case_id='shared-static-case', model_input_sha256=still_sha,
@@ -239,6 +239,111 @@ def test_all_requests_uses_full_task_and_preserves_resume(tmp_path, monkeypatch,
     resumed = json.loads(capsys.readouterr().out.splitlines()[-1])
     assert resumed['request_attempts'] == 2 and resumed['run']['started'] == 0
     assert runner.verify(out / 'return.zip')['unique_requests'] == 2
+
+
+def test_nvidia_repeat_preset_and_compare_saved_answers(tmp_path, monkeypatch, capsys):
+    rows = _fixture(tmp_path, classic_extension="mp4")
+
+    def public_plan(_root, scopes, modality):
+        return [row for row in rows if row["scope"] in scopes and row["input"] == modality]
+
+    requests = []
+    answers = iter(("LEFT", "RIGHT"))
+
+    def transport(payload, credential, config):
+        assert credential == "fixture-credential"
+        assert config["endpoint"] == runner.BASE_URL
+        requests.append(payload)
+        return 200, {}, _response(next(answers))
+
+    monkeypatch.setattr(release, "public_plan", public_plan)
+    monkeypatch.setattr(runner, "transport", transport)
+    monkeypatch.setenv("NVIDIA_API_KEY", "fixture-credential")
+    monkeypatch.setenv("NVIDIA_VIDEO_MODEL_ID", "fixture-video-model")
+    command = [
+        "evaluate", "--preset", "nvidia-repeat", "--task", "t2-classic",
+        "--sample-id", "source-a", "--media-root", str(tmp_path),
+        "--max-requests", "1", "--execute",
+    ]
+    archives = []
+    for name in ("first", "second"):
+        out = tmp_path / name
+        runner.main([*command, "--out", str(out)])
+        assert json.loads(capsys.readouterr().out.splitlines()[-1])["status"] == "COMPLETE"
+        archives.append(out / "return.zip")
+    assert requests[0] == requests[1]
+    body = json.loads(requests[0])
+    assert (body["temperature"], body["top_p"], body["seed"], body["n"]) == (0, 1, 0, 1)
+    assert body["model"] == "fixture-video-model"
+    assert "media_io_kwargs" not in body and "mm_processor_kwargs" not in body
+    assert body["messages"][0]["content"] == [
+        {"type": "video_url", "video_url": {"url": "data:video/mp4;base64,c291cmNlLWE="}},
+        {"type": "text", "text": "Frozen video question."},
+    ]
+    runner.main(["compare", "--archive", str(archives[0]), "--against", str(archives[1])])
+    compared = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert compared["paired_raw_answers"] == compared["paired_labels"] == 1
+    assert compared["raw_changes"] == compared["label_flips"] == 1
+    assert compared["changes"] == [
+        dict(sample_id="source-a", raw_changed=True, before="LEFT", after="RIGHT", label_flipped=True)
+    ]
+    with pytest.raises(ValueError, match="independent return archives"):
+        runner.compare(archives[0], archives[0])
+
+
+def test_nvidia_repeat_all_frames_records_geometry_gate(tmp_path, monkeypatch, capsys):
+    rows = _fixture(tmp_path, classic_extension="mp4")
+
+    def public_plan(_root, scopes, modality):
+        return [row for row in rows if row["scope"] in scopes and row["input"] == modality]
+
+    requests = []
+
+    def transport(payload, *_):
+        body = json.loads(payload)
+        requests.append(body)
+        assert body["media_io_kwargs"] == {"video": {"num_frames": -1, "fps": -1}}
+        assert body["mm_processor_kwargs"] == {"do_sample_frames": False, "do_resize": False}
+        return 200, {}, _response("LEFT")
+
+    monkeypatch.setattr(release, "public_plan", public_plan)
+    monkeypatch.setattr(runner, "transport", transport)
+    monkeypatch.setenv("NVIDIA_API_KEY", "fixture-credential")
+    out = tmp_path / "run"
+    command = [
+        "evaluate", "--preset", "nvidia-repeat", "--all-frames", "--model", "example/model",
+        "--task", "t2-classic", "--out", str(out), "--media-root", str(tmp_path),
+        "--all-requests", "--execute",
+    ]
+    with pytest.raises(SystemExit, match="2"):
+        runner.main(command)
+    assert json.loads(capsys.readouterr().out.splitlines()[-1])["status"] == "PARTIAL"
+    assert len(requests) == 1
+    with ZipFile(out / "return.zip") as package:
+        pilot, = runner.load_rows(package.read("attempts.jsonl"))
+        assert pilot["request_prompt_sha256"] == release.sha(b"Frozen video question.")
+    report = dict(
+        endpoint=runner.BASE_URL, model="returned-version", deployment="fixture-deployment",
+        request_sha256=pilot["request_sha256"], decoded_indices=list(range(180)),
+        processor_indices=list(range(180)), resize_policy="none", crop_policy="none",
+        bit_depth=8, width=384, height=512, fps=60,
+    )
+    path = tmp_path / "server-report.json"
+    path.write_bytes(release.encoded([report]))
+    with pytest.raises(SystemExit, match="2"):
+        runner.main([*command, "--frame-report", str(path)])
+    assert "must show 768×512 RGB8" in capsys.readouterr().err
+    assert len(requests) == 1
+    report["width"] = 768
+    report["generation_settings"] = dict(n=1, temperature=0, top_p=1, seed=0)
+    path.write_bytes(release.encoded([report]))
+    runner.main([*command, "--frame-report", str(path)])
+    assert json.loads(capsys.readouterr().out.splitlines()[-1])["status"] == "COMPLETE"
+    assert len(requests) == 2
+    with ZipFile(out / "return.zip") as package:
+        attempts = runner.load_rows(package.read("attempts.jsonl"))
+        assert next(a for a in attempts if a["phase"] == "pilot")["frame_report"] == report
+    assert runner.verify(out / "return.zip")["status"] == "VERIFIED"
 
 
 def test_all_frame_batch_requires_server_evidence(tmp_path, monkeypatch):
