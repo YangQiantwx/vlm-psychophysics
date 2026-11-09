@@ -549,10 +549,6 @@ def observed_hashes(rollout):
 
 def preflight(root):
     p, out, plan, rows = load(root)
-    require(
-        str(Path(root).resolve()).startswith("/home/yang/"),
-        "Frame preflight runs on Fourier; no mass copying/decoding on Mac",
-    )
     catalog = {}
     for row in rows:
         video = Path(root) / "datasets/classic-t1-t3-v0.4" / row["video_relative"]
@@ -791,7 +787,7 @@ def run_standard(root, ids, budget, execute):
             key = os.environ.get("OPENAI_API_KEY")
             require(
                 bool(key),
-                "Set the linked-organization OPENAI_API_KEY securely on Fourier; do not put it in files or prompts",
+                "Set OPENAI_API_KEY in the environment or a secret store",
             )
             write(
                 out / "claims" / f"{cid}.json",

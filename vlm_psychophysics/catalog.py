@@ -18,7 +18,9 @@ ORIGINAL_INDEX_SHA = "096a675cfce1beeede63fdd3c1fec0f49a3c5deeafe7956fb9de96ee45
 # Keep the previous layout pin available for return archive verification.
 PREVIOUS_REVISION = "13e9cf67bb0b63be562ed7b7a48668fa7b7bca22"
 PREVIOUS_INDEX_SHA = "47611f9b112b406d7b585eade36ab260491fde2dce341ece13e3ad12b893c7f7"
-INDEX_SHA = "f4e9d369ca5f75a505eff8f7b8a8b4e0cd5b73945d10f312c02e8eadaf117c78"
+TASK_RESULTS_REVISION = "b8365822134999df89526183070aca953d93cb2b"
+TASK_RESULTS_INDEX_SHA = "f4e9d369ca5f75a505eff8f7b8a8b4e0cd5b73945d10f312c02e8eadaf117c78"
+INDEX_SHA = "22ff74070bb8d6a07a846bd0d3e5dad35162369714a872e4286a35f7fe15345b"
 MEDIA_COLUMNS_REVISION = "1a1f9921d6428b9d4b2a95c77f7ba4255ed13ac3"
 MEDIA_COLUMNS_INDEX_SHA = "212533d0d0e71b0fbbb55311a12e58aa9569f691441de8797420d69a236ee2c2"
 MP4_MEDIA_REVISION = "d5ca80fade6bcc12386c10b187daca24ee6a41dd"
@@ -120,7 +122,7 @@ SCOPES = {
     ),
     "classic/t4": (
         *RGB16_SCOPES["classic/t4"][:2],
-        "713754825be488010c6900514dececa433da38a4db7305f84f27bce8c93212a8",
+        "fb6a0587e3072428d37976a3b1bce6316adb5738d0724b6dd7db286c1ef36d42",
         "66b8c8c4d6d2ec0bf6f0a48f49b2fc77685a7059f09168395db016afe6b18ab2",
     ),
 }
@@ -165,12 +167,19 @@ def manifest_scope(scope, revision=REVISION):
         return PAIRED_MANIFESTS[scope]
     if revision != REVISION and revision in (RGB16_REVISION, RESULTS_REVISION):
         return RGB16_SCOPES[scope]
+    if scope == "classic/t4" and revision in (
+        TASK_RESULTS_REVISION, MEDIA_COLUMNS_REVISION, MP4_MEDIA_REVISION
+    ):
+        return (*SCOPES[scope][:2],
+                "713754825be488010c6900514dececa433da38a4db7305f84f27bce8c93212a8",
+                SCOPES[scope][3])
     return SCOPES[scope]
 
 
 def known_public_release(revision, index_sha):
     return (revision, index_sha) in (
         (REVISION, INDEX_SHA),
+        (TASK_RESULTS_REVISION, TASK_RESULTS_INDEX_SHA),
         (MP4_MEDIA_REVISION, MEDIA_COLUMNS_INDEX_SHA),
         (MEDIA_COLUMNS_REVISION, MEDIA_COLUMNS_INDEX_SHA),
         (RGB16_REVISION, RGB16_INDEX_SHA),

@@ -174,7 +174,7 @@ def ordered_pngs(payload, expected_rgb_sha=None, *, compression=6):
     rgb_sha = digest.hexdigest()
     require(
         expected_rgb_sha is None or rgb_sha == expected_rgb_sha,
-        "Frame-list RGB differs from the verified Protocol X reader output",
+        "Frame-list RGB differs from the verified evaluation reader output",
     )
     return images, rgb_sha
 

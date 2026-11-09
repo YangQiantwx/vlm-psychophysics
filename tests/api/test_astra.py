@@ -44,6 +44,39 @@ class DirectTests(unittest.TestCase):
         a.write(out / 'frame-catalog.json', self.catalog)
         a.write(out / 'preflight.json', {'samples_sha256': self.plan['samples_sha256'], 'frame_catalog_sha256': a.sha(out / 'frame-catalog.json')})
 
+
+    def test_preflight_uses_selected_root_and_preserves_source_checks(self):
+        p, out = a.paths(self.root)
+        video = self.root / "datasets/classic-t1-t3-v0.4/T1/secret-left.mkv"
+        video.parent.mkdir(parents=True)
+        video.write_bytes(b"source-byte-fixture")
+        rollout = self.root / "runs/reproducibility" / a.OLD / "case/rollout.jsonl"
+        rollout.parent.mkdir(parents=True)
+        image_url = "data:image/png;base64," + base64.b64encode(self.frame.read_bytes()).decode()
+        rollout.write_text(json.dumps({
+            "type": "response_item",
+            "payload": {"output": [{"type": "input_image", "image_url": image_url}]},
+        }) + "\n")
+        rows = a.read(p / "samples.json")
+        rows[0].update(source_sha256=a.sha(video), historical_case_relative="case",
+                       historical_rollout_sha256=a.sha(rollout), historical_returned_images=1)
+        (p / "samples.json").write_text(json.dumps(rows))
+        self.plan["samples_sha256"] = a.sha(p / "samples.json")
+        self.save_plan()
+        (out / "frame-catalog.json").unlink()
+        (out / "preflight.json").unlink()
+        with patch.object(a, "frame_files", return_value=[self.frame] * 180), \
+                patch("urllib.request.urlopen") as network:
+            receipt = a.preflight(self.root)
+        network.assert_not_called()
+        self.assertEqual(receipt["status"], "PASS_OFFLINE_INPUT_PREFLIGHT")
+        self.assertEqual(receipt["frames"], 180)
+        self.assertEqual(receipt["model_calls"], 0)
+        self.assertEqual(len(a.read(out / "frame-catalog.json")[self.cid]), 180)
+        video.write_bytes(b"changed-source")
+        with self.assertRaisesRegex(ValueError, "Source bytes changed"):
+            a.preflight(self.root)
+
     def response(self):
         return {'status': 'completed', 'model': a.MODEL, 'service_tier': 'default', 'id': 'test',
                 'output': [{'type': 'reasoning', 'summary': []},

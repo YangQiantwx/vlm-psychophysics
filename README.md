@@ -2,6 +2,32 @@
 
 Five controlled visual judgments in Classic and Natural scenes. The release contains 25,440 MP4 videos and 25,440 corresponding static evaluation records. [Dataset](https://huggingface.co/datasets/DrQY/vlm-psychophysics) · [Stimulus viewer](https://vision-tasks.pages.dev/library/) · [Model results](https://vision-tasks.pages.dev/experiments/)
 
+## Download the dataset
+
+```bash
+hf download DrQY/vlm-psychophysics --repo-type dataset --local-dir ./dataset
+```
+
+Install the download tool once with `python -m pip install huggingface_hub`. This downloads the videos, static inputs, metadata, results and source assets.
+
+Download one task and domain, including its metadata and static inputs:
+
+```bash
+hf download DrQY/vlm-psychophysics --repo-type dataset \
+  --include "natural/t4/*" --local-dir ./dataset
+```
+
+Use `"natural/t4/videos/*"` for videos only, or another task path such as `"classic/t2/*"`. Add `--revision DATASET_COMMIT` to select a fixed release.
+
+For a single video, install this repository and run:
+
+```bash
+python run.py download --task t1-classic --input video \
+  --sample-id t1_2379890eb33c9a254afd --media-only --data-root ./dataset
+```
+
+The script checks file hashes and uses the dataset revision in `configs/models.json`. Omit `--sample-id` to download that task's videos.
+
 ## Model API quickstart
 
 Clone this repository and run the commands from its root. Start with one Classic T1 video. For the models below, `--model` selects the provider, media format and prompt handling. The client downloads the pinned public media as needed and checks its SHA-256.
@@ -93,7 +119,7 @@ Pass the same `--data-root ./dataset` to the API client to use that cache. Omit 
 
 The counts are trials. Static evaluation shares a call when ordered media, prompt and choices match. T5 has 192 single-event and 192 dual-event trials per domain, using centered 768 × 512 reference images that preserve the object's pixel size. Its 768 videos correspond to 425 unique static inputs.
 
-## Run the local Protocol X models
+## Run the local models
 
 Clone this repository and run the commands from its root. Use Linux, Python 3.12, RTX PRO 6000 Blackwell GPUs and CUDA Toolkit 13.0.3. Install into your existing environment:
 
@@ -123,7 +149,7 @@ Each output directory contains `results.csv`, `results.jsonl`, `summary.json`, `
 
 Static inputs use one shared ordered-image path: T1 has frames 0–3; T2/T3 use the event midpoint (`onset + 15`); T4 uses frames 0 and 179. T5 places the reference first, followed by one or two event midpoint images in chronological order. All T5 images are 768 × 512. Video input is the reference followed by all 180 frames. The frozen video and static prompts are preserved byte for byte. Four models evaluate 4,772 independent inputs across both T5 domains; single and dual cohorts retain their respective image limits of 2 and 3.
 
-Use `--input video` or `--input static` to select a modality, `--sample-id` for a scientific ID, or repeat `--task` for several scopes. `--config configs/current-x.json` selects the complete model recipe. Optional `--data-root`, `--model-root`, `--out` and `--gpus` select storage and GPU UUIDs. `run.py plan` shows the selection, `run.py download` fetches it, and `run.py doctor` checks the environment. Add `--media-only` to download data without weights, or `--offline` to use existing local files.
+Use `--input video` or `--input static` to select a modality, `--sample-id` for a scientific ID, or repeat `--task` for several scopes. `--config configs/models.json` selects the complete model recipe. Optional `--data-root`, `--model-root`, `--out` and `--gpus` select storage and GPU UUIDs. `run.py plan` shows the selection, `run.py download` fetches it, and `run.py doctor` checks the environment. Add `--media-only` to download data without weights, or `--offline` to use existing local files.
 
 ## RGB16 masters and MP4 equivalence
 
@@ -131,7 +157,7 @@ Each Classic T1–T4 trial keeps its `sample_id` and filename stem. Task metadat
 
 Published results use `results/t1/` through `results/t5/`. Each folder contains `results.csv.gz` and `counts.csv`, with the same columns for domain, model, modality, sample ID, ground truth and prediction. T5 also includes `pairs.csv.gz` for matched single/dual comparisons.
 
-The [verification index](https://huggingface.co/datasets/DrQY/vlm-psychophysics/blob/main/media-equivalence.json) binds the two encoded files for each of 12,336 Classic trials. It records exact equality of all 2,220,480 frames at the Protocol X RGB8 reader boundary, including frame order and reader metadata. The archive retains the original 16-bit values.
+The [verification index](https://huggingface.co/datasets/DrQY/vlm-psychophysics/blob/main/media-equivalence.json) binds the two encoded files for each of 12,336 Classic trials. It records exact equality of all 2,220,480 frames at the evaluation RGB8 reader boundary, including frame order and reader metadata. The archive retains the original 16-bit values.
 
 ```bash
 video=classic/t1/videos/T1_left_sf8_contrast1_trial01
@@ -140,7 +166,7 @@ hf download DrQY/vlm-psychophysics-rgb16-masters "$video.mkv" --repo-type datase
 python run.py download --task t1-classic --input video --sample-id t1_2379890eb33c9a254afd \
   --media-only --data-root ./dataset
 hf download DrQY/vlm-psychophysics media-equivalence.jsonl --repo-type dataset \
-  --revision b8365822134999df89526183070aca953d93cb2b --local-dir ./dataset
+  --revision 3a1668d2b7c090888144822273675629fef5c3ca --local-dir ./dataset
 python run.py verify-media --master-root ./masters --data-root ./dataset \
   --sample-id t1_2379890eb33c9a254afd
 ```
@@ -149,7 +175,7 @@ Run this in the local inference environment. The verifier checks file hashes, ev
 
 ## Regenerate a stimulus
 
-The videos are rendered at 768 × 512. Natural backgrounds are fitted to this canvas before the objects are placed. Protocol X reads the full canvas at all 180 time points. Gemma adds 16 rows at the bottom for its processor.
+The videos are rendered at 768 × 512. Natural backgrounds are fitted to this canvas before the objects are placed. The evaluation loader reads the full canvas at all 180 time points. Gemma adds 16 rows at the bottom for its processor.
 
 ```bash
 python run.py generate --task t2-classic --sample-id t2_000201cb3983b82df70a --out replay

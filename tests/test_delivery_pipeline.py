@@ -217,7 +217,7 @@ def test_t5_current_task_names_include_both_modalities():
 def test_resume_does_not_repeat_an_intent_and_archive_rescores(
     tmp_path, task, monkeypatch
 ):
-    config_path = runner.PROJECT / "configs/current-x.json"
+    config_path = runner.PROJECT / "configs/models.json"
     config = json.loads(config_path.read_bytes())
     if task == "T2":
         scope = "classic/t2"
@@ -358,7 +358,7 @@ def test_resume_does_not_repeat_an_intent_and_archive_rescores(
 
 
 def test_schedule_skips_occupied_and_incompatible_cards(monkeypatch):
-    config = json.loads((runner.PROJECT / "configs/current-x.json").read_bytes())
+    config = json.loads((runner.PROJECT / "configs/models.json").read_bytes())
     first, second, third = [
         f"GPU-{i:08d}-1111-1111-1111-111111111111" for i in range(3)
     ]

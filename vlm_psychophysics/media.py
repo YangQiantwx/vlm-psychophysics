@@ -1,4 +1,4 @@
-"""Lossless MP4 transport for the pixels delivered by the Protocol X reader."""
+"""Lossless MP4 transport for the pixels delivered by the evaluation reader."""
 
 from fractions import Fraction
 import hashlib
@@ -21,7 +21,7 @@ def x_pixels(reader, path):
         or metadata["total_num_frames"] != 180
         or metadata["fps"] != 60
     ):
-        raise ValueError(f"Unexpected Protocol X input at {path}")
+        raise ValueError(f"Unexpected evaluation input at {path}")
     return frames, metadata
 
 
@@ -92,7 +92,7 @@ def compare_x(reader, master, candidate, before=None):
     before, original_metadata = x_pixels(reader, master) if before is None else before
     after, metadata = x_pixels(reader, candidate)
     if original_metadata != metadata:
-        raise ValueError(f"Protocol X video metadata differs for {candidate}")
+        raise ValueError(f"Evaluation video metadata differs for {candidate}")
     if not np.array_equal(before, after):
         for i, (a, b) in enumerate(zip(before, after, strict=True)):
             if not np.array_equal(a, b):
@@ -126,7 +126,7 @@ def _verify_pair(job):
         raise ValueError(f"Media SHA-256 differs for {row['sample_id']}")
     proof = compare_x(x_reader(), master, mp4)
     if any(proof[key] != row[key] for key in proof):
-        raise ValueError(f"Protocol X receipt differs for {row['sample_id']}")
+        raise ValueError(f"Evaluation receipt differs for {row['sample_id']}")
     return proof["frames"]
 
 
@@ -169,7 +169,7 @@ def main(argv=None):
         with ProcessPoolExecutor(max_workers=min(args.workers, len(jobs))) as pool:
             frames = sum(pool.map(_verify_pair, jobs))
     print(json.dumps({
-        "status": "EXACT_PROTOCOL_X_RGB8",
+        "status": "EXACT_EVALUATION_RGB8",
         "verified_videos": len(jobs),
         "verified_frames": frames,
         "max_abs_code_difference": 0,

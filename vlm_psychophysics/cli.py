@@ -43,7 +43,7 @@ def parse_arguments(argv):
     selector.add_argument("--video", help="Published video name or a local video path.")
     selector.add_argument("--sample-id", help="Published video or static case ID.")
     parser.add_argument(
-        "--config", type=Path, default=runner.PROJECT / "configs/current-x.json"
+        "--config", type=Path, default=runner.PROJECT / "configs/models.json"
     )
     parser.add_argument(
         "--data-root", type=Path, help="SSD-backed dataset cache directory."

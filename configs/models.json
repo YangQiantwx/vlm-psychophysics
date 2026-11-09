@@ -2,7 +2,7 @@
   "schema": "vlm-psychophysics-run-config-v1",
   "dataset": {
     "repo_id": "DrQY/vlm-psychophysics",
-    "revision": "b8365822134999df89526183070aca953d93cb2b"
+    "revision": "3a1668d2b7c090888144822273675629fef5c3ca"
   },
   "models": {
     "cosmos": {
@@ -22,55 +22,43 @@
         "static/T5/equal-canvas-v1": "cosmos-static-t5-equal-canvas"
       },
       "equal_canvas_single_source_profile": {
-        "path": "plans/t5-paired-v1/equal-canvas/receipt-v2/cosmos-fourier1-profile.json",
         "sha256": "3c52d3287d010e4338305d1b4f837aeafcfba9bddd8e52f8d9d34eba11ddea99",
         "role": "sealed single-event equal-canvas source run"
       },
       "source_profiles": {
         "video/T1": {
-          "path": "plans/cosmos-x-full-20261028/fourier0-profile.json",
           "sha256": "ee7fe9305c8fc66be5e43917c19417ce1b6552cbd58dc4769c12d7bd693d8d98"
         },
         "video/T2": {
-          "path": "plans/cosmos-x-full-20261028/fourier0-profile.json",
           "sha256": "ee7fe9305c8fc66be5e43917c19417ce1b6552cbd58dc4769c12d7bd693d8d98"
         },
         "video/T3": {
-          "path": "plans/cosmos-x-full-20261028/fourier0-profile.json",
           "sha256": "ee7fe9305c8fc66be5e43917c19417ce1b6552cbd58dc4769c12d7bd693d8d98"
         },
         "video/T4": {
-          "path": "runs/reproducibility/t1-m05-t4-classic/t4-prep/t4_classic-cosmos-fourier0-profile.json",
           "sha256": "014f68cf87491fab07812e2f66b4eb3d455a05a4142efea3beccce1c273bbc37"
         },
         "static/T1": {
-          "path": "plans/static-x-t123-20261104/full/cosmos-fourier0-profile.json",
           "sha256": "afd61930cf89dea19d0c9a9a2deb120f6a5a96e02ec14459ac8b6772008f3c53"
         },
         "static/T2": {
-          "path": "plans/static-x-t123-20261104/full/cosmos-fourier0-profile.json",
           "sha256": "afd61930cf89dea19d0c9a9a2deb120f6a5a96e02ec14459ac8b6772008f3c53"
         },
         "static/T3": {
-          "path": "plans/static-x-t123-20261104/full/cosmos-fourier0-profile.json",
           "sha256": "afd61930cf89dea19d0c9a9a2deb120f6a5a96e02ec14459ac8b6772008f3c53"
         },
         "static/T4": {
-          "path": "plans/static-t4-strict-first-last/cosmos-fourier0-profile.json",
           "sha256": "db658d13abdac018f621f042682915298f8a42cb6a3effb03edec6f1164b9cc7"
         },
         "video/T5/equal-canvas-v1": {
-          "path": "plans/t5-paired-v1/equal-canvas/dual/cosmos-fourier0-profile.json",
           "sha256": "535adad3d6f6fd4cc55ee685280c619ce9c8fda3fcf4bcfa4cf9b4d5af5d5a82",
           "role": "sealed equal-canvas source run"
         },
         "static/T5/equal-canvas-v1": {
-          "path": "plans/t5-paired-v1/equal-canvas/dual/cosmos-fourier0-profile.json",
           "sha256": "535adad3d6f6fd4cc55ee685280c619ce9c8fda3fcf4bcfa4cf9b4d5af5d5a82",
           "role": "sealed equal-canvas source run"
         },
         "video/T5": {
-          "path": "plans/t5-paired-v1/execution/cosmos-radon0-both-profile.json",
           "sha256": "e9c0028424ad577b69e35ac72b384d5a4588569a40e0b3fd6e2677cb406ea851",
           "role": "sealed source run"
         }
@@ -93,55 +81,43 @@
         "static/T5/equal-canvas-v1": "nemo-static-t5-equal-canvas"
       },
       "equal_canvas_single_source_profile": {
-        "path": "plans/t5-paired-v1/equal-canvas/receipt-v2/nemo-fourier1-profile.json",
         "sha256": "b505b1c1818dc56bc8935969ce78e2c212235f0fa7e3a8bb2f97ba4b4491a0fb",
         "role": "sealed single-event equal-canvas source run"
       },
       "source_profiles": {
         "video/T1": {
-          "path": "plans/nemo-x-full-20261029/fourier0-full-segment0-profile.json",
           "sha256": "0dc0dee33cc8920c77722ce7747f43cc4498f3f6e6c57a47d2ba3f77b2e0d092"
         },
         "video/T2": {
-          "path": "plans/nemo-x-full-20261029/fourier0-full-segment0-profile.json",
           "sha256": "0dc0dee33cc8920c77722ce7747f43cc4498f3f6e6c57a47d2ba3f77b2e0d092"
         },
         "video/T3": {
-          "path": "plans/nemo-x-full-20261029/fourier0-full-segment0-profile.json",
           "sha256": "0dc0dee33cc8920c77722ce7747f43cc4498f3f6e6c57a47d2ba3f77b2e0d092"
         },
         "video/T4": {
-          "path": "runs/reproducibility/t1-m05-t4-classic/t4-prep/t4_classic-nemo-fourier0-profile.json",
           "sha256": "fafe8509ad23d0fd302bd3344f1410bade09fd6b2be009ea08b00707a0bbfe1f"
         },
         "static/T1": {
-          "path": "plans/static-x-t123-20261104/full/nemo-fourier0-profile.json",
           "sha256": "0503e8240dcf908ed8408051b5fe1d2ca538eb2daa507c6c258ff00b745704dd"
         },
         "static/T2": {
-          "path": "plans/static-x-t123-20261104/full/nemo-fourier0-profile.json",
           "sha256": "0503e8240dcf908ed8408051b5fe1d2ca538eb2daa507c6c258ff00b745704dd"
         },
         "static/T3": {
-          "path": "plans/static-x-t123-20261104/full/nemo-fourier0-profile.json",
           "sha256": "0503e8240dcf908ed8408051b5fe1d2ca538eb2daa507c6c258ff00b745704dd"
         },
         "static/T4": {
-          "path": "plans/static-t4-strict-first-last/nemo-fourier0-profile.json",
           "sha256": "5d5701428d2e39515e63170765da7e5d34e944acfccd8f65ed4b7d7d56d847b2"
         },
         "video/T5/equal-canvas-v1": {
-          "path": "plans/t5-paired-v1/equal-canvas/dual/nemo-fourier1-profile.json",
           "sha256": "0674e524c155a72c932c1d53092337c921be5b07e9a2f9093f8200b8888cae3d",
           "role": "sealed equal-canvas source run"
         },
         "static/T5/equal-canvas-v1": {
-          "path": "plans/t5-paired-v1/equal-canvas/dual/nemo-fourier1-profile.json",
           "sha256": "0674e524c155a72c932c1d53092337c921be5b07e9a2f9093f8200b8888cae3d",
           "role": "sealed equal-canvas source run"
         },
         "video/T5": {
-          "path": "plans/t5-paired-v1/execution/nemo-fourier1-both-profile.json",
           "sha256": "2399cb9b7a230aa25fbc94f46109366abbf3846efad14be0a71b9e621ec6a4f1",
           "role": "sealed source run"
         }
@@ -164,55 +140,43 @@
         "static/T5/equal-canvas-v1": "qwen-static-t5-equal-canvas"
       },
       "equal_canvas_single_source_profile": {
-        "path": "plans/t5-paired-v1/equal-canvas/receipt-v2/qwen-fourier1-profile.json",
         "sha256": "469bedbdb938787289b4edbce1b1a7bcf205f1be0adde05794bb69a1affff098",
         "role": "sealed single-event equal-canvas source run"
       },
       "source_profiles": {
         "video/T1": {
-          "path": "plans/qwen-x-remaining-t13-20261030/fourier0-full-T1-segment0-profile.json",
           "sha256": "1390616613b7ad04048141a298fc10f6b9a70e4082a3e051b32d4131506a87d9"
         },
         "video/T2": {
-          "path": "plans/qwen-x-remaining-t13-20261030/fourier0-full-T3-segment0-profile.json",
           "sha256": "8591774a65f458a0e576de151ea8cc99931cc2e9da6d37128c48f12fb0fba490"
         },
         "video/T3": {
-          "path": "plans/qwen-x-remaining-t13-20261030/fourier0-full-T3-segment0-profile.json",
           "sha256": "8591774a65f458a0e576de151ea8cc99931cc2e9da6d37128c48f12fb0fba490"
         },
         "video/T4": {
-          "path": "runs/reproducibility/t1-m05-t4-classic/t4-prep/t4_classic-qwen-fourier0-profile.json",
           "sha256": "927899951e7d0f4962be231348987740bdf11c64ac1f8690bd8b9f6dab86328b"
         },
         "static/T1": {
-          "path": "plans/static-x-t123-20261104/full/qwen_T1-fourier0-profile.json",
           "sha256": "431b3ef05eb8acb611ac59c986859d6d1a11ee3b0252d10b10adf2b28073d85e"
         },
         "static/T2": {
-          "path": "plans/static-x-t123-20261104/full/qwen_T23-fourier0-profile.json",
           "sha256": "8833119f50dd899c5eeee5f19c0fca3b5d344506b5c00d00425847cd476d897a"
         },
         "static/T3": {
-          "path": "plans/static-x-t123-20261104/full/qwen_T23-fourier0-profile.json",
           "sha256": "8833119f50dd899c5eeee5f19c0fca3b5d344506b5c00d00425847cd476d897a"
         },
         "static/T4": {
-          "path": "plans/static-t4-strict-first-last/qwen-fourier0-profile.json",
           "sha256": "56300f545820809ba5febe850e7e5a40fb84cb6cc22ea4967f8565462d91f60f"
         },
         "video/T5/equal-canvas-v1": {
-          "path": "plans/t5-paired-v1/equal-canvas/dual/qwen-fourier0-profile.json",
           "sha256": "f1f93cbe9a5a7960a4f6676d5b50c8c9cd84977eb836e384b8055eec85651e50",
           "role": "sealed equal-canvas source run"
         },
         "static/T5/equal-canvas-v1": {
-          "path": "plans/t5-paired-v1/equal-canvas/dual/qwen-fourier0-profile.json",
           "sha256": "f1f93cbe9a5a7960a4f6676d5b50c8c9cd84977eb836e384b8055eec85651e50",
           "role": "sealed equal-canvas source run"
         },
         "video/T5": {
-          "path": "plans/t5-paired-v1/execution/qwen-fourier1-both-profile.json",
           "sha256": "390fcf1ef3dd66944829dd4db868d191652ce55959214f9a4f55a9ea48bc27bd",
           "role": "sealed source run"
         }
@@ -235,55 +199,43 @@
         "static/T5/equal-canvas-v1": "gemma-static-t5-equal-canvas"
       },
       "equal_canvas_single_source_profile": {
-        "path": "plans/t5-paired-v1/equal-canvas/receipt-v2/gemma-fourier0-profile.json",
         "sha256": "d9bc96017244415bbdf5fe7dfa4c2bf602af65c6f65d71cad1ad0f4459ef4d77",
         "role": "sealed single-event equal-canvas source run"
       },
       "source_profiles": {
         "video/T1": {
-          "path": "plans/gemma-x-fourier-takeover-20261031/fourier0-full-segment0-profile.json",
           "sha256": "43f1156051bec2f11ad238b1e8751616e86eebbb5b593fcae05f4d7d95767e09"
         },
         "video/T2": {
-          "path": "plans/gemma-x-fourier-takeover-20261031/fourier0-full-segment0-profile.json",
           "sha256": "43f1156051bec2f11ad238b1e8751616e86eebbb5b593fcae05f4d7d95767e09"
         },
         "video/T3": {
-          "path": "plans/gemma-x-fourier-takeover-20261031/fourier0-full-segment0-profile.json",
           "sha256": "43f1156051bec2f11ad238b1e8751616e86eebbb5b593fcae05f4d7d95767e09"
         },
         "video/T4": {
-          "path": "runs/reproducibility/t1-m05-t4-classic/t4-prep/t4_classic-gemma-fourier0-profile.json",
           "sha256": "d403e28a5edb5e5e47a0533b54c2bb426f9e8bb2058a5a10e6a5331253981c28"
         },
         "static/T1": {
-          "path": "plans/static-x-t123-20261104/full/gemma-fourier0-profile.json",
           "sha256": "d2d5fca72c3bd38182b8522c78bf0335a1d34c7160afbaf9f8f88646c6e2a9c1"
         },
         "static/T2": {
-          "path": "plans/static-x-t123-20261104/full/gemma-fourier0-profile.json",
           "sha256": "d2d5fca72c3bd38182b8522c78bf0335a1d34c7160afbaf9f8f88646c6e2a9c1"
         },
         "static/T3": {
-          "path": "plans/static-x-t123-20261104/full/gemma-fourier0-profile.json",
           "sha256": "d2d5fca72c3bd38182b8522c78bf0335a1d34c7160afbaf9f8f88646c6e2a9c1"
         },
         "static/T4": {
-          "path": "plans/static-t4-strict-first-last/gemma-fourier0-profile.json",
           "sha256": "c25f0f821e17930a081ce696c4d5058fe2b95411be0bd48ffde252aeba8df541"
         },
         "video/T5/equal-canvas-v1": {
-          "path": "plans/t5-paired-v1/equal-canvas/dual/gemma-fourier0-profile.json",
           "sha256": "e65096ca07e3dc7321a7a900a90be752e42f153ab4c243377c717106375eff45",
           "role": "sealed equal-canvas source run"
         },
         "static/T5/equal-canvas-v1": {
-          "path": "plans/t5-paired-v1/equal-canvas/dual/gemma-fourier0-profile.json",
           "sha256": "e65096ca07e3dc7321a7a900a90be752e42f153ab4c243377c717106375eff45",
           "role": "sealed equal-canvas source run"
         },
         "video/T5": {
-          "path": "plans/t5-paired-v1/execution/gemma-fourier0-both-profile.json",
           "sha256": "5f4e173ccb017f4e6401a846ab85d15d42ef5ad75eb78eb05227707ca638051f",
           "role": "sealed source run"
         }
@@ -513,7 +465,7 @@
             "hidden_size": 1280,
             "image_size": 224,
             "initializer_range": 0.02,
-            "layer_norm_eps": 0.000001,
+            "layer_norm_eps": 1e-06,
             "layerscale_value": 1.0,
             "max_img_size": 2048,
             "max_num_patches": 13312,
@@ -657,7 +609,7 @@
             "hidden_size": 1280,
             "image_size": 224,
             "initializer_range": 0.02,
-            "layer_norm_eps": 0.000001,
+            "layer_norm_eps": 1e-06,
             "layerscale_value": 1.0,
             "max_img_size": 2048,
             "max_num_patches": 13312,

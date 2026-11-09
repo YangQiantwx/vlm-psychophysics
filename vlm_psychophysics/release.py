@@ -6,7 +6,7 @@ from pathlib import PurePosixPath
 REPO_ID = "DrQY/vlm-psychophysics"
 
 
-REVISION = "b8365822134999df89526183070aca953d93cb2b"
+REVISION = "3a1668d2b7c090888144822273675629fef5c3ca"
 
 
 SCOPES = tuple(
