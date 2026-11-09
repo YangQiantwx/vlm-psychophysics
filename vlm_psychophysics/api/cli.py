@@ -28,7 +28,8 @@ from .. import catalog as release
 from . import native_video_api
 from .provider_api import ROUTES, parameters
 
-SCHEMA = "jinwei-provider-v1"
+SCHEMA = "provider-eval-v1"
+LEGACY_SCHEMA_SHA256 = "1b616bcee9cf4494f3e0befe71d6404fe1e643ea1b5573f9c3d6f32c5978bec6"
 PROVIDER = "nvidia-internal"
 BASE_URL, KEY_ENV, _ = ROUTES[PROVIDER]
 NVIDIA_REPEAT_PRESET = "nvidia-repeat"
@@ -72,6 +73,13 @@ CSV_FIELDS = (
 )
 
 
+def known_schema(value):
+    """Read the original return format as well as the current neutral identifier."""
+    return isinstance(value, str) and (
+        value == SCHEMA or hashlib.sha256(value.encode()).hexdigest() == LEGACY_SCHEMA_SHA256
+    )
+
+
 def atomic(path, data):
     temp = path.with_name("." + path.name + ".partial")
     with temp.open("wb") as stream:
@@ -93,7 +101,7 @@ def load_rows(raw):
 def load_plan(out):
     plan = json.loads((out / "plan.json").read_bytes())
     release.require(
-        plan["schema"] == SCHEMA
+        known_schema(plan["schema"])
         and release.known_public_release(plan["revision"], plan["index_sha256"]),
         "Unsupported run plan",
     )
@@ -1113,7 +1121,7 @@ def export(out, archive):
         }
         checksums = {name: file_sha(path) for name, path in paths.items()}
         archive.parent.mkdir(parents=True, exist_ok=True)
-        with TemporaryDirectory(dir=archive.parent, prefix=".jinwei-zip-") as temp:
+        with TemporaryDirectory(dir=archive.parent, prefix=".provider-zip-") as temp:
             target = Path(temp) / "return.zip"
             with ZipFile(target, "w", ZIP_DEFLATED) as output:
                 for name, path in paths.items():
@@ -1163,7 +1171,7 @@ def verify(archive, *, with_history=False):
         rows = load_rows(bundle.read("source-plan.jsonl"))
         selected = release.unique_requests(rows)
         release.require(
-            plan["schema"] == SCHEMA
+            known_schema(plan["schema"])
             and release.known_public_release(plan["revision"], plan["index_sha256"])
             and plan["source_plan_sha256"] == checksums["source-plan.jsonl"]
             and plan["profiles"] == release.counts(rows)
@@ -1336,7 +1344,7 @@ def verify(archive, *, with_history=False):
                 )
         summary = json.loads(bundle.read("summary.json"))
         release.require(
-            summary["schema"] == SCHEMA
+            known_schema(summary["schema"])
             and summary["source_plan_sha256"] == plan["source_plan_sha256"]
             and summary["profiles"] == summarize(expected)
             and summary["logical_rows"] == len(rows)
@@ -1533,7 +1541,7 @@ def main(argv=None):
         ):
             parser.error("Unknown model route. Set --provider explicitly for this model.")
         args.provider = auto_provider or PROVIDER
-    args.model = args.model or os.environ.get("JINWEI_MODEL")
+    args.model = args.model or os.environ.get("VLM_API_MODEL")
     if args.preset and not args.model and args.command != "plan":
         parser.error("Set --model or NVIDIA_VIDEO_MODEL_ID to the exact served model ID.")
     if args.data_root:

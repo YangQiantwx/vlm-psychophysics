@@ -14,7 +14,7 @@ import av
 import numpy as np
 
 from .generators import classic_events as classic_t23
-from . import catalog as jinwei_release
+from . import catalog as dataset_catalog
 from .media import opencv_rgb8, write_rgb_mp4
 from .release import REPO_ID, REVISION
 from .generators import events as t5_paired
@@ -296,7 +296,7 @@ def generate(task, sample_ids, output, data_root, revision=REVISION, workers=1):
     for task in tasks:
         scope = SCOPES[task]
         with data.file(
-            f"{scope}/metadata.jsonl", jinwei_release.manifest_scope(scope, revision)[2]
+            f"{scope}/metadata.jsonl", dataset_catalog.manifest_scope(scope, revision)[2]
         ).open() as source:
             for row in map(json.loads, source):
                 matching = {row["sample_id"], row.get("legacy_sample_id")} & wanted

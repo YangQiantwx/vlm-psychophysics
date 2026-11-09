@@ -626,7 +626,7 @@ def verify_archive(path):
             run["repo_id"] != data.REPO_ID
             or config["dataset"]
             != {"repo_id": run["repo_id"], "revision": run["revision"]}
-            or not data.jinwei_release.known_public_release(
+            or not data.dataset_catalog.known_public_release(
                 run["revision"], run["index_sha256"]
             )
         ):
@@ -634,10 +634,10 @@ def verify_archive(path):
         known_manifests = {
             (f"{scope}/{suffix}", values[index], values[0])
             for scope, values in [
-                *data.jinwei_release.SCOPES.items(),
-                *data.jinwei_release.RGB16_SCOPES.items(),
-                *data.jinwei_release.PAIRED_MANIFESTS.items(),
-                *data.jinwei_release.PREVIOUS_MANIFESTS.items(),
+                *data.dataset_catalog.SCOPES.items(),
+                *data.dataset_catalog.RGB16_SCOPES.items(),
+                *data.dataset_catalog.PAIRED_MANIFESTS.items(),
+                *data.dataset_catalog.PREVIOUS_MANIFESTS.items(),
             ]
             for suffix, index in (("metadata.jsonl", 2), ("static/metadata.jsonl", 3))
         }

@@ -61,7 +61,7 @@ def still(parent):
 
 
 def test_static_deduplicates_exact_images_and_preserves_aliases(monkeypatch):
-    monkeypatch.setitem(data.jinwei_release.SCOPES, "classic/t2", (2, 1, "", ""))
+    monkeypatch.setitem(data.dataset_catalog.SCOPES, "classic/t2", (2, 1, "", ""))
     parents = {"a": trial("a"), "b": trial("b", index=2)}
     parents["b"]["parameters"]["onset_frame"] = 19
     stills = {key: still(row) for key, row in parents.items()}
@@ -90,7 +90,7 @@ def test_static_deduplicates_exact_images_and_preserves_aliases(monkeypatch):
 )
 def test_ordered_static_frames_and_prompt_bytes(task, frames, monkeypatch, tmp_path):
     scope = f"natural/{task.lower()}"
-    monkeypatch.setitem(data.jinwei_release.SCOPES, scope, (1, 1, "", ""))
+    monkeypatch.setitem(data.dataset_catalog.SCOPES, scope, (1, 1, "", ""))
     parent = {
         **trial("a"),
         "task": task,
@@ -244,11 +244,11 @@ def test_resume_does_not_repeat_an_intent_and_archive_rescores(
         )
         correct, invalid, wrong = " YES\n", "YES.", "NO"
     base = paired_inputs.source_scope(scope)
-    count, _, sha, _ = data.jinwei_release.manifest_scope(base)
+    count, _, sha, _ = data.dataset_catalog.manifest_scope(base)
     manifest = {
         "repo_id": data.REPO_ID,
         "revision": data.REVISION,
-        "index_sha256": data.jinwei_release.INDEX_SHA,
+        "index_sha256": data.dataset_catalog.INDEX_SHA,
         "manifests": [
             {"path": f"{base}/metadata.jsonl", "sha256": sha, "rows": count},
         ],

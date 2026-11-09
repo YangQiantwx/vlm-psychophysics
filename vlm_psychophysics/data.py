@@ -13,7 +13,7 @@ import shutil
 from subprocess import check_output
 from tempfile import NamedTemporaryFile
 
-from . import release as current_release, catalog as jinwei_release
+from . import release as current_release, catalog as dataset_catalog
 from . import paired_inputs
 
 
@@ -90,7 +90,7 @@ def fetch_release_file(
 
 
 def read_manifest(root, scope, entry, mode, *, offline):
-    count, _, video_sha, static_sha = jinwei_release.manifest_scope(scope)
+    count, _, video_sha, static_sha = dataset_catalog.manifest_scope(scope)
     key = "metadata" if mode == "video" else "static_metadata"
     count_key = "media_count" if mode == "video" else "static_trial_count"
     sha = video_sha if mode == "video" else static_sha
@@ -379,7 +379,7 @@ def static_cases(
             )
         )
     if expected_count is None:
-        expected_count = jinwei_release.manifest_scope(scope)[1]
+        expected_count = dataset_catalog.manifest_scope(scope)[1]
     if len(cases) != expected_count:
         raise ValueError(f"Independent static input count differs in {scope}")
     return cases
@@ -504,7 +504,7 @@ def build_selection(
 ):
     """Return the portable evidence manifest and any local source file override."""
     index_path = fetch_release_file(
-        root, "dataset-index.json", jinwei_release.INDEX_SHA, offline=offline
+        root, "dataset-index.json", dataset_catalog.INDEX_SHA, offline=offline
     )
     entries = json.loads(index_path.read_bytes())["scopes"]
 
@@ -585,7 +585,7 @@ def build_selection(
     return {
         "repo_id": REPO_ID,
         "revision": REVISION,
-        "index_sha256": jinwei_release.INDEX_SHA,
+        "index_sha256": dataset_catalog.INDEX_SHA,
         "manifests": [item for _, _, _, provenance in inputs for item in provenance],
         "cases": cases,
     }, files
