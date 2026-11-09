@@ -98,3 +98,68 @@ The comparison reports raw-text changes and label flips separately. It checks ma
 Meta Muse Wonder documents a native video input with a sampling-rate field. Its published schema leaves the supported fps range and resize behavior unspecified, so it remains a candidate for a separate pilot. ByteDance's video path caps its requested rate at 5 fps and compresses frames for processing. [Meta video schema](https://dev.meta.ai/docs/api-reference/responses/schemas#input-video-content) · [ByteDance fps range](https://docs.volcengine.com/docs/82379/1494384?lang=en) · [BytePlus frame preprocessing](https://docs.byteplus.com/en/docs/modelark/video-understanding)
 
 The output directory contains `results.csv`, `results.jsonl`, `config.json`, `attempts.jsonl` and `summary.json`. Return `return.zip` and `return.zip.sha256`. `python run.py api verify --archive PATH/return.zip` verifies the package and recomputes the labels and scores from the saved raw responses. Select the legacy DashScope sampled route explicitly with `--provider qwen --sampled-video`. [Historical Model API protocol](https://github.com/YangQiantwx/vlm-psychophysics/blob/8dcff9eac165ca9c36ca19fed72470ce26cda96c/EXPERIMENT_PLAN.md#model-api)
+
+### Python SDK examples
+
+From the repository root, install the optional client with `python -m pip install -e '.[download]' openai`. Run this setup and then one of the examples. It loads the exact question and verifies the media for the same Classic T1 trial as the quickstart.
+
+```python
+from openai import OpenAI
+
+from vlm_psychophysics import catalog
+
+trial = next(
+    row for row in catalog.public_plan(scopes=["classic/t1"], modality="video")
+    if row["sample_id"] == "t1_2379890eb33c9a254afd"
+)
+media, = trial["media"]
+video = catalog.checked(catalog.public_media(media), media["sha256"], media["path"])
+```
+
+#### NVIDIA native video
+
+Set `NVIDIA_API_KEY` and `NVIDIA_VIDEO_MODEL_ID`. The Chat Completions request sends the MP4 inline. [NVIDIA video inputs](https://docs.nvidia.com/nim/large-language-models/latest/advanced-use-cases/multimodal-input.html#send-a-video-request)
+
+```python
+import base64
+import os
+
+client = OpenAI(
+    base_url="https://inference-api.nvidia.com/v1",
+    api_key=os.environ["NVIDIA_API_KEY"],
+    max_retries=0,
+)
+video_url = "data:video/mp4;base64," + base64.b64encode(video).decode("ascii")
+response = client.chat.completions.create(
+    model=os.environ["NVIDIA_VIDEO_MODEL_ID"],
+    messages=[{"role": "user", "content": [
+        {"type": "video_url", "video_url": {"url": video_url}},
+        {"type": "text", "text": trial["prompt"]},
+    ]}],
+    temperature=0, top_p=1, seed=0, n=1, max_completion_tokens=4096, stream=False,
+)
+print(response.choices[0].message.content)
+```
+
+#### OpenAI ordered frames
+
+Set `OPENAI_API_KEY`. The frame helper checks all 180 timestamps and preserves the decoded RGB values in lossless PNGs. Add one `input_image` item per frame, then the timing cue and the exact question. [OpenAI Responses image inputs](https://developers.openai.com/api/docs/guides/images-vision?api-mode=responses)
+
+```python
+from vlm_psychophysics.api.cli import ORDERED_IMAGE_VIDEO_PROMPT_PREFIX
+from vlm_psychophysics.api.native_video_api import PNG_COMPRESSION, ordered_pngs
+
+frames, _ = ordered_pngs(
+    video, media.get("processor_input_rgb_sha256"), compression=PNG_COMPRESSION["astra"]
+)
+content = [{"type": "input_image", "image_url": frame, "detail": "original"} for frame in frames]
+content.append({"type": "input_text", "text": ORDERED_IMAGE_VIDEO_PROMPT_PREFIX + trial["prompt"]})
+response = OpenAI(max_retries=0).responses.create(
+    model="gpt-6-astra", input=[{"role": "user", "content": content}],
+    reasoning={"effort": "low"}, max_output_tokens=4096,
+    tools=[], tool_choice="none", store=False, stream=False, truncation="disabled",
+)
+print(response.output_text)
+```
+
+Use `run.py api evaluate` to save the raw response and a return archive.

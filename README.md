@@ -20,7 +20,7 @@ python run.py api evaluate --model gpt-6-astra \
   --out outputs/t1-astra-ordered-one --max-requests 1 --reasoning-effort low --execute
 ```
 
-The Responses API receives 180 ordered lossless PNG images at `detail: original`. The request text starts with “The video is provided as 180 consecutive frames in chronological order at 60 fps.” The published task prompt follows verbatim. [GPT-6 Astra](https://developers.openai.com/api/docs/models/gpt-6-astra) · [Responses image inputs](https://developers.openai.com/api/docs/guides/images-vision?api-mode=responses)
+The Responses API receives 180 ordered lossless PNG images at `detail: original`. The request text starts with “The video is provided as 180 consecutive frames in chronological order at 60 fps.” The published task prompt follows verbatim. [GPT-6 Astra](https://developers.openai.com/api/docs/models/gpt-6-astra) · [Python SDK example](EXPERIMENT_PLAN.md#openai-ordered-frames) · [Responses image inputs](https://developers.openai.com/api/docs/guides/images-vision?api-mode=responses)
 
 ### NVIDIA Inference Gateway
 
@@ -32,7 +32,7 @@ python run.py api evaluate --preset nvidia-repeat \
   --out outputs/t1-nvidia-one --max-requests 1 --execute
 ```
 
-The preset sends the published MP4 and prompt with `temperature=0`, `top_p=1`, `seed=0`, and one answer per trial. Send back `return.zip` and `return.zip.sha256`. [Repeat a trial, select a range, or request all frames](EXPERIMENT_PLAN.md#model-api)
+The preset sends the published MP4 and prompt with `temperature=0`, `top_p=1`, `seed=0`, and one answer per trial. Send back `return.zip` and `return.zip.sha256`. [Python SDK example](EXPERIMENT_PLAN.md#nvidia-native-video) · [Run a range or repeat a trial](EXPERIMENT_PLAN.md#model-api)
 
 ### Qwen3.8-Max
 
