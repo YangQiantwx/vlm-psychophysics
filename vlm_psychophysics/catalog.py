@@ -20,7 +20,9 @@ PREVIOUS_REVISION = "13e9cf67bb0b63be562ed7b7a48668fa7b7bca22"
 PREVIOUS_INDEX_SHA = "47611f9b112b406d7b585eade36ab260491fde2dce341ece13e3ad12b893c7f7"
 TASK_RESULTS_REVISION = "b8365822134999df89526183070aca953d93cb2b"
 TASK_RESULTS_INDEX_SHA = "f4e9d369ca5f75a505eff8f7b8a8b4e0cd5b73945d10f312c02e8eadaf117c78"
-INDEX_SHA = "22ff74070bb8d6a07a846bd0d3e5dad35162369714a872e4286a35f7fe15345b"
+PORTABLE_REVISION = "3a1668d2b7c090888144822273675629fef5c3ca"
+PORTABLE_INDEX_SHA = "22ff74070bb8d6a07a846bd0d3e5dad35162369714a872e4286a35f7fe15345b"
+INDEX_SHA = "c19332bd1f6b1bea3c29e349759de9a01973774a70f5ec3c438d210c7a3220be"
 MEDIA_COLUMNS_REVISION = "1a1f9921d6428b9d4b2a95c77f7ba4255ed13ac3"
 MEDIA_COLUMNS_INDEX_SHA = "212533d0d0e71b0fbbb55311a12e58aa9569f691441de8797420d69a236ee2c2"
 MP4_MEDIA_REVISION = "d5ca80fade6bcc12386c10b187daca24ee6a41dd"
@@ -125,6 +127,16 @@ SCOPES = {
         "fb6a0587e3072428d37976a3b1bce6316adb5738d0724b6dd7db286c1ef36d42",
         "66b8c8c4d6d2ec0bf6f0a48f49b2fc77685a7059f09168395db016afe6b18ab2",
     ),
+    "classic/t5": (
+        *RGB16_SCOPES["classic/t5"][:2],
+        "aba9924d17b48c732755cd0cda750c700bd4e32a282156a151cb39b6f0061177",
+        "2a078649bf04945cbf468010cffaf98f6447ac56d8c073acd4b9afdb61b2ed05",
+    ),
+    "natural/t5": (
+        *RGB16_SCOPES["natural/t5"][:2],
+        "f6adfe3166409e27591c1b408df37f74de3120c68d9e81ef9de57aefbc26d6b5",
+        "c62b76e57b981ae80e01eb4c1a30eb4b89d4a1cfb4b36d96dc362d21e8975073",
+    ),
 }
 PREVIOUS_MANIFESTS = {
     "classic/t4": (
@@ -167,6 +179,11 @@ def manifest_scope(scope, revision=REVISION):
         return PAIRED_MANIFESTS[scope]
     if revision != REVISION and revision in (RGB16_REVISION, RESULTS_REVISION):
         return RGB16_SCOPES[scope]
+    if scope in ("classic/t5", "natural/t5") and revision in (
+        PORTABLE_REVISION, TASK_RESULTS_REVISION, MEDIA_COLUMNS_REVISION,
+        MP4_MEDIA_REVISION,
+    ):
+        return RGB16_SCOPES[scope]
     if scope == "classic/t4" and revision in (
         TASK_RESULTS_REVISION, MEDIA_COLUMNS_REVISION, MP4_MEDIA_REVISION
     ):
@@ -179,6 +196,7 @@ def manifest_scope(scope, revision=REVISION):
 def known_public_release(revision, index_sha):
     return (revision, index_sha) in (
         (REVISION, INDEX_SHA),
+        (PORTABLE_REVISION, PORTABLE_INDEX_SHA),
         (TASK_RESULTS_REVISION, TASK_RESULTS_INDEX_SHA),
         (MP4_MEDIA_REVISION, MEDIA_COLUMNS_INDEX_SHA),
         (MEDIA_COLUMNS_REVISION, MEDIA_COLUMNS_INDEX_SHA),

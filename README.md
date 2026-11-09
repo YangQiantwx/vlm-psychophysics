@@ -28,6 +28,8 @@ python run.py download --task t1-classic --input video \
 
 The script checks file hashes and uses the dataset revision in `configs/models.json`. Omit `--sample-id` to download that task's videos.
 
+For T5, each static folder shares its video's name and contains reference.png plus one or two event-frame PNGs. The same reference is used for video evaluation. The manifests specify the reference first and the event images in chronological order.
+
 ## Model API quickstart
 
 Clone this repository and run the commands from its root. Start with one Classic T1 video. For the models below, `--model` selects the provider, media format and prompt handling. The client downloads the pinned public media as needed and checks its SHA-256.
@@ -166,7 +168,7 @@ hf download DrQY/vlm-psychophysics-rgb16-masters "$video.mkv" --repo-type datase
 python run.py download --task t1-classic --input video --sample-id t1_2379890eb33c9a254afd \
   --media-only --data-root ./dataset
 hf download DrQY/vlm-psychophysics media-equivalence.jsonl --repo-type dataset \
-  --revision 3a1668d2b7c090888144822273675629fef5c3ca --local-dir ./dataset
+  --revision 7d8c81f71c6a37b98d1d7a09778e854970641b97 --local-dir ./dataset
 python run.py verify-media --master-root ./masters --data-root ./dataset \
   --sample-id t1_2379890eb33c9a254afd
 ```
