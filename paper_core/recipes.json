@@ -1,0 +1,1173 @@
+{
+  "molmo": {
+    "checkpoint": {
+      "model": "allenai/Molmo2-8B",
+      "revision": "e28fa28597e5ec5e0cca2201dd8ab33d48bc4a1b",
+      "stored_dtype": "float32",
+      "weights": {
+        "model-00001-of-00008.safetensors": {
+          "bytes": 4974567112,
+          "sha256": "0e36bb1dd408569baa883ebdbff142d6d71ad9b2bcdb335c2d7c103ae8184aad"
+        },
+        "model-00002-of-00008.safetensors": {
+          "bytes": 4630720272,
+          "sha256": "a148abecde4269be5b71362d1e2b8d8b7f3b59a8761565d3ca8f1472bf1d463b"
+        },
+        "model-00003-of-00008.safetensors": {
+          "bytes": 4630720296,
+          "sha256": "7d4570c4a93212a62649fc205a4c1b894b58d69b32419686547be0f172a056c8"
+        },
+        "model-00004-of-00008.safetensors": {
+          "bytes": 4630720320,
+          "sha256": "3c572605ad05b34b25d9ecd0f0af3bc7af9f59f2201c2425e1417841a0b82a0c"
+        },
+        "model-00005-of-00008.safetensors": {
+          "bytes": 4630720320,
+          "sha256": "844a285fc8c07677c48cd2066d2e6ed753eaa74bf2934dc905fa5e2f0ac1c0cf"
+        },
+        "model-00006-of-00008.safetensors": {
+          "bytes": 4630720320,
+          "sha256": "7537a5af433d4ce6373b065b96d8504b530875ef1b9becb3c558066f45c35499"
+        },
+        "model-00007-of-00008.safetensors": {
+          "bytes": 4029422080,
+          "sha256": "fe4373ca73e9951d3f11a38a0344cc7772d7ead0152b43584779f4f728306f11"
+        },
+        "model-00008-of-00008.safetensors": {
+          "bytes": 2489319552,
+          "sha256": "0c2b1c96b4e41af8c8729e4d97e0f9d5039bec6f2fa39808bc7cfcb4b0ca55e0"
+        }
+      }
+    },
+    "dataset_index_sha256": "dde07c56f69ba3668fd01a495b5ba6442f45e71ae5c90e656453347322393300",
+    "dataset_revision": "f562d61b4703b744c2f00f66a7ebabeacc4e0a0a",
+    "flags": [
+      "--fast-prefix",
+      "--flash-prefill",
+      "--reuse-frames"
+    ],
+    "package_versions": {
+      "numpy": "2.3.5",
+      "torch": "2.14.0",
+      "transformers": "5.17.0",
+      "vllm": "0.33.0rc1.dev175+gf4fd1ab68"
+    },
+    "prefix_attention": {
+      "kernel": "dcd130cc5b29c490e7668c113935de08b071caf96a984e2dcb95a316233d3ddf",
+      "mask": "bfacd3f59de62c2aadc3f1ec8c3041d402344bcb352ba44bcaf75284e26a8b1a",
+      "source": "b8c1dbe47e9c671fc85bf147495fdd8747d9bd17f65c672db67aed5f6d160069"
+    },
+    "processor": {
+      ".gitattributes": "49793fab84fff315a0b094cbaaf8b0d36580bc84dde06a9d3a53fe699236cd4d",
+      "README.md": "87490109abd281cf2bc3e0a6498a931e18286b8b441dcf82c1a960c15ca05c2a",
+      "added_tokens.json": "8bc892fbf3933cf0c00794b0f0fa638ca22429db58d427f71ea953accabbf1e7",
+      "chat_template.jinja": "ec66862fda57dc1aef90a21b2a0f64c18a280e2483206449bd251a73b8993101",
+      "config.json": "67c8c10f5c1e2b83497d2a27cb5c386546c62b09ef28b1e0232f3749c97fc416",
+      "configuration_molmo2.py": "e75a5ab18c298f91d81b2b1e68369812b655a573b4a6a52d59ab8535d791bf39",
+      "generation_config.json": "103506d168927632c8f627d470611ec14e5bc38246470173713b5c28762026b0",
+      "image_processing_molmo2.py": "613bc2436936cebb1ebf0bfddda666b5c979573ba503fb904eed6eb56a706181",
+      "merges.txt": "8831e4f1a044471340f7c0a83d7bd71306a5b867e95fd870f74d0c5308a904d5",
+      "model.safetensors.index.json": "09434f42071cd60462fab36d8e455c6d8944cd522c383dd2b5923f6096cc3cda",
+      "modeling_molmo2.py": "4a469aba3698dd1ef9b579439f363bda90ba3be2a5709e73bc10d8840f84e07a",
+      "molmo_2_logo_RGB.png": "eae441fb7cca5389e030cf2e39cdc16b725b70840cfc075e3982c64b81a11592",
+      "preprocessor_config.json": "026ee03897ff86cb0d3f7c638145a04a253d4c0722fc5bcc3cf996bb0ebed211",
+      "processing_molmo2.py": "61ef1329d8a02caebaa5e5acd07a329fdbf9772e18ff32cd7256c09a3231360b",
+      "processor_config.json": "1a976bcab088bcc4601906c345898558daa18f5e69ec4b1df8ab23a389db8bf2",
+      "special_tokens_map.json": "a4922e884f1f6d82a2ff339c39b2b4e15c437dc85b87816e7c1504d5645e6cd8",
+      "tokenizer.json": "95e80901c901584f416b8fd4349fd60022774b89ba4377626511f0562cc599f7",
+      "tokenizer_config.json": "8f57cc34d2508c9fbd6b5bc96c3477208642f99a52b68d06bf22c135fc1a7e4e",
+      "video_preprocessor_config.json": "ab16df7a17cb94cf57daeab7c6760a8be8cfad1fa37258cb86ad48d09ffd1815",
+      "video_processing_molmo2.py": "91c4c6404f58dde3213b060874ce35c7f3695002f761fadf5af3f2515f770ba3",
+      "vocab.json": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910"
+    },
+    "source_hashes": {
+      "input_bridge": "658fba5ef70f43a479ce11e03f39983406f2eb3c3ad3e95848d069e8276b4980",
+      "prefix_attention": "b8c1dbe47e9c671fc85bf147495fdd8747d9bd17f65c672db67aed5f6d160069",
+      "runner": "9b0415cbbc53a6cbab55b3559009aae0cfa70d28cd89b83e0166f4f2837f5567"
+    },
+    "source_profile_sha256": "573f5f57529dbd09070a4888824225072104cebf60e36969883adc9e6b0c5eb7"
+  },
+  "native_parser_function_sha256": "9731c5ef5c3119e7ffe923cf9f8e7d62035b10a468459919566f5b846accf134",
+  "native_parser_source_sha256": "53a54994ceac56b2a89d8853ac6cba9cee23fbd4d7abf0190f8e77e356db97f9",
+  "recipes": {
+    "cosmos-axis-static": {
+      "checkpoint_revision": "ngc-7bbfe34d27a64641",
+      "cleared_environment": [
+        "CUBLAS_WORKSPACE_CONFIG",
+        "NVIDIA_TF32_OVERRIDE",
+        "TORCH_ALLOW_TF32_CUBLAS_OVERRIDE",
+        "VLLM_BATCH_INVARIANT",
+        "VLLM_ENABLE_V1_MULTIPROCESSING",
+        "VLLM_OMP_NUM_THREADS_SET_BY_VLLM",
+        "CLASSIC_PRECISION_KV_COMPAT",
+        "CLASSIC_PRECISION_NEMO_DUMMY_CONFIG_COMPAT",
+        "CLASSIC_PRECISION_DEFER_MODELS"
+      ],
+      "engine": {
+        "async_scheduling": false,
+        "cpu_offload_gb": 0,
+        "disable_chunked_mm_input": true,
+        "disable_custom_all_reduce": true,
+        "dtype": "bfloat16",
+        "enable_chunked_prefill": true,
+        "enable_prefix_caching": false,
+        "enforce_eager": true,
+        "gpu_memory_utilization": 0.9,
+        "kv_cache_dtype": "bfloat16",
+        "kv_cache_memory_bytes": 18253611008,
+        "limit_mm_per_prompt": {
+          "audio": 0,
+          "image": 4,
+          "video": 0
+        },
+        "max_model_len": 65536,
+        "max_num_batched_tokens": 36000,
+        "max_num_seqs": 1,
+        "media_io_kwargs": {
+          "video": {
+            "fps": -1,
+            "num_frames": 180,
+            "video_backend": "opencv"
+          }
+        },
+        "mm_processor_cache_gb": 0,
+        "mm_processor_kwargs": {
+          "do_resize": false,
+          "do_sample_frames": false
+        },
+        "quantization": "modelopt_fp4",
+        "seed": 0,
+        "skip_mm_profiling": true,
+        "tensor_parallel_size": 1,
+        "trust_remote_code": false,
+        "video_pruning_rate": 0.0
+      },
+      "environment": {
+        "FLASHINFER_CUDA_ARCH_LIST": "12.0f",
+        "HF_HUB_OFFLINE": "1",
+        "MAX_JOBS": "4",
+        "MKL_NUM_THREADS": "1",
+        "NUMPY_MADVISE_HUGEPAGE": "0",
+        "OMP_NUM_THREADS": "6",
+        "OPENBLAS_NUM_THREADS": "1",
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "TRANSFORMERS_OFFLINE": "1",
+        "VLLM_ALLOW_INSECURE_SERIALIZATION": "1",
+        "VLLM_WORKER_MULTIPROC_METHOD": "spawn"
+      },
+      "execution": "axis_static",
+      "minimum_kv_capacity": 65536,
+      "package_versions": {
+        "torch": "2.14.0",
+        "transformers": "5.17.0",
+        "vllm": "0.33.0rc1.dev175+gf4fd1ab68"
+      },
+      "request_mm_processor_kwargs": {
+        "do_resize": false,
+        "do_sample_frames": false
+      },
+      "source_profile_sha256": "afd61930cf89dea19d0c9a9a2deb120f6a5a96e02ec14459ac8b6772008f3c53",
+      "source_runner_file": "run_t3_axis_sign_fix.py",
+      "source_runner_sha256": "d45e95f66d739103da79b427918cb9981f66be283bcce1a81c24d3114d29e2cd",
+      "tokenizer_revision": "f543c56225b2e04d0ad141e29655be3a45d9c455",
+      "torch_num_threads": 6
+    },
+    "cosmos-axis-video": {
+      "checkpoint_revision": "ngc-7bbfe34d27a64641",
+      "cleared_environment": [
+        "CUBLAS_WORKSPACE_CONFIG",
+        "NVIDIA_TF32_OVERRIDE",
+        "TORCH_ALLOW_TF32_CUBLAS_OVERRIDE",
+        "VLLM_BATCH_INVARIANT",
+        "VLLM_ENABLE_V1_MULTIPROCESSING",
+        "VLLM_OMP_NUM_THREADS_SET_BY_VLLM",
+        "CLASSIC_PRECISION_KV_COMPAT",
+        "CLASSIC_PRECISION_NEMO_DUMMY_CONFIG_COMPAT",
+        "CLASSIC_PRECISION_DEFER_MODELS"
+      ],
+      "engine": {
+        "async_scheduling": false,
+        "cpu_offload_gb": 0,
+        "disable_chunked_mm_input": true,
+        "disable_custom_all_reduce": true,
+        "dtype": "bfloat16",
+        "enable_chunked_prefill": true,
+        "enable_prefix_caching": false,
+        "enforce_eager": true,
+        "gpu_memory_utilization": 0.9,
+        "kv_cache_dtype": "bfloat16",
+        "kv_cache_memory_bytes": 18253611008,
+        "limit_mm_per_prompt": {
+          "audio": 0,
+          "image": 0,
+          "video": 1
+        },
+        "max_model_len": 65536,
+        "max_num_batched_tokens": 36000,
+        "max_num_seqs": 1,
+        "media_io_kwargs": {
+          "video": {
+            "fps": -1,
+            "num_frames": 180,
+            "video_backend": "opencv"
+          }
+        },
+        "mm_processor_cache_gb": 0,
+        "mm_processor_kwargs": {
+          "do_resize": false,
+          "do_sample_frames": false
+        },
+        "quantization": "modelopt_fp4",
+        "seed": 0,
+        "skip_mm_profiling": true,
+        "tensor_parallel_size": 1,
+        "trust_remote_code": false,
+        "video_pruning_rate": 0.0
+      },
+      "environment": {
+        "FLASHINFER_CUDA_ARCH_LIST": "12.0f",
+        "HF_HUB_OFFLINE": "1",
+        "MAX_JOBS": "4",
+        "MKL_NUM_THREADS": "1",
+        "NUMPY_MADVISE_HUGEPAGE": "0",
+        "OMP_NUM_THREADS": "6",
+        "OPENBLAS_NUM_THREADS": "1",
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "TRANSFORMERS_OFFLINE": "1",
+        "VLLM_ALLOW_INSECURE_SERIALIZATION": "1",
+        "VLLM_WORKER_MULTIPROC_METHOD": "spawn"
+      },
+      "execution": "axis_video",
+      "minimum_kv_capacity": 65536,
+      "package_versions": {
+        "torch": "2.14.0",
+        "transformers": "5.17.0",
+        "vllm": "0.33.0rc1.dev175+gf4fd1ab68"
+      },
+      "request_mm_processor_kwargs": {
+        "do_resize": false,
+        "do_sample_frames": false
+      },
+      "source_profile_sha256": "dd238d26965b658e7c325ae6c082e70318902cce76382288829f2c6c1823cc7c",
+      "source_runner_file": "run_t3_video_axis.py",
+      "source_runner_sha256": "2142a02a6d1aa9341f78f55d19fabd556a26adbdd1348ec20eda25c5f59239fd",
+      "tokenizer_revision": "f543c56225b2e04d0ad141e29655be3a45d9c455",
+      "torch_num_threads": 6
+    },
+    "cosmos-cot-t4": {
+      "assistant_prefill": "<think>",
+      "checkpoint_revision": "ngc-7bbfe34d27a64641",
+      "cleared_environment": [
+        "CUBLAS_WORKSPACE_CONFIG",
+        "NVIDIA_TF32_OVERRIDE",
+        "TORCH_ALLOW_TF32_CUBLAS_OVERRIDE",
+        "VLLM_BATCH_INVARIANT",
+        "VLLM_ENABLE_V1_MULTIPROCESSING",
+        "VLLM_OMP_NUM_THREADS_SET_BY_VLLM",
+        "CLASSIC_PRECISION_KV_COMPAT",
+        "CLASSIC_PRECISION_NEMO_DUMMY_CONFIG_COMPAT",
+        "CLASSIC_PRECISION_DEFER_MODELS"
+      ],
+      "cot_prompt_suffix": "\nFirst give a concise reasoning trace in <think> tags. Immediately after closing the reasoning tag, give the required final label.",
+      "engine": {
+        "async_scheduling": false,
+        "cpu_offload_gb": 0,
+        "disable_chunked_mm_input": true,
+        "disable_custom_all_reduce": true,
+        "dtype": "bfloat16",
+        "enable_chunked_prefill": true,
+        "enable_prefix_caching": false,
+        "enforce_eager": true,
+        "gpu_memory_utilization": 0.78,
+        "kv_cache_dtype": "bfloat16",
+        "kv_cache_memory_bytes": 18253611008,
+        "limit_mm_per_prompt": {
+          "audio": 0,
+          "image": 3,
+          "video": 1
+        },
+        "max_model_len": 65536,
+        "max_num_batched_tokens": 36000,
+        "max_num_seqs": 1,
+        "media_io_kwargs": {
+          "video": {
+            "fps": -1,
+            "num_frames": 180,
+            "video_backend": "opencv"
+          }
+        },
+        "mm_processor_cache_gb": 0,
+        "mm_processor_kwargs": {
+          "do_resize": false,
+          "do_sample_frames": false
+        },
+        "quantization": "modelopt_fp4",
+        "reasoning_config": {
+          "reasoning_end_str": "</think>",
+          "reasoning_start_str": "<think>"
+        },
+        "seed": 0,
+        "skip_mm_profiling": true,
+        "structured_outputs_config": {
+          "enable_in_reasoning": false,
+          "reasoning_parser": "qwen3"
+        },
+        "tensor_parallel_size": 1,
+        "trust_remote_code": false,
+        "video_pruning_rate": 0.0
+      },
+      "environment": {
+        "FLASHINFER_CUDA_ARCH_LIST": "12.0f",
+        "HF_HUB_OFFLINE": "1",
+        "MAX_JOBS": "4",
+        "MKL_NUM_THREADS": "1",
+        "NUMPY_MADVISE_HUGEPAGE": "0",
+        "OMP_NUM_THREADS": "6",
+        "OPENBLAS_NUM_THREADS": "1",
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "TRANSFORMERS_OFFLINE": "1",
+        "VLLM_ALLOW_INSECURE_SERIALIZATION": "1",
+        "VLLM_WORKER_MULTIPROC_METHOD": "spawn"
+      },
+      "execution": "cosmos_prefill",
+      "minimum_kv_capacity": 65536,
+      "package_versions": {
+        "torch": "2.14.0",
+        "transformers": "5.17.0",
+        "vllm": "0.33.0rc1.dev175+gf4fd1ab68"
+      },
+      "request_mm_processor_kwargs": {
+        "do_resize": false,
+        "do_sample_frames": false
+      },
+      "source_profile_sha256": "f9ad64e61195324d9d369020d4ec1a0d0728d75d8d6fa06c58df4fd28d983afe",
+      "source_runner_file": "run_cosmos_t45_cot.py",
+      "source_runner_sha256": "4582a6fee153d2bc5d343076c095632c790b5ea1ded6db26e64489876d1bc0b6",
+      "thinking_tokens": 1500,
+      "tokenizer_revision": "f543c56225b2e04d0ad141e29655be3a45d9c455",
+      "torch_num_threads": 6,
+      "total_tokens": 16384
+    },
+    "cosmos-cot-t5": {
+      "assistant_prefill": "<think>",
+      "checkpoint_revision": "ngc-7bbfe34d27a64641",
+      "cleared_environment": [
+        "CUBLAS_WORKSPACE_CONFIG",
+        "NVIDIA_TF32_OVERRIDE",
+        "TORCH_ALLOW_TF32_CUBLAS_OVERRIDE",
+        "VLLM_BATCH_INVARIANT",
+        "VLLM_ENABLE_V1_MULTIPROCESSING",
+        "VLLM_OMP_NUM_THREADS_SET_BY_VLLM",
+        "CLASSIC_PRECISION_KV_COMPAT",
+        "CLASSIC_PRECISION_NEMO_DUMMY_CONFIG_COMPAT",
+        "CLASSIC_PRECISION_DEFER_MODELS"
+      ],
+      "cot_prompt_suffix": "\nFirst give a concise reasoning trace in <think> tags. Immediately after closing the reasoning tag, give the required final label.",
+      "engine": {
+        "async_scheduling": false,
+        "cpu_offload_gb": 0,
+        "disable_chunked_mm_input": true,
+        "disable_custom_all_reduce": true,
+        "dtype": "bfloat16",
+        "enable_chunked_prefill": true,
+        "enable_prefix_caching": false,
+        "enforce_eager": true,
+        "gpu_memory_utilization": 0.78,
+        "kv_cache_dtype": "bfloat16",
+        "kv_cache_memory_bytes": 18253611008,
+        "limit_mm_per_prompt": {
+          "audio": 0,
+          "image": 3,
+          "video": 1
+        },
+        "max_model_len": 65536,
+        "max_num_batched_tokens": 36000,
+        "max_num_seqs": 1,
+        "media_io_kwargs": {
+          "video": {
+            "fps": -1,
+            "num_frames": 180,
+            "video_backend": "opencv"
+          }
+        },
+        "mm_processor_cache_gb": 0,
+        "mm_processor_kwargs": {
+          "do_resize": false,
+          "do_sample_frames": false
+        },
+        "quantization": "modelopt_fp4",
+        "reasoning_config": {
+          "reasoning_end_str": "</think>",
+          "reasoning_start_str": "<think>"
+        },
+        "seed": 0,
+        "skip_mm_profiling": true,
+        "structured_outputs_config": {
+          "enable_in_reasoning": false,
+          "reasoning_parser": "qwen3"
+        },
+        "tensor_parallel_size": 1,
+        "trust_remote_code": false,
+        "video_pruning_rate": 0.0
+      },
+      "environment": {
+        "FLASHINFER_CUDA_ARCH_LIST": "12.0f",
+        "HF_HUB_OFFLINE": "1",
+        "MAX_JOBS": "4",
+        "MKL_NUM_THREADS": "1",
+        "NUMPY_MADVISE_HUGEPAGE": "0",
+        "OMP_NUM_THREADS": "6",
+        "OPENBLAS_NUM_THREADS": "1",
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "TRANSFORMERS_OFFLINE": "1",
+        "VLLM_ALLOW_INSECURE_SERIALIZATION": "1",
+        "VLLM_WORKER_MULTIPROC_METHOD": "spawn"
+      },
+      "execution": "cosmos_prefill",
+      "minimum_kv_capacity": 65536,
+      "package_versions": {
+        "torch": "2.14.0",
+        "transformers": "5.17.0",
+        "vllm": "0.33.0rc1.dev175+gf4fd1ab68"
+      },
+      "request_mm_processor_kwargs": {
+        "do_resize": false,
+        "do_sample_frames": false
+      },
+      "source_profile_sha256": "d6f2aa6ea15a981ab07ba0201801148718cc4df0b956074cf531199f594a842d",
+      "source_runner_file": "run_cosmos_t45_cot.py",
+      "source_runner_sha256": "4582a6fee153d2bc5d343076c095632c790b5ea1ded6db26e64489876d1bc0b6",
+      "thinking_tokens": 3000,
+      "tokenizer_revision": "f543c56225b2e04d0ad141e29655be3a45d9c455",
+      "torch_num_threads": 6,
+      "total_tokens": 16384
+    },
+    "nemo-t5": {
+      "checkpoint_revision": "82d93699acd3be9e4617c53360fe5b3f5dbeb1b3",
+      "cleared_environment": [
+        "CUBLAS_WORKSPACE_CONFIG",
+        "NVIDIA_TF32_OVERRIDE",
+        "TORCH_ALLOW_TF32_CUBLAS_OVERRIDE",
+        "VLLM_BATCH_INVARIANT",
+        "VLLM_ENABLE_V1_MULTIPROCESSING",
+        "VLLM_OMP_NUM_THREADS_SET_BY_VLLM",
+        "CLASSIC_PRECISION_KV_COMPAT",
+        "CLASSIC_PRECISION_NEMO_DUMMY_CONFIG_COMPAT",
+        "CLASSIC_PRECISION_DEFER_MODELS"
+      ],
+      "engine": {
+        "disable_custom_all_reduce": true,
+        "dtype": "bfloat16",
+        "enable_chunked_prefill": true,
+        "enable_prefix_caching": false,
+        "enforce_eager": true,
+        "gpu_memory_utilization": 0.78,
+        "hf_overrides": {
+          "vision_config": {
+            "args": {
+              "cls_token_per_teacher": true,
+              "cpe_max_size": 2048,
+              "max_num_patches": 13312,
+              "min_num_patches": 1024,
+              "model": "vit_huge_patch16_224",
+              "register_multiple": 10,
+              "teachers": [
+                {
+                  "name": 0,
+                  "use_summary": true
+                },
+                {
+                  "name": 1,
+                  "use_summary": true
+                },
+                {
+                  "name": 2,
+                  "use_summary": false
+                }
+              ]
+            },
+            "attention_probs_dropout_prob": 0.0,
+            "drop_path_rate": 0.0,
+            "dtype": "bfloat16",
+            "hidden_act": "gelu",
+            "hidden_dropout_prob": 0.0,
+            "hidden_size": 1280,
+            "image_size": 224,
+            "initializer_range": 0.02,
+            "layer_norm_eps": 1e-06,
+            "layerscale_value": 1.0,
+            "max_img_size": 2048,
+            "max_num_patches": 13312,
+            "min_num_patches": 1024,
+            "mlp_ratio": 4.0,
+            "model_type": "radio",
+            "norm_mean": [
+              0.48145466,
+              0.4578275,
+              0.40821073
+            ],
+            "norm_std": [
+              0.26862954,
+              0.26130258,
+              0.27577711
+            ],
+            "num_attention_heads": 16,
+            "num_channels": 3,
+            "num_cls_tokens": 3,
+            "num_hidden_layers": 32,
+            "num_registers": 7,
+            "patch_size": 16,
+            "qkv_bias": true,
+            "summary_idxs": [
+              0,
+              1
+            ],
+            "use_swiglu_ffn": false,
+            "video_maintain_aspect_ratio": true,
+            "video_target_num_patches": 1536,
+            "video_temporal_patch_size": 2
+          }
+        },
+        "kernel_config": {
+          "enable_flashinfer_autotune": false
+        },
+        "kv_cache_dtype": "bfloat16",
+        "kv_cache_memory_bytes": 2147483648,
+        "limit_mm_per_prompt": {
+          "audio": 0,
+          "image": 1,
+          "video": 1
+        },
+        "max_model_len": 65536,
+        "max_num_batched_tokens": 4096,
+        "max_num_seqs": 1,
+        "media_io_kwargs": {
+          "video": {
+            "fps": -1,
+            "num_frames": 180,
+            "video_backend": "opencv"
+          }
+        },
+        "mm_processor_cache_gb": 0,
+        "seed": 0,
+        "structured_outputs_config": {
+          "enable_in_reasoning": false,
+          "reasoning_parser": "nemotron_v3"
+        },
+        "tensor_parallel_size": 1,
+        "trust_remote_code": true,
+        "video_pruning_rate": 0.0
+      },
+      "environment": {
+        "FLASHINFER_CUDA_ARCH_LIST": "12.0f",
+        "HF_HUB_OFFLINE": "1",
+        "MAX_JOBS": "4",
+        "MKL_NUM_THREADS": "1",
+        "NUMPY_MADVISE_HUGEPAGE": "0",
+        "OMP_NUM_THREADS": "6",
+        "OPENBLAS_NUM_THREADS": "1",
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "TRANSFORMERS_OFFLINE": "1",
+        "VLLM_ALLOW_INSECURE_SERIALIZATION": "1",
+        "VLLM_WORKER_MULTIPROC_METHOD": "spawn"
+      },
+      "execution": "nemo_native",
+      "minimum_kv_capacity": 65536,
+      "native_kwargs": {
+        "low": {
+          "enable_thinking": true,
+          "medium_effort": true
+        },
+        "off": {
+          "enable_thinking": false
+        }
+      },
+      "package_versions": {
+        "flashinfer-python": "0.7.2.post1",
+        "torch": "2.14.0",
+        "transformers": "5.17.0",
+        "vllm": "0.33.0rc1.dev175+gf4fd1ab68"
+      },
+      "source_profile_sha256": "ec43130fe9b4447101b9f033cbb4f226306d0d18f9fade733905d19cd83a1269",
+      "source_runner_file": "run_nemo_t45_thinking.py",
+      "source_runner_sha256": "a0b897f47eb129017d8ac43d085c6c447ab32fe50fd61647f3deb588dc2400f5",
+      "torch_num_threads": 6
+    },
+    "qwen-axis-static": {
+      "checkpoint_revision": "fc694b54fb0174e0913e6adf86691ef85a4ead47",
+      "cleared_environment": [
+        "CLASSIC_PRECISION_DEFER_MODELS",
+        "CLASSIC_PRECISION_KV_COMPAT",
+        "CLASSIC_PRECISION_NEMO_DUMMY_CONFIG_COMPAT",
+        "CLASSIC_PRECISION_QSA_DETERMINISM",
+        "CLASSIC_PRECISION_QWEN_CPU_OFFLOAD_GB",
+        "CUBLAS_WORKSPACE_CONFIG",
+        "CUDA_PATH",
+        "OMP_NUM_THREADS",
+        "OPENBLAS_NUM_THREADS",
+        "PYTHONHASHSEED",
+        "TOKENIZERS_PARALLELISM",
+        "VLLM_BATCH_INVARIANT",
+        "VLLM_ENABLE_V1_MULTIPROCESSING",
+        "VLLM_OMP_NUM_THREADS_SET_BY_VLLM",
+        "VLLM_USE_V2_MODEL_RUNNER",
+        "VLLM_WORKER_MULTIPROC_METHOD"
+      ],
+      "engine": {
+        "compilation_config": {
+          "mode": 0
+        },
+        "cpu_offload_gb": 24,
+        "cpu_offload_params": [
+          "experts"
+        ],
+        "disable_custom_all_reduce": true,
+        "enable_chunked_prefill": true,
+        "enable_prefix_caching": false,
+        "enforce_eager": true,
+        "engram_config": {
+          "cpu_offload": true
+        },
+        "gpu_memory_utilization": 0.78,
+        "kernel_config": {
+          "enable_flashinfer_autotune": false
+        },
+        "kv_cache_dtype": "bfloat16",
+        "kv_cache_memory_bytes": 4294967296,
+        "limit_mm_per_prompt": {
+          "audio": 0,
+          "image": 4,
+          "video": 0
+        },
+        "max_model_len": 65536,
+        "max_num_batched_tokens": 49152,
+        "max_num_seqs": 1,
+        "media_io_kwargs": {
+          "video": {
+            "fps": -1,
+            "num_frames": 180,
+            "video_backend": "opencv"
+          }
+        },
+        "mm_processor_cache_gb": 0,
+        "mm_processor_kwargs": {
+          "do_resize": false,
+          "do_sample_frames": false
+        },
+        "quantization": "modelopt",
+        "seed": 0,
+        "tensor_parallel_size": 1,
+        "trust_remote_code": true,
+        "worker_extension_cls": "vlm_psychophysics.runtime.qsa.XQSAWorkerExtension"
+      },
+      "environment": {
+        "HF_HUB_OFFLINE": "1",
+        "MAX_JOBS": "4",
+        "NUMPY_MADVISE_HUGEPAGE": "0",
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "TRANSFORMERS_OFFLINE": "1",
+        "VLLM_ALLOW_INSECURE_SERIALIZATION": "1"
+      },
+      "execution": "axis_static",
+      "minimum_kv_capacity": 65536,
+      "package_versions": {
+        "numpy": "2.3.5",
+        "torch": "2.14.0",
+        "transformers": "5.17.0",
+        "vllm": "0.33.0rc1.dev175+gf4fd1ab68"
+      },
+      "request_mm_processor_kwargs": {
+        "do_resize": false,
+        "do_sample_frames": false
+      },
+      "selector_sha256": "d69e0cfff54ec41a3402bba2a333f3d76d042efd9186304d9e6c5c9d83b1712c",
+      "source_profile_sha256": "8833119f50dd899c5eeee5f19c0fca3b5d344506b5c00d00425847cd476d897a",
+      "source_runner_file": "run_t3_axis_sign_fix.py",
+      "source_runner_sha256": "d45e95f66d739103da79b427918cb9981f66be283bcce1a81c24d3114d29e2cd",
+      "torch_num_threads": 6
+    },
+    "qwen-axis-video": {
+      "checkpoint_revision": "fc694b54fb0174e0913e6adf86691ef85a4ead47",
+      "cleared_environment": [
+        "CLASSIC_PRECISION_DEFER_MODELS",
+        "CLASSIC_PRECISION_KV_COMPAT",
+        "CLASSIC_PRECISION_NEMO_DUMMY_CONFIG_COMPAT",
+        "CLASSIC_PRECISION_QSA_DETERMINISM",
+        "CLASSIC_PRECISION_QWEN_CPU_OFFLOAD_GB",
+        "CUBLAS_WORKSPACE_CONFIG",
+        "CUDA_PATH",
+        "OMP_NUM_THREADS",
+        "OPENBLAS_NUM_THREADS",
+        "PYTHONHASHSEED",
+        "TOKENIZERS_PARALLELISM",
+        "VLLM_BATCH_INVARIANT",
+        "VLLM_ENABLE_V1_MULTIPROCESSING",
+        "VLLM_OMP_NUM_THREADS_SET_BY_VLLM",
+        "VLLM_USE_V2_MODEL_RUNNER",
+        "VLLM_WORKER_MULTIPROC_METHOD"
+      ],
+      "engine": {
+        "compilation_config": {
+          "mode": 0
+        },
+        "cpu_offload_gb": 24,
+        "cpu_offload_params": [
+          "experts"
+        ],
+        "disable_custom_all_reduce": true,
+        "enable_chunked_prefill": true,
+        "enable_prefix_caching": false,
+        "enforce_eager": true,
+        "engram_config": {
+          "cpu_offload": true
+        },
+        "gpu_memory_utilization": 0.78,
+        "kernel_config": {
+          "enable_flashinfer_autotune": false
+        },
+        "kv_cache_dtype": "bfloat16",
+        "kv_cache_memory_bytes": 4294967296,
+        "limit_mm_per_prompt": {
+          "audio": 0,
+          "image": 1,
+          "video": 1
+        },
+        "max_model_len": 65536,
+        "max_num_batched_tokens": 49152,
+        "max_num_seqs": 1,
+        "media_io_kwargs": {
+          "video": {
+            "fps": -1,
+            "num_frames": 180,
+            "video_backend": "opencv"
+          }
+        },
+        "mm_processor_cache_gb": 0,
+        "mm_processor_kwargs": {
+          "do_resize": false,
+          "do_sample_frames": false
+        },
+        "quantization": "modelopt",
+        "seed": 0,
+        "tensor_parallel_size": 1,
+        "trust_remote_code": true,
+        "worker_extension_cls": "vlm_psychophysics.runtime.qsa.XQSAWorkerExtension"
+      },
+      "environment": {
+        "HF_HUB_OFFLINE": "1",
+        "MAX_JOBS": "4",
+        "NUMPY_MADVISE_HUGEPAGE": "0",
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "TRANSFORMERS_OFFLINE": "1",
+        "VLLM_ALLOW_INSECURE_SERIALIZATION": "1"
+      },
+      "execution": "axis_video",
+      "minimum_kv_capacity": 65536,
+      "package_versions": {
+        "numpy": "2.3.5",
+        "torch": "2.14.0",
+        "transformers": "5.17.0",
+        "vllm": "0.33.0rc1.dev175+gf4fd1ab68"
+      },
+      "request_mm_processor_kwargs": {
+        "do_resize": false,
+        "do_sample_frames": false
+      },
+      "selector_sha256": "d69e0cfff54ec41a3402bba2a333f3d76d042efd9186304d9e6c5c9d83b1712c",
+      "source_profile_sha256": "0e90b3d87226b80fc48a1e66939dbc95a492d85de76ffeba5ac9fdc941ba5ab7",
+      "source_runner_file": "run_t3_video_axis.py",
+      "source_runner_sha256": "2142a02a6d1aa9341f78f55d19fabd556a26adbdd1348ec20eda25c5f59239fd",
+      "torch_num_threads": 6
+    },
+    "qwen-enlarged": {
+      "checkpoint_revision": "fc694b54fb0174e0913e6adf86691ef85a4ead47",
+      "cleared_environment": [
+        "CLASSIC_PRECISION_DEFER_MODELS",
+        "CLASSIC_PRECISION_KV_COMPAT",
+        "CLASSIC_PRECISION_NEMO_DUMMY_CONFIG_COMPAT",
+        "CLASSIC_PRECISION_QSA_DETERMINISM",
+        "CLASSIC_PRECISION_QWEN_CPU_OFFLOAD_GB",
+        "CUBLAS_WORKSPACE_CONFIG",
+        "CUDA_PATH",
+        "OMP_NUM_THREADS",
+        "OPENBLAS_NUM_THREADS",
+        "PYTHONHASHSEED",
+        "TOKENIZERS_PARALLELISM",
+        "VLLM_BATCH_INVARIANT",
+        "VLLM_ENABLE_V1_MULTIPROCESSING",
+        "VLLM_OMP_NUM_THREADS_SET_BY_VLLM",
+        "VLLM_USE_V2_MODEL_RUNNER",
+        "VLLM_WORKER_MULTIPROC_METHOD"
+      ],
+      "engine": {
+        "compilation_config": {
+          "mode": 0
+        },
+        "cpu_offload_gb": 24,
+        "cpu_offload_params": [
+          "experts"
+        ],
+        "disable_custom_all_reduce": true,
+        "enable_chunked_prefill": true,
+        "enable_prefix_caching": false,
+        "enforce_eager": true,
+        "engram_config": {
+          "cpu_offload": true
+        },
+        "gpu_memory_utilization": 0.78,
+        "kernel_config": {
+          "enable_flashinfer_autotune": false
+        },
+        "kv_cache_dtype": "bfloat16",
+        "kv_cache_memory_bytes": 8589934592,
+        "limit_mm_per_prompt": {
+          "audio": 0,
+          "image": 4,
+          "video": 1
+        },
+        "max_model_len": 98304,
+        "max_num_batched_tokens": 49152,
+        "max_num_seqs": 1,
+        "media_io_kwargs": {
+          "video": {
+            "fps": -1,
+            "num_frames": 180,
+            "video_backend": "opencv"
+          }
+        },
+        "mm_processor_cache_gb": 0,
+        "mm_processor_kwargs": {
+          "do_resize": false,
+          "do_sample_frames": false
+        },
+        "quantization": "modelopt",
+        "seed": 0,
+        "structured_outputs_config": {
+          "enable_in_reasoning": false,
+          "reasoning_parser": "qwen3"
+        },
+        "tensor_parallel_size": 1,
+        "trust_remote_code": true,
+        "worker_extension_cls": "vlm_psychophysics.runtime.qsa.XQSAWorkerExtension"
+      },
+      "environment": {
+        "HF_HUB_OFFLINE": "1",
+        "MAX_JOBS": "4",
+        "NUMPY_MADVISE_HUGEPAGE": "0",
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "TRANSFORMERS_OFFLINE": "1",
+        "VLLM_ALLOW_INSECURE_SERIALIZATION": "1"
+      },
+      "execution": "qwen_native",
+      "minimum_kv_capacity": 98304,
+      "package_versions": {
+        "numpy": "2.3.5",
+        "torch": "2.14.0",
+        "transformers": "5.17.0",
+        "vllm": "0.33.0rc1.dev175+gf4fd1ab68"
+      },
+      "request_mm_processor_kwargs": {
+        "do_resize": false,
+        "do_sample_frames": false
+      },
+      "selector_sha256": "d69e0cfff54ec41a3402bba2a333f3d76d042efd9186304d9e6c5c9d83b1712c",
+      "source_profile_sha256": "8008bac120d5183e0167e68a21a62d2e93990fb359ec2addbf5a307397c07df4",
+      "source_runner_file": "run_t5_natural_zoom.py",
+      "source_runner_sha256": "79f80d2e92cde858ae8c12ac8060e3e54fa5bb4941da7623690061cb63b8183d",
+      "torch_num_threads": 6
+    },
+    "qwen-native-static": {
+      "checkpoint_revision": "fc694b54fb0174e0913e6adf86691ef85a4ead47",
+      "cleared_environment": [
+        "CLASSIC_PRECISION_DEFER_MODELS",
+        "CLASSIC_PRECISION_KV_COMPAT",
+        "CLASSIC_PRECISION_NEMO_DUMMY_CONFIG_COMPAT",
+        "CLASSIC_PRECISION_QSA_DETERMINISM",
+        "CLASSIC_PRECISION_QWEN_CPU_OFFLOAD_GB",
+        "CUBLAS_WORKSPACE_CONFIG",
+        "CUDA_PATH",
+        "OMP_NUM_THREADS",
+        "OPENBLAS_NUM_THREADS",
+        "PYTHONHASHSEED",
+        "TOKENIZERS_PARALLELISM",
+        "VLLM_BATCH_INVARIANT",
+        "VLLM_ENABLE_V1_MULTIPROCESSING",
+        "VLLM_OMP_NUM_THREADS_SET_BY_VLLM",
+        "VLLM_USE_V2_MODEL_RUNNER",
+        "VLLM_WORKER_MULTIPROC_METHOD"
+      ],
+      "engine": {
+        "compilation_config": {
+          "mode": 0
+        },
+        "cpu_offload_gb": 24,
+        "cpu_offload_params": [
+          "experts"
+        ],
+        "disable_custom_all_reduce": true,
+        "enable_chunked_prefill": true,
+        "enable_prefix_caching": false,
+        "enforce_eager": true,
+        "engram_config": {
+          "cpu_offload": true
+        },
+        "gpu_memory_utilization": 0.78,
+        "kernel_config": {
+          "enable_flashinfer_autotune": false
+        },
+        "kv_cache_dtype": "bfloat16",
+        "kv_cache_memory_bytes": 8589934592,
+        "limit_mm_per_prompt": {
+          "audio": 0,
+          "image": 4,
+          "video": 1
+        },
+        "max_model_len": 98304,
+        "max_num_batched_tokens": 49152,
+        "max_num_seqs": 1,
+        "media_io_kwargs": {
+          "video": {
+            "fps": -1,
+            "num_frames": 180,
+            "video_backend": "opencv"
+          }
+        },
+        "mm_processor_cache_gb": 0,
+        "mm_processor_kwargs": {
+          "do_resize": false,
+          "do_sample_frames": false
+        },
+        "quantization": "modelopt",
+        "seed": 0,
+        "structured_outputs_config": {
+          "enable_in_reasoning": false,
+          "reasoning_parser": "qwen3"
+        },
+        "tensor_parallel_size": 1,
+        "trust_remote_code": true,
+        "worker_extension_cls": "vlm_psychophysics.runtime.qsa.XQSAWorkerExtension"
+      },
+      "environment": {
+        "HF_HUB_OFFLINE": "1",
+        "MAX_JOBS": "4",
+        "NUMPY_MADVISE_HUGEPAGE": "0",
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "TRANSFORMERS_OFFLINE": "1",
+        "VLLM_ALLOW_INSECURE_SERIALIZATION": "1"
+      },
+      "execution": "qwen_native",
+      "minimum_kv_capacity": 98304,
+      "package_versions": {
+        "numpy": "2.3.5",
+        "torch": "2.14.0",
+        "transformers": "5.17.0",
+        "vllm": "0.33.0rc1.dev175+gf4fd1ab68"
+      },
+      "request_mm_processor_kwargs": {
+        "do_resize": false,
+        "do_sample_frames": false
+      },
+      "selector_sha256": "d69e0cfff54ec41a3402bba2a333f3d76d042efd9186304d9e6c5c9d83b1712c",
+      "source_profile_sha256": "8008bac120d5183e0167e68a21a62d2e93990fb359ec2addbf5a307397c07df4",
+      "source_runner_file": "run_qwen_video_low.py",
+      "source_runner_sha256": "f66ee6f38758f4267ecd39cf85787f06c33afd22556eedfff75c2b79eb437f20",
+      "torch_num_threads": 6
+    },
+    "qwen-native-video": {
+      "checkpoint_revision": "fc694b54fb0174e0913e6adf86691ef85a4ead47",
+      "cleared_environment": [
+        "CLASSIC_PRECISION_DEFER_MODELS",
+        "CLASSIC_PRECISION_KV_COMPAT",
+        "CLASSIC_PRECISION_NEMO_DUMMY_CONFIG_COMPAT",
+        "CLASSIC_PRECISION_QSA_DETERMINISM",
+        "CLASSIC_PRECISION_QWEN_CPU_OFFLOAD_GB",
+        "CUBLAS_WORKSPACE_CONFIG",
+        "CUDA_PATH",
+        "OMP_NUM_THREADS",
+        "OPENBLAS_NUM_THREADS",
+        "PYTHONHASHSEED",
+        "TOKENIZERS_PARALLELISM",
+        "VLLM_BATCH_INVARIANT",
+        "VLLM_ENABLE_V1_MULTIPROCESSING",
+        "VLLM_OMP_NUM_THREADS_SET_BY_VLLM",
+        "VLLM_USE_V2_MODEL_RUNNER",
+        "VLLM_WORKER_MULTIPROC_METHOD"
+      ],
+      "engine": {
+        "compilation_config": {
+          "mode": 0
+        },
+        "cpu_offload_gb": 24,
+        "cpu_offload_params": [
+          "experts"
+        ],
+        "disable_custom_all_reduce": true,
+        "enable_chunked_prefill": true,
+        "enable_prefix_caching": false,
+        "enforce_eager": true,
+        "engram_config": {
+          "cpu_offload": true
+        },
+        "gpu_memory_utilization": 0.78,
+        "kernel_config": {
+          "enable_flashinfer_autotune": false
+        },
+        "kv_cache_dtype": "bfloat16",
+        "kv_cache_memory_bytes": 8589934592,
+        "limit_mm_per_prompt": {
+          "audio": 0,
+          "image": 4,
+          "video": 1
+        },
+        "max_model_len": 98304,
+        "max_num_batched_tokens": 49152,
+        "max_num_seqs": 1,
+        "media_io_kwargs": {
+          "video": {
+            "fps": -1,
+            "num_frames": 180,
+            "video_backend": "opencv"
+          }
+        },
+        "mm_processor_cache_gb": 0,
+        "mm_processor_kwargs": {
+          "do_resize": false,
+          "do_sample_frames": false
+        },
+        "quantization": "modelopt",
+        "seed": 0,
+        "structured_outputs_config": {
+          "enable_in_reasoning": false,
+          "reasoning_parser": "qwen3"
+        },
+        "tensor_parallel_size": 1,
+        "trust_remote_code": true,
+        "worker_extension_cls": "vlm_psychophysics.runtime.qsa.XQSAWorkerExtension"
+      },
+      "environment": {
+        "HF_HUB_OFFLINE": "1",
+        "MAX_JOBS": "4",
+        "NUMPY_MADVISE_HUGEPAGE": "0",
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "TRANSFORMERS_OFFLINE": "1",
+        "VLLM_ALLOW_INSECURE_SERIALIZATION": "1"
+      },
+      "execution": "qwen_native",
+      "minimum_kv_capacity": 98304,
+      "package_versions": {
+        "numpy": "2.3.5",
+        "torch": "2.14.0",
+        "transformers": "5.17.0",
+        "vllm": "0.33.0rc1.dev175+gf4fd1ab68"
+      },
+      "request_mm_processor_kwargs": {
+        "do_resize": false,
+        "do_sample_frames": false
+      },
+      "selector_sha256": "d69e0cfff54ec41a3402bba2a333f3d76d042efd9186304d9e6c5c9d83b1712c",
+      "source_profile_sha256": "8008bac120d5183e0167e68a21a62d2e93990fb359ec2addbf5a307397c07df4",
+      "source_runner_file": "run_qwen_video_low.py",
+      "source_runner_sha256": "f66ee6f38758f4267ecd39cf85787f06c33afd22556eedfff75c2b79eb437f20",
+      "torch_num_threads": 6
+    },
+    "qwen-ordered": {
+      "checkpoint_revision": "fc694b54fb0174e0913e6adf86691ef85a4ead47",
+      "cleared_environment": [
+        "CLASSIC_PRECISION_DEFER_MODELS",
+        "CLASSIC_PRECISION_KV_COMPAT",
+        "CLASSIC_PRECISION_NEMO_DUMMY_CONFIG_COMPAT",
+        "CLASSIC_PRECISION_QSA_DETERMINISM",
+        "CLASSIC_PRECISION_QWEN_CPU_OFFLOAD_GB",
+        "CUBLAS_WORKSPACE_CONFIG",
+        "CUDA_PATH",
+        "OMP_NUM_THREADS",
+        "OPENBLAS_NUM_THREADS",
+        "PYTHONHASHSEED",
+        "TOKENIZERS_PARALLELISM",
+        "VLLM_BATCH_INVARIANT",
+        "VLLM_ENABLE_V1_MULTIPROCESSING",
+        "VLLM_OMP_NUM_THREADS_SET_BY_VLLM",
+        "VLLM_USE_V2_MODEL_RUNNER",
+        "VLLM_WORKER_MULTIPROC_METHOD"
+      ],
+      "engine": {
+        "compilation_config": {
+          "mode": 0
+        },
+        "cpu_offload_gb": 24,
+        "cpu_offload_params": [
+          "experts"
+        ],
+        "disable_custom_all_reduce": true,
+        "enable_chunked_prefill": true,
+        "enable_prefix_caching": false,
+        "enforce_eager": true,
+        "engram_config": {
+          "cpu_offload": true
+        },
+        "gpu_memory_utilization": 0.78,
+        "kernel_config": {
+          "enable_flashinfer_autotune": false
+        },
+        "kv_cache_dtype": "bfloat16",
+        "kv_cache_memory_bytes": 8589934592,
+        "limit_mm_per_prompt": {
+          "audio": 0,
+          "image": 181,
+          "video": 1
+        },
+        "max_model_len": 98304,
+        "max_num_batched_tokens": 49152,
+        "max_num_seqs": 1,
+        "media_io_kwargs": {
+          "video": {
+            "fps": -1,
+            "num_frames": 180,
+            "video_backend": "opencv"
+          }
+        },
+        "mm_processor_cache_gb": 0,
+        "mm_processor_kwargs": {
+          "do_resize": false,
+          "do_sample_frames": false
+        },
+        "quantization": "modelopt",
+        "seed": 0,
+        "structured_outputs_config": {
+          "enable_in_reasoning": false,
+          "reasoning_parser": "qwen3"
+        },
+        "tensor_parallel_size": 1,
+        "trust_remote_code": true,
+        "worker_extension_cls": "vlm_psychophysics.runtime.qsa.XQSAWorkerExtension"
+      },
+      "environment": {
+        "HF_HUB_OFFLINE": "1",
+        "MAX_JOBS": "4",
+        "NUMPY_MADVISE_HUGEPAGE": "0",
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "TRANSFORMERS_OFFLINE": "1",
+        "VLLM_ALLOW_INSECURE_SERIALIZATION": "1"
+      },
+      "execution": "qwen_native",
+      "frame_prompt_prefix": "The video is provided as 180 consecutive frames in chronological order at 60 fps.\n\n",
+      "minimum_kv_capacity": 98304,
+      "package_versions": {
+        "numpy": "2.3.5",
+        "torch": "2.14.0",
+        "transformers": "5.17.0",
+        "vllm": "0.33.0rc1.dev175+gf4fd1ab68"
+      },
+      "request_mm_processor_kwargs": {
+        "do_resize": false,
+        "do_sample_frames": false
+      },
+      "selector_sha256": "d69e0cfff54ec41a3402bba2a333f3d76d042efd9186304d9e6c5c9d83b1712c",
+      "source_profile_sha256": "b269a59530f6e09eb2311dbe9c589e64db60ed01f0050ec5a6a9b5dd2e7e696a",
+      "source_runner_file": "run_qwen_astra_png.py",
+      "source_runner_sha256": "0921e872324c8abeed0a8abab123fd7fee37d119092389f853886e2caa95bdbc",
+      "torch_num_threads": 6
+    }
+  },
+  "static_axis_prompt": "Which side has an axis closer to true vertical? Thick black marker lines, when present, are the axes to compare. Answer LEFT or RIGHT in one word."
+}

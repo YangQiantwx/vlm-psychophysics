@@ -13,10 +13,20 @@ hf download DrQY/vlm-psychophysics --repo-type dataset \
 hf download DrQY/vlm-psychophysics-subset --repo-type dataset \
   --revision f562d61b4703b744c2f00f66a7ebabeacc4e0a0a \
   --include 'dataset-index.json' '*/metadata.jsonl' 'results/t*/results.csv.gz' 'subset/*.csv' --local-dir panel
+hf download DrQY/vlm-psychophysics --repo-type dataset \
+  --revision 2e95900ba7d6c9c9b1220d834e34bf57d2681485 \
+  --include 'paper-core/*' --local-dir release
 python -m paper_core.scores --base full --panel panel --study release/paper-core --out reproduced
 ```
 
-Use `hf download DrQY/vlm-psychophysics --repo-type dataset --revision 2e95900ba7d6c9c9b1220d834e34bf57d2681485 --include 'paper-core/*' --local-dir release` to retrieve the frozen paper-only files. Install the project's regular dependencies plus `pandas` and `pymupdf` for `--figures`. The TeX Gyre fonts reproduce the typesetting used for the plots when available.
+For `--figures`, retrieve the original Fig. 4 clip and install `pandas` and `pymupdf` alongside the regular project dependencies. The TeX Gyre fonts reproduce the plot typography when available.
+
+```sh
+hf download DrQY/vlm-psychophysics --repo-type dataset \
+  --revision 29d6d2a70c5b1c0a5b3b33f027a2870add570c93 \
+  'natural/t3/videos/T3_verticalLeft_tiltLeft_4deg_bg-na_041_obj-na_021_trial02.mp4' --local-dir full
+python -m paper_core.scores --base full --panel panel --study release/paper-core --out reproduced --figures
+```
 
 ## Figures and tables
 
@@ -40,14 +50,28 @@ Human accuracy, uncertainty and timing are aggregate values. `human-figure6.json
 
 The base `run.py` runs the four frozen direct-answer local recipes. `configs/runtime-lock.json` pins model artifacts and environment. The reproducible local run uses a Linux NVIDIA environment with the matching runtime, weights and one selected physical GPU. The [API runner](https://github.com/YangQiantwx/vlm-psychophysics-subset/tree/2b49d6efe2d79c8e8e24b6dd847d6a2c4f634fa1) pins the requested deployment, the input manifests and the immutable PNG-image index. `api-configs.json` records the transport and generation settings used for the paper. For the ordered conditions, one MP4 supplies 180 PNG images in chronological order and T5's reference comes first. The native Gemini path sends MP4. Static cases use the images in manifest order. The provider returns final responses, but its internal preprocessing can differ from the submitted inputs.
 
-For the Qwen reasoning controls, the Nemotron/Cosmos T5 controls and Muse, `paper_core.replay` verifies one selected trial's source bytes and builds the model request. `--execute` runs it using the matching pinned weight directory. Choose the process's GPU with `CUDA_VISIBLE_DEVICES`. The local `model-configs.json` records the observed engine flags, model revisions, package versions and source profile SHA-256 values. The base results provide the pre-existing direct baselines. This command is a single-trial replay and writes exact prompt and output token IDs for comparison.
+`paper_core.replay` prepares one trial from the selected dataset. Pass `--execute` with the pinned model snapshot, `--tokenizer` for Cosmos, and one GPU selected through `CUDA_VISIBLE_DEVICES`. The runner validates model artifacts, media and package versions. It checks the actual native reader and processor and records prompt and output token IDs. `recipes.json` identifies the archived engine and request configuration for each local control.
+
+| Condition | `paper_core.replay` arguments |
+| --- | --- |
+| Qwen matched native video, diagnostic images, or ordered PNGs | `--model qwen --mode video\|static\|png --arm off\|low` |
+| T3 120-clip native-video axis comparison | `--model qwen\|cosmos --mode video --arm off --variant axis-base\|axis` |
+| T3 five-view static axis comparison | `--model qwen\|cosmos --mode static --arm off --variant axis-base\|black_exact\|scene_only\|objects_only\|black_only` |
+| Nemotron T5 native Efficient | `--model nemo --mode video --arm off\|low` |
+| Cosmos explicitly prompted reasoning | `--model cosmos --mode video --arm cot` with a T4 ID for 1,500 reasoning tokens or T5 ID for 3,000 |
+| T5 joint reference and candidate enlargement | `--model qwen --mode video --arm off --variant enlarged` |
+| Muse label-only video or diagnostic images | `--model glimmer --mode video\|static --arm direct --data full` |
+
+The ordinary Qwen video and static Low trials share their archived engine. The T3 static intervention uses a separate profile and one allowed answer token, so a valid answer at `finish_reason=length` counts. Qwen and Nemotron Low require a complete native final channel. Cosmos prompted reasoning uses an assistant `<think>` prefill and its separate reasoning budget. Use `run.py` for the plain Cosmos baseline. Missing final labels remain in the denominator.
+
+Retrieve the chosen stimulus and its associated images from the pinned dataset before preparing a replay. For example, the original Fig. 4 clip downloaded above can be replayed with either model. The two `variant` values use identical archived prompt-token hashes.
 
 ```sh
-python -m paper_core.replay --study release/paper-core --data panel \
-  --id n5p1_08094d1355d601e965e3ecfa --model qwen --mode png --arm low --out replay
+python -m paper_core.replay --study release/paper-core --data full \
+  --id n01292c06a644701ce113bbb9 --model cosmos --mode video --arm off --variant axis --out t3-marked
 ```
 
-The command above prepares the ordered PNG request without inference. Use `--mode video` for native MP4 and `--mode static` for the diagnostic images. For the marked and enlarged videos, pass `--variant axis` or `--variant enlarged` on the corresponding sample ID. The Muse label-only recipe lives in `vlm_psychophysics/glimmer.py`. The Molmo2 BF16 input bridge and original execution entry point are in `paper_core/molmo/`. Prepare its Hugging Face snapshot and runtime from `model-configs.json` and use its named pinned dataset directory. See the runner's `--help` for output, GPU lock and checkpoint receipt parameters.
+Run `paper_core.media t3-static` before replaying a derived static view and pass its output folder as `--axis-images`. The `axis-base` static view uses the original diagnostic frame and the intervention's original prompt. Muse uses the released `vlm_psychophysics/glimmer.py` and frozen checkpoint and processor. For the Molmo2 BF16 panel, `python -m paper_core.molmo.replay --help` lists the checkpoint, dataset, output and GPU lock arguments. The wrapper validates the eight official shards and the original runner, input bridge, and prefix-attention sources, then calls the archived runner with its measured execution flags. Name the Molmo2 data directory `f562d61b4703b744c2f00f66a7ebabeacc4e0a0a` and include the complete pinned media.
 
 `paper_core.media` regenerates exact intervention pixels in the paper. For T3, supply the native source video and original diagnostic midpoint. Extract the digest-named alpha arrays from `t3-axis-patches.zip` for the background-removal control. The recipe verifies every resulting view's decoded-pixel digest. For T5, supply the original video and reference from the full release and the source sprite from `sources/t5/objects`; see `t5-enlarged-inputs.json` for the sprite path and digest. Encoded container hashes of the regenerated media can vary with the toolchain. The decoded RGB and frame times are verified separately.
 

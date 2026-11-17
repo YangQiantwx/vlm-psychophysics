@@ -65,19 +65,17 @@ def video_preprocess(self, videos, return_tensors=None, **kwargs):
 
     upstream = importlib.import_module(type(self).__module__)
     indices = pooling_index(upstream, 3, 3)
+    if any(len(clip) != FRAMES for clip in videos):
+        raise ValueError("Molmo2 X video must contain exactly 180 frames")
     if len(videos) != 1:
         raise ValueError("Molmo2 X takes a single clip per request")
-    count = len(videos[0])
-    minimum = 1 if self.cvpr_allow_sampled_frames else FRAMES
-    if not minimum <= count <= FRAMES:
-        raise ValueError(f"Molmo2 video has {count} frames, expected {minimum}–{FRAMES}")
-    offsets = np.arange(count)[:, None, None] * PATCHES
+    offsets = np.arange(FRAMES)[:, None, None] * PATCHES
     all_indices = np.where(indices >= 0, indices + offsets, -1).reshape(-1, 9)
     return BatchFeature(
         dict(
             pixel_values_videos=pack_pixels(videos[0]),
             video_token_pooling=all_indices,
-            video_grids=np.array([[count, *VIDEO_GRID]]),
+            video_grids=np.array([[FRAMES, *VIDEO_GRID]]),
         ),
         tensor_type=return_tensors,
     )
@@ -103,7 +101,7 @@ def image_preprocess(self, images, return_tensors=None, *, video_module, **kwarg
     )
 
 
-def configure_processor(processor, *, allow_sampled_frames=False):
+def configure_processor(processor):
     image = processor.image_processor
     video = processor.video_processor
     if (image.patch_size, video.patch_size, tuple(image.pooling_size), tuple(video.pooling_size)) != (
@@ -115,7 +113,6 @@ def configure_processor(processor, *, allow_sampled_frames=False):
         part.do_resize = False
     video.num_frames = FRAMES
     video.do_sample_frames = False
-    video.cvpr_allow_sampled_frames = allow_sampled_frames
     video._preprocess = MethodType(video_preprocess, video)
     video_module = importlib.import_module(type(video).__module__)
 
@@ -126,14 +123,14 @@ def configure_processor(processor, *, allow_sampled_frames=False):
     return processor
 
 
-def patch_vllm(*, allow_sampled_frames=False):
+def patch_vllm():
     from vllm.model_executor.models import molmo2
 
     info = molmo2.Molmo2ProcessingInfo
     original_get = info.get_hf_processor
 
     def get_processor(self, **kwargs):
-        return configure_processor(original_get(self, **kwargs), allow_sampled_frames=allow_sampled_frames)
+        return configure_processor(original_get(self, **kwargs))
 
     def grid(self, processor):
         return (VIDEO_GRID[1], VIDEO_GRID[0]) if hasattr(processor, "do_sample_frames") else (0, 0)
