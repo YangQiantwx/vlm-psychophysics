@@ -2,10 +2,12 @@
 
 from argparse import ArgumentParser
 from importlib import metadata
+import gzip
 from hashlib import sha256 as hash_bytes
 import json
 import os
 from pathlib import Path
+from urllib.request import urlopen
 
 from PIL import Image
 
@@ -23,6 +25,23 @@ def checked(root, relative, digest):
 def content_entry(kind, path):
     key = kind + '_url'
     return {'type':key, key:{'url':path.as_uri()}}
+
+
+def frozen_ordered_rgb(study, trial):
+    digest = trial.get('decoded_stream_sha256')
+    if digest is not None:
+        return digest
+    manifest = read_json(study/'manifest.json')
+    rev = manifest['api_runner']['png_revision']
+    repo = manifest['panel']['repo']
+    url = f'https://huggingface.co/datasets/{repo}/resolve/{rev}/api-images/v1/index.json.gz'
+    with urlopen(url, timeout=60) as response:
+        index_bytes = response.read()
+    require(hash_bytes(index_bytes).hexdigest()==manifest['api_runner']['png_index_sha256'],
+            'Frozen PNG inventory changed')
+    source = json.loads(gzip.decompress(index_bytes))['sources'][trial['video_sha256']]
+    require(len(source['png_sha256']) == 180, 'Frozen PNG frame count changed')
+    return source['rgb_sha256']
 
 
 def request(args, videos, stills, config):
@@ -49,7 +68,7 @@ def request(args, videos, stills, config):
         if args.mode == 'png':
             require(args.variant == 'original','The PNG experiment uses the original source MP4')
             frames = read_video(movie)
-            require(decoded_sha(frames) == selected['decoded_stream_sha256'], 'Ordered video RGB identity')
+            require(decoded_sha(frames) == frozen_ordered_rgb(args.study, selected), 'Ordered video RGB identity')
             frame_dir = args.out/'frames'
             frame_dir.mkdir(exist_ok=True)
             for i, rgb in enumerate(frames):
