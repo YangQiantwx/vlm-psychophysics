@@ -8,7 +8,7 @@ from types import ModuleType, SimpleNamespace
 
 import pytest
 
-from paper_core import native_final
+from paper_core import native_final, scores
 from paper_core.replay import recipe
 from paper_core.runtime_recipe import (RECIPE_PATH, invocation, invoke, parse_output, prefill, prompt_sha_i32)
 from paper_core.scores import read_json
@@ -128,3 +128,22 @@ def test_archived_parser_and_molmo_source_digests():
     names = {'runner':'run_molmo2_noresize_subset.py','input_bridge':'molmo2_noresize.py','prefix_attention':'molmo2_prefix_attention.py'}
     for k, name in names.items():
         assert sha256((molmo/name).read_bytes()).hexdigest()==CONFIG['molmo']['source_hashes'][k]
+
+
+@pytest.mark.parametrize('column,invalid,expected', [
+    ('model', 'other', 'unknown baseline model'),
+    ('modality', 'image', 'unknown baseline modality'),
+    ('task', 'T2', 'wrong task file'),
+])
+def test_public_results_rejects_wrong_grid_cell(monkeypatch, tmp_path, column, invalid, expected):
+    video = dict(task='T1', domain='classic', truth='LEFT', video_sha256='video-hash')
+    static = {'images': [{'sha256': 'image-hash'}]}
+    rows = [dict(video, sample_id='one', model=model, modality=mode,
+                 static_image_sha256='["image-hash"]', raw_answer='LEFT', prediction='LEFT', correct='1')
+            for model in scores.MODELS[:-1] for mode in ('video', 'static')]
+    monkeypatch.setattr(scores, 'read_csv', lambda path: rows if path.parent.name == 't1' else [])
+    args = (tmp_path, {'one': video}, {'one': static})
+    assert len(scores.public_results(*args)) == len(rows) == 8
+    rows[-1][column] = invalid
+    with pytest.raises(ValueError, match=expected):
+        scores.public_results(*args)

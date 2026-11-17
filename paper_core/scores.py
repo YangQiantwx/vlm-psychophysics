@@ -78,6 +78,9 @@ def public_results(root, videos, images):
             sid = row['sample_id']
             v, s = videos[sid], images[sid]
             key = row['model'], row['modality'], sid
+            require(row['task'] == task, (key, 'wrong task file'))
+            require(row['model'] in MODELS[:-1], (key, 'unknown baseline model'))
+            require(row['modality'] in ('video', 'static'), (key, 'unknown baseline modality'))
             require(key not in scores, (key, 'duplicate association'))
             require((row['task'], row['domain'], row['truth'], row['video_sha256']) ==
                     (v['task'], v['domain'], v['truth'], v['video_sha256']), (key, 'video metadata'))

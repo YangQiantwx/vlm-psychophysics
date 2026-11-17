@@ -6,6 +6,7 @@ import hashlib
 import io
 import json
 from pathlib import Path
+import shutil
 import subprocess
 from xml.etree import ElementTree as ET
 from zipfile import ZIP_DEFLATED, ZipFile
@@ -205,16 +206,23 @@ def encoded(image, fmt="PNG"):
 
 def write_pdf(f, path):
     families = {"sans": "texgyreheros-regular", "bold": "texgyreheros-bold", "serifbold": "texgyretermes-bold"}
+    fallback_fonts = {"sans": "helv", "bold": "hebo", "serifbold": "tibo"}
+    kpse = shutil.which("kpsewhich")
     doc = pymupdf.open()
     page = doc.new_page(width=WIDTH * SCALE, height=HEIGHT * SCALE)
     aliases = {}
     for i, (name, font) in enumerate(families.items()):
         key = f"F{i}"
-        fontfile = subprocess.check_output(
-            ["/Library/TeX/texbin/kpsewhich", font + ".otf"], text=True,
-        ).strip()
-        page.insert_font(fontname=key, fontfile=fontfile)
-        aliases[name] = key, pymupdf.Font(fontfile=fontfile)
+        fontfile = ""
+        if kpse:
+            fontfile = subprocess.run([kpse, font + ".otf"], capture_output=True, text=True).stdout.strip()
+        if fontfile and Path(fontfile).is_file():
+            metrics = pymupdf.Font(fontfile=fontfile)
+            page.insert_font(fontname=key, fontfile=fontfile)
+        else:
+            metrics = pymupdf.Font(fallback_fonts[name])
+            page.insert_font(fontname=key, fontbuffer=metrics.buffer)
+        aliases[name] = key, metrics
     def rect(x, y, w, h):
         return pymupdf.Rect(x * SCALE, y * SCALE, (x + w) * SCALE, (y + h) * SCALE)
     streams = {}

@@ -48,7 +48,14 @@ Human accuracy, uncertainty and timing are aggregate values. `human-figure6.json
 
 ## Model and intervention inputs
 
-The base `run.py` runs the four frozen direct-answer local recipes. `configs/runtime-lock.json` pins model artifacts and environment. The reproducible local run uses a Linux NVIDIA environment with the matching runtime, weights and one selected physical GPU. The [API runner](https://github.com/YangQiantwx/vlm-psychophysics-subset/tree/2b49d6efe2d79c8e8e24b6dd847d6a2c4f634fa1) pins the requested deployment, the input manifests and the immutable PNG-image index. `api-configs.json` records the transport and generation settings used for the paper. For the ordered conditions, one MP4 supplies 180 PNG images in chronological order and T5's reference comes first. The native Gemini path sends MP4. Static cases use the images in manifest order. The provider returns final responses, but its internal preprocessing can differ from the submitted inputs.
+The base `run.py` runs the four frozen direct-answer local recipes. `configs/runtime-lock.json` pins model artifacts and environment. The reproducible local run uses a Linux NVIDIA environment with the matching runtime, weights and one selected physical GPU. The [API runner](https://github.com/YangQiantwx/vlm-psychophysics-subset/tree/2b49d6efe2d79c8e8e24b6dd847d6a2c4f634fa1) pins the requested deployment, the input manifests and the immutable PNG-image index. `api-configs.json` records the transport and generation settings used for the paper. Each modality’s SHA-256 identifies its original returned ZIP archive. For the ordered conditions, one MP4 supplies 180 PNG images in chronological order and T5's reference comes first. The native Gemini path sends MP4. Static cases use the images in manifest order. The provider returns final responses, but its internal preprocessing can differ from the submitted inputs.
+
+The Kimi preset defaults to MP4. The paper's Kimi video run instead delivered 180 chronological PNGs through Hugging Face URLs. Its static run sent the manifest images inline. From the pinned API runner checkout, use these two commands for the paper protocols. Replace `run` with `settings` to preview either request configuration without calling the API.
+
+```sh
+python run.py run kimi --input video --video images --image-transport hf --model-id moonshotai/Kimi-K3.1-Pro --out outputs/kimi-paper-video
+python run.py run kimi --input static --image-transport inline --model-id moonshotai/Kimi-K3.1-Pro --out outputs/kimi-paper-static
+```
 
 `paper_core.replay` prepares one trial from the selected dataset. Pass `--execute` with the pinned model snapshot, `--tokenizer` for Cosmos, and one GPU selected through `CUDA_VISIBLE_DEVICES`. The runner validates model artifacts, media and package versions. It checks the actual native reader and processor and records prompt and output token IDs. `recipes.json` identifies the archived engine and request configuration for each local control.
 
