@@ -2,6 +2,10 @@
 
 Five controlled visual judgments in Classic and Natural scenes. The dataset contains 25,440 lossless MP4 videos and 25,440 linked static records. [Dataset](https://huggingface.co/datasets/DrQY/vlm-psychophysics) · [Stimulus viewer](https://vision-tasks.pages.dev/library/) · [Model results](https://vision-tasks.pages.dev/experiments/)
 
+## Reproduce the paper
+
+The [paper reproduction guide](paper_core/README.md) links the frozen 60 fps benchmark, matched video/image panel, model controls, figures and scoring code.
+
 ## Download the dataset
 
 Install the Hub client with `python -m pip install huggingface_hub`. Download the complete dataset, including metadata, results and source assets.
